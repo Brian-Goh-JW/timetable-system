@@ -1,0 +1,7 @@
+venv/
+config.py
+__pycache__/
+*.pyc
+*.pyo
+instance/
+.env
