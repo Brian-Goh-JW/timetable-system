@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+{% block title %}Audit Log — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0 fw-semibold">Audit Log</h4>
+        <small class="text-muted">Record of all manual timetable edits</small>
+    </div>
+    <span class="badge bg-secondary fs-6">{{ logs | length }} entries</span>
+</div>
+
+<!-- Trimester filter -->
+{% if trimesters %}
+<div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+    <span class="small text-muted me-1">Filter:</span>
+    <a href="{{ url_for('admin.audit_log') }}"
+       class="btn btn-sm {% if not active_trimester %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+        All
+    </a>
+    {% for t in trimesters %}
+    <a href="{{ url_for('admin.audit_log', trimester=t) }}"
+       class="btn btn-sm {% if active_trimester == t %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+        {{ t }}
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if logs %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Timestamp</th>
+                    <th>Admin</th>
+                    <th>Trimester</th>
+                    <th>Session</th>
+                    <th>Scope</th>
+                    <th>Timeslot</th>
+                    <th>Room</th>
+                    <th>Professor</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td class="ps-3 text-muted" style="white-space:nowrap;">
+                        {{ log.timestamp.strftime('%d %b %Y %H:%M') }}
+                    </td>
+                    <td class="fw-medium">{{ log.user.name }}</td>
+                    <td>{{ log.trimester }}</td>
+                    <td>
+                        {% if log.module_code %}
+                            <span class="fw-medium">{{ log.module_code }}</span>
+                            <div class="text-muted text-capitalize">{{ log.session_type }}</div>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if log.action == 'edit_all_weeks' %}
+                            <span class="badge bg-primary">All weeks</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ log.week_label }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if log.old_timeslot != log.new_timeslot %}
+                            <span class="text-danger text-decoration-line-through">{{ log.old_timeslot }}</span>
+                            <i class="bi bi-arrow-right mx-1 text-muted"></i>
+                            <span class="text-success">{{ log.new_timeslot }}</span>
+                        {% else %}
+                            <span class="text-muted">{{ log.new_timeslot }}</span>
+                            <span class="badge bg-light text-muted ms-1">unchanged</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if log.old_room != log.new_room %}
+                            <span class="text-danger text-decoration-line-through">{{ log.old_room }}</span>
+                            <i class="bi bi-arrow-right mx-1 text-muted"></i>
+                            <span class="text-success">{{ log.new_room }}</span>
+                        {% else %}
+                            <span class="text-muted">{{ log.new_room }}</span>
+                            <span class="badge bg-light text-muted ms-1">unchanged</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if log.old_professor != log.new_professor %}
+                            <span class="text-danger text-decoration-line-through">{{ log.old_professor }}</span>
+                            <i class="bi bi-arrow-right mx-1 text-muted"></i>
+                            <span class="text-success">{{ log.new_professor }}</span>
+                        {% else %}
+                            <span class="text-muted">{{ log.new_professor }}</span>
+                            <span class="badge bg-light text-muted ms-1">unchanged</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% else %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body text-center text-muted py-5">
+        <i class="bi bi-clock-history fs-2 d-block mb-2"></i>
+        No manual edits recorded yet.
+        {% if active_trimester %}
+            <div class="small mt-1">No edits for <strong>{{ active_trimester }}</strong>.</div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

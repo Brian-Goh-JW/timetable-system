@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+{% block title %}Add Professor — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="mb-4">
+    <a href="{{ url_for('admin.professors') }}" class="text-decoration-none text-muted small">
+        <i class="bi bi-arrow-left me-1"></i>Back to Professors
+    </a>
+    <h4 class="fw-semibold mt-2 mb-0">Add Professor</h4>
+    <small class="text-muted">Creates a login account and professor profile</small>
+</div>
+
+<div class="row">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <form method="POST">
+
+                    <div class="mb-3">
+                        <label for="name" class="form-label fw-medium">
+                            Full Name <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="name" name="name"
+                               value="{{ form.get('name', '') }}"
+                               placeholder="e.g. David Lin Weidong" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="email" class="form-label fw-medium">
+                            Email Address <span class="text-danger">*</span>
+                        </label>
+                        <input type="email" class="form-control" id="email" name="email"
+                               value="{{ form.get('email', '') }}"
+                               placeholder="e.g. davidlin@sit.edu.sg" required>
+                        <div class="form-text">This will be their login email.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="staff_id" class="form-label fw-medium">
+                            Staff ID <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="staff_id" name="staff_id"
+                               value="{{ form.get('staff_id', '') }}"
+                               placeholder="e.g. A100909" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="department" class="form-label fw-medium">
+                            Department <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="department" name="department"
+                               value="{{ form.get('department', '') }}"
+                               placeholder="e.g. Supply Chain and Logistics" required>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="password" class="form-label fw-medium">
+                            Temporary Password <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="password" name="password"
+                               placeholder="Set a temporary password for first login" required>
+                        <div class="form-text">
+                            Share this with the professor. They should change it after logging in.
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn text-white" style="background-color:#c0272d;">
+                            <i class="bi bi-person-plus me-1"></i>Add Professor
+                        </button>
+                        <a href="{{ url_for('admin.professors') }}" class="btn btn-outline-secondary">
+                            Cancel
+                        </a>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4 mt-3 mt-lg-0">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-info-circle me-2 text-muted"></i>Note
+            </div>
+            <div class="card-body small text-muted">
+                <p>Adding a professor creates two records:</p>
+                <ul class="ps-3">
+                    <li>A <strong>User account</strong> with role <code>professor</code> for logging in</li>
+                    <li>A <strong>Professor profile</strong> linked to the account for scheduling</li>
+                </ul>
+                <p class="mb-0">
+                    Once added, the professor can log in and submit availability declarations.
+                    Class session assignments are done separately under each course.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

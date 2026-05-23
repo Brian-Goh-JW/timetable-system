@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% block title %}Session Weeks — {{ session.course.module_code }}{% endblock %}
+
+{% block content %}
+
+<div class="mb-4">
+    <a href="{{ url_for('admin.timetable', trimester=trimester) }}"
+       class="text-decoration-none text-muted small">
+        <i class="bi bi-arrow-left me-1"></i>Back to Timetable
+    </a>
+    <h4 class="fw-semibold mt-2 mb-0">Session Weeks</h4>
+    <small class="text-muted">
+        {{ session.course.module_code }} — {{ session.course.title }}
+        &mdash; {{ session.session_type | capitalize }}
+        &mdash; {{ session.delivery_mode | upper }}
+        {% if session.student_group %}
+            &mdash; {{ session.student_group.group_label }}
+        {% endif %}
+        &mdash; <strong>{{ trimester }}</strong>
+    </small>
+</div>
+
+<!-- Edit All Weeks shortcut -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="small text-muted">
+        <i class="bi bi-info-circle me-1"></i>
+        Click <strong>Edit</strong> on a specific week to override that week only,
+        or use <strong>Edit All Weeks</strong> to change the recurring slot.
+    </div>
+    <a href="{{ url_for('admin.timetable_edit_all_weeks', trimester=trimester, session_id=session.id) }}"
+       class="btn btn-sm text-white" style="background-color:#c0272d;">
+        <i class="bi bi-pencil-square me-1"></i>Edit All Weeks
+    </a>
+</div>
+
+{% if entries %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Week</th>
+                    <th>Dates</th>
+                    <th>Day</th>
+                    <th>Period</th>
+                    <th>Time</th>
+                    <th>Room</th>
+                    <th>Professor</th>
+                    <th>Edited</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in entries %}
+                <tr {% if e.is_manually_edited %}class="table-warning"{% endif %}>
+                    <td class="ps-3 fw-medium">Week {{ e.week_number }}</td>
+                    <td class="text-muted">
+                        {% if cal[e.week_number] is defined %}
+                            {{ cal[e.week_number].start_date.strftime('%d %b') }}
+                            –
+                            {{ cal[e.week_number].end_date.strftime('%d %b') }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <td>{{ e.timeslot.day_of_week }}</td>
+                    <td>{{ e.timeslot.period_label }}</td>
+                    <td class="text-muted">
+                        {{ e.timeslot.start_time.strftime('%H:%M') }}–{{ e.timeslot.end_time.strftime('%H:%M') }}
+                    </td>
+                    <td>
+                        {% if e.room %}
+                            {{ e.room.room_code }}
+                        {% else %}
+                            <span class="text-muted fst-italic">Online</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% set ep = e.effective_professor %}
+                        {% if ep %}
+                            {{ ep.user.name }}
+                            {% if e.override_professor_id %}
+                                <span class="badge bg-warning text-dark ms-1" title="Week-specific override">
+                                    override
+                                </span>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if e.is_manually_edited %}
+                            <span class="badge bg-warning text-dark">
+                                <i class="bi bi-pencil me-1"></i>Edited
+                            </span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if e.is_published %}
+                            <span class="badge bg-success">Published</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Draft</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ url_for('admin.timetable_edit_entry', entry_id=e.id) }}"
+                           class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-pencil"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% else %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body text-center text-muted py-5">
+        <i class="bi bi-calendar-x fs-2 d-block mb-2"></i>
+        No entries found for this session in {{ trimester }}.
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

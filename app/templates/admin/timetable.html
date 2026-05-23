@@ -1,0 +1,329 @@
+{% extends 'base.html' %}
+{% block title %}Timetable — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0 fw-semibold">Timetable</h4>
+        <small class="text-muted">Generate and manage the DSC programme timetable</small>
+    </div>
+</div>
+
+<div class="row g-3">
+
+    <!-- Left: Generate panel -->
+    <div class="col-lg-4">
+
+        <!-- Blocking issues -->
+        {% if issues %}
+        <div class="card border-0 shadow-sm mb-3 border-start border-danger border-3">
+            <div class="card-body">
+                <h6 class="fw-semibold text-danger mb-2">
+                    <i class="bi bi-exclamation-triangle me-2"></i>Blocking Issues
+                </h6>
+                <ul class="mb-0 small ps-3">
+                    {% for issue in issues %}
+                    <li>{{ issue }}</li>
+                    {% endfor %}
+                </ul>
+                <div class="mt-2 small text-muted">Resolve these before generating.</div>
+            </div>
+        </div>
+        {% else %}
+        <div class="alert alert-success py-2 mb-3">
+            <i class="bi bi-check-circle me-2"></i>All sessions are ready. You can generate the timetable.
+        </div>
+        {% endif %}
+
+        <!-- Generate form -->
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-cpu me-2 text-muted"></i>Generate Timetable
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <input type="hidden" name="action" value="generate">
+
+                    <div class="mb-3">
+                        <label for="trimester" class="form-label fw-medium">
+                            Trimester Code <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="trimester" name="trimester"
+                               placeholder="e.g. 2025-T3"
+                               value="{{ active_trimester }}" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="start_date" class="form-label fw-medium">
+                            Week 1 Start Date <span class="text-danger">*</span>
+                        </label>
+                        <input type="date" class="form-control" id="start_date" name="start_date" required>
+                        <div class="form-text">Must be a Monday. Week 7 will be automatically set as term break.</div>
+                    </div>
+
+                    <button type="submit"
+                            class="btn w-100 text-white {% if issues %}disabled{% endif %}"
+                            style="background-color:#c0272d;"
+                            {% if issues %}disabled{% endif %}>
+                        <i class="bi bi-play-fill me-1"></i>Run CP-SAT Solver
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Publish form -->
+        {% if active_trimester and entries %}
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-megaphone me-2 text-muted"></i>Publish Timetable
+            </div>
+            <div class="card-body">
+                {% set published = entries | selectattr('is_published') | list | length %}
+                {% set total = entries | length %}
+                <p class="small text-muted mb-3">
+                    {{ published }}/{{ total }} sessions published for <strong>{{ active_trimester }}</strong>.
+                    Once published, professors and students can view their timetable.
+                </p>
+                <form method="POST">
+                    <input type="hidden" name="action" value="publish">
+                    <input type="hidden" name="trimester" value="{{ active_trimester }}">
+                    <button type="submit" class="btn btn-success w-100"
+                            onclick="return confirm('Publish the timetable for {{ active_trimester }}? Professors and students will be able to see it.')">
+                        <i class="bi bi-megaphone me-1"></i>Publish
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Reset timetable -->
+        {% if active_trimester and entries %}
+        <div class="card border-0 shadow-sm mt-3">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-trash me-2 text-muted"></i>Reset Timetable
+            </div>
+            <div class="card-body">
+                <p class="small text-muted mb-3">
+                    Deletes all entries for <strong>{{ active_trimester }}</strong> including published ones.
+                    Use this to re-run the solver from scratch.
+                </p>
+                <form method="POST">
+                    <input type="hidden" name="action" value="reset">
+                    <input type="hidden" name="trimester" value="{{ active_trimester }}">
+                    <button type="submit" class="btn btn-outline-danger w-100"
+                            onclick="return confirm('Delete all timetable entries for {{ active_trimester }}? This cannot be undone.')">
+                        <i class="bi bi-trash me-1"></i>Reset / Clear Timetable
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Solver stats -->
+        {% if stats %}
+        <div class="card border-0 shadow-sm mt-3">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-bar-chart me-2 text-muted"></i>Last Run
+            </div>
+            <div class="card-body small">
+                <dl class="row mb-0">
+                    <dt class="col-7 text-muted">Status</dt>
+                    <dd class="col-5">
+                        <span class="badge bg-success">{{ stats.solver_status }}</span>
+                    </dd>
+                    <dt class="col-7 text-muted">Sessions scheduled</dt>
+                    <dd class="col-5">{{ stats.sessions_scheduled }}</dd>
+                    <dt class="col-7 text-muted">Teaching weeks</dt>
+                    <dd class="col-5">{{ stats.teaching_weeks }}</dd>
+                    <dt class="col-7 text-muted">Entries created</dt>
+                    <dd class="col-5">{{ stats.entries_created }}</dd>
+                    <dt class="col-7 text-muted">Strict constraints applied</dt>
+                    <dd class="col-5">{{ stats.strict_constraints_applied }}</dd>
+                    <dt class="col-7 text-muted">Preferred violations</dt>
+                    <dd class="col-5">
+                        {% set vcount = stats.preferred_violations | length %}
+                        <span class="badge {% if vcount > 0 %}bg-warning text-dark{% else %}bg-success{% endif %}">
+                            {{ vcount }}
+                        </span>
+                    </dd>
+                </dl>
+            </div>
+        </div>
+
+        <!-- Conflict report -->
+        {% set violations = stats.preferred_violations %}
+        {% if violations %}
+        <div class="card border-0 shadow-sm mt-3 border-start border-warning border-3">
+            <div class="card-header bg-white border-bottom fw-semibold text-warning">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                Preferred Declaration Violations
+                <span class="badge bg-warning text-dark ms-1">{{ violations | length }}</span>
+            </div>
+            <div class="card-body small p-0">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">Professor</th>
+                            <th>Session</th>
+                            <th>Assigned Slot</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for v in violations %}
+                        <tr>
+                            <td class="ps-3 fw-medium">
+                                {{ v.professor }}
+                                <div class="text-muted fw-normal">{{ v.staff_id }}</div>
+                            </td>
+                            <td>
+                                {{ v.module_code }}
+                                <div class="text-muted">{{ v.session_type | capitalize }}</div>
+                            </td>
+                            <td>
+                                {{ v.day }} {{ v.period }}<br>
+                                <span class="text-muted">{{ v.time }}</span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer bg-white border-top small text-muted">
+                <i class="bi bi-info-circle me-1"></i>
+                The solver could not avoid these slots due to other hard constraints.
+                Go to <a href="{{ url_for('admin.timetable_flags', trimester=active_trimester) }}">
+                Conflict Flags</a> to set deadlines and notify affected professors.
+            </div>
+        </div>
+
+        {% else %}
+        <div class="alert alert-success py-2 mt-3 mb-0 small">
+            <i class="bi bi-check-circle me-2"></i>
+            All preferred availability declarations were honoured.
+        </div>
+        {% endif %}
+
+        {% endif %}
+
+    </div>
+
+    <!-- Right: Timetable view -->
+    <div class="col-lg-8">
+
+        <!-- Trimester tabs -->
+        {% if trimesters %}
+        <div class="mb-3 d-flex flex-wrap gap-2">
+            {% for t in trimesters %}
+            <a href="{{ url_for('admin.timetable', trimester=t) }}"
+               class="btn btn-sm {% if active_trimester == t %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+                {{ t }}
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if active_trimester and entries %}
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <span class="fw-semibold">{{ active_trimester }} — Weekly Schedule</span>
+                <small class="text-muted">Showing recurring weekly slot for each session</small>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-hover align-middle mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">Day</th>
+                            <th>Period</th>
+                            <th>Time</th>
+                            <th>Module</th>
+                            <th>Type</th>
+                            <th>Delivery</th>
+                            <th>Professor</th>
+                            <th>Group</th>
+                            <th>Room</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for e in entries %}
+                        <tr>
+                            <td class="ps-3 fw-medium">{{ e.timeslot.day_of_week }}</td>
+                            <td>{{ e.timeslot.period_label }}</td>
+                            <td class="text-muted">
+                                {{ e.timeslot.start_time.strftime('%H:%M') }}–{{ e.timeslot.end_time.strftime('%H:%M') }}
+                            </td>
+                            <td class="fw-medium">
+                                {{ e.class_session.course.module_code }}
+                                <div class="text-muted fw-normal" style="font-size:0.75rem;">
+                                    {{ e.class_session.course.title }}
+                                </div>
+                            </td>
+                            <td class="text-capitalize">{{ e.class_session.session_type }}</td>
+                            <td>
+                                <span class="badge {% if e.class_session.delivery_mode == 'f2f' %}bg-success{% else %}bg-primary{% endif %}">
+                                    {{ e.class_session.delivery_mode }}
+                                </span>
+                            </td>
+                            <td>
+                                {% if e.class_session.professor %}
+                                    {{ e.class_session.professor.user.name }}
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if e.class_session.student_group %}
+                                    {{ e.class_session.student_group.group_label }}
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if e.room %}
+                                    {{ e.room.room_code }}
+                                {% else %}
+                                    <span class="text-muted fst-italic">Online</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if e.is_published %}
+                                    <span class="badge bg-success">Published</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Draft</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="{{ url_for('admin.timetable_session_weeks', trimester=active_trimester, session_id=e.class_session_id) }}"
+                                   class="btn btn-sm btn-outline-secondary">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {% elif active_trimester %}
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center text-muted py-5">
+                    <i class="bi bi-calendar-x fs-2 d-block mb-2"></i>
+                    No timetable generated for <strong>{{ active_trimester }}</strong> yet.
+                </div>
+            </div>
+        {% else %}
+            <div class="card border-0 shadow-sm">
+                <div class="card-body text-center text-muted py-5">
+                    <i class="bi bi-calendar3 fs-2 d-block mb-2"></i>
+                    Fill in the trimester details and run the solver to generate a timetable.
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+</div>
+
+{% endblock %}

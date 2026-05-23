@@ -1,0 +1,151 @@
+{% extends 'base.html' %}
+{% block title %}Availability — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0 fw-semibold">Availability Declarations</h4>
+        <small class="text-muted">Tell the admin which timeslots you cannot teach</small>
+    </div>
+</div>
+
+<div class="row g-3">
+
+    <!-- Left: submission form -->
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-calendar-x me-2 text-muted"></i>Declare Unavailability
+            </div>
+            <div class="card-body">
+                <form method="POST">
+
+                    <div class="mb-3">
+                        <label for="timeslot_id" class="form-label fw-medium">
+                            Timeslot <span class="text-danger">*</span>
+                        </label>
+                        <select class="form-select" id="timeslot_id" name="timeslot_id" required>
+                            <option value="">— Select a timeslot —</option>
+                            {% for day in day_order %}
+                                {% if slots_by_day[day] %}
+                                <optgroup label="{{ day }}">
+                                    {% for ts in slots_by_day[day] %}
+                                    <option value="{{ ts.id }}">
+                                        {{ ts.period_label }}
+                                        ({{ ts.start_time.strftime('%H:%M') }}–{{ ts.end_time.strftime('%H:%M') }})
+                                    </option>
+                                    {% endfor %}
+                                </optgroup>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Select the specific day + period you cannot attend.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="reason" class="form-label fw-medium">
+                            Reason <span class="text-danger">*</span>
+                        </label>
+                        <textarea class="form-control" id="reason" name="reason" rows="3"
+                                  placeholder="e.g. Teaching commitment at another campus, medical appointment..."
+                                  required></textarea>
+                    </div>
+
+                    <button type="submit" class="btn w-100 text-white" style="background-color:#c0272d;">
+                        <i class="bi bi-send me-1"></i>Submit Declaration
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm mt-3 border-start border-warning border-3">
+            <div class="card-body small text-muted">
+                <i class="bi bi-info-circle me-1 text-warning"></i>
+                <strong>What happens next?</strong><br>
+                The admin will review your declaration and classify it as either
+                <em>Strict</em> (hard block — the solver will never assign you to this slot) or
+                <em>Preferred</em> (soft preference — the solver will try to avoid it).
+                You will not receive a separate notification; check back here to see the status.
+            </div>
+        </div>
+    </div>
+
+    <!-- Right: existing declarations -->
+    <div class="col-lg-7">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-list-check me-2 text-muted"></i>My Declarations
+                <span class="badge bg-secondary ms-1">{{ declarations | length }}</span>
+            </div>
+
+            {% if declarations %}
+            <div class="card-body p-0">
+                <table class="table table-hover align-middle mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">Day</th>
+                            <th>Timeslot</th>
+                            <th>Reason</th>
+                            <th>Status</th>
+                            <th>Type</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for d in declarations %}
+                        <tr>
+                            <td class="ps-3 fw-medium">{{ d.timeslot.day_of_week }}</td>
+                            <td>
+                                {{ d.timeslot.period_label }}<br>
+                                <span class="text-muted">
+                                    {{ d.timeslot.start_time.strftime('%H:%M') }}–{{ d.timeslot.end_time.strftime('%H:%M') }}
+                                </span>
+                            </td>
+                            <td style="max-width:180px; word-break:break-word;">{{ d.reason }}</td>
+                            <td>
+                                {% if d.status == 'pending' %}
+                                    <span class="badge bg-warning text-dark">Pending</span>
+                                {% else %}
+                                    <span class="badge bg-success">Classified</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if d.constraint_type == 'strict' %}
+                                    <span class="badge bg-danger">Strict</span>
+                                {% elif d.constraint_type == 'preferred' %}
+                                    <span class="badge bg-info text-dark">Preferred</span>
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if d.status == 'pending' %}
+                                <form method="POST"
+                                      action="{{ url_for('teacher.availability_delete', decl_id=d.id) }}"
+                                      onsubmit="return confirm('Remove this declaration?')">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% else %}
+            <div class="card-body text-center text-muted py-4">
+                <i class="bi bi-calendar-check fs-2 d-block mb-2"></i>
+                No declarations yet. Use the form to flag any unavailable timeslots.
+            </div>
+            {% endif %}
+
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}

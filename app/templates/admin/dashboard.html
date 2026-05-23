@@ -1,0 +1,160 @@
+{% extends 'base.html' %}
+{% block title %}Admin Dashboard — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0 fw-semibold">Admin Dashboard</h4>
+        <small class="text-muted">DSC Programme &mdash; Engineering Cluster</small>
+    </div>
+</div>
+
+<!-- Summary cards -->
+<div class="row g-3 mb-4">
+
+    <div class="col-sm-6 col-lg-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="rounded-3 p-3" style="background-color:#fff3f3;">
+                    <i class="bi bi-journal-bookmark fs-4" style="color:#c0272d;"></i>
+                </div>
+                <div>
+                    <div class="fs-3 fw-bold">{{ stats.total_courses }}</div>
+                    <div class="text-muted small">Total Courses</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="rounded-3 p-3" style="background-color:#fff8e1;">
+                    <i class="bi bi-exclamation-triangle fs-4" style="color:#f59e0b;"></i>
+                </div>
+                <div>
+                    <div class="fs-3 fw-bold">{{ stats.courses_missing_split }}</div>
+                    <div class="text-muted small">Missing Split Count</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="rounded-3 p-3" style="background-color:#f0f7ff;">
+                    <i class="bi bi-person-badge fs-4" style="color:#2563eb;"></i>
+                </div>
+                <div>
+                    <div class="fs-3 fw-bold">{{ stats.total_professors }}</div>
+                    <div class="text-muted small">Professors</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="rounded-3 p-3" style="background-color:#f0fdf4;">
+                    <i class="bi bi-door-open fs-4" style="color:#16a34a;"></i>
+                </div>
+                <div>
+                    <div class="fs-3 fw-bold">{{ stats.total_rooms }}</div>
+                    <div class="text-muted small">Active Rooms</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Action items / attention required -->
+<div class="row g-3">
+
+    <!-- Courses missing split count -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-exclamation-circle text-warning me-2"></i>
+                Courses Requiring Split Count
+            </div>
+            <div class="card-body p-0">
+                {% if courses_missing_split %}
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-3">Module Code</th>
+                                <th>Delivery</th>
+                                <th>Year</th>
+                                <th>Split Count</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for course in courses_missing_split %}
+                            <tr>
+                                <td class="ps-3 fw-medium">{{ course.module_code }}</td>
+                                <td>
+                                    <span class="badge {% if course.delivery_mode == 'f2f' %}bg-success{% elif course.delivery_mode == 'online' %}bg-primary{% else %}bg-warning text-dark{% endif %}">
+                                        {{ course.delivery_mode }}
+                                    </span>
+                                </td>
+                                <td>Y{{ course.year_level }}</td>
+                                <td><span class="text-danger small">Not set</span></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-check-circle fs-4 text-success d-block mb-2"></i>
+                        All f2f courses have a split count set.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- System status -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-activity text-primary me-2"></i>
+                System Status
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-table me-2 text-muted"></i>Timetable generated</span>
+                        <span class="badge bg-secondary">Not yet</span>
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-megaphone me-2 text-muted"></i>Timetable published</span>
+                        <span class="badge bg-secondary">Not yet</span>
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-flag me-2 text-muted"></i>Open conflict flags</span>
+                        <span class="badge {% if stats.open_flags > 0 %}bg-danger{% else %}bg-success{% endif %}">
+                            {{ stats.open_flags }}
+                        </span>
+                    </li>
+                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                        <a href="{{ url_for('admin.declarations') }}" class="text-decoration-none text-dark">
+                            <i class="bi bi-clock-history me-2 text-muted"></i>Pending availability declarations
+                        </a>
+                        <a href="{{ url_for('admin.declarations') }}">
+                            <span class="badge {% if stats.pending_declarations > 0 %}bg-warning text-dark{% else %}bg-success{% endif %}">
+                                {{ stats.pending_declarations }}
+                            </span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}

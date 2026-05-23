@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block title %}Edit Room — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="mb-4">
+    <a href="{{ url_for('admin.rooms') }}" class="text-decoration-none text-muted small">
+        <i class="bi bi-arrow-left me-1"></i>Back to Rooms
+    </a>
+    <h4 class="fw-semibold mt-2 mb-0">Edit Room</h4>
+    <small class="text-muted">{{ room.room_code }}</small>
+</div>
+
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <form method="POST">
+
+                    <div class="mb-3">
+                        <label for="room_code" class="form-label fw-medium">
+                            Room Code <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="room_code" name="room_code"
+                               value="{{ room.room_code }}" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="building" class="form-label fw-medium">
+                            Building <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="building" name="building"
+                               value="{{ room.building }}" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="capacity" class="form-label fw-medium">
+                            Capacity <span class="text-danger">*</span>
+                        </label>
+                        <input type="number" class="form-control" id="capacity" name="capacity"
+                               value="{{ room.capacity }}" min="1" required>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="room_type" class="form-label fw-medium">
+                            Room Type <span class="text-danger">*</span>
+                        </label>
+                        <select class="form-select" id="room_type" name="room_type" required>
+                            <option value="lecture" {% if room.room_type == 'lecture' %}selected{% endif %}>Lecture</option>
+                            <option value="lab"     {% if room.room_type == 'lab'     %}selected{% endif %}>Lab</option>
+                            <option value="seminar" {% if room.room_type == 'seminar' %}selected{% endif %}>Seminar</option>
+                        </select>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn text-white" style="background-color:#c0272d;">
+                            <i class="bi bi-check-lg me-1"></i>Save Changes
+                        </button>
+                        <a href="{{ url_for('admin.rooms') }}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info panel -->
+    <div class="col-lg-4 mt-3 mt-lg-0">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-info-circle me-2 text-muted"></i>Room Info
+            </div>
+            <div class="card-body small">
+                <dl class="row mb-0">
+                    <dt class="col-5 text-muted">Status</dt>
+                    <dd class="col-7">
+                        {% if room.is_active %}
+                            <span class="badge bg-success">Active</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Inactive</span>
+                        {% endif %}
+                    </dd>
+                    <dt class="col-5 text-muted">Timetable Uses</dt>
+                    <dd class="col-7">{{ room.timetable_entries | length }}</dd>
+                </dl>
+                {% if room.timetable_entries %}
+                <div class="alert alert-warning py-2 mt-3 mb-0 small">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    This room has timetable entries assigned. It cannot be deleted until the timetable is cleared.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

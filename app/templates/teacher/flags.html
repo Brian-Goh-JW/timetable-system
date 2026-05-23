@@ -1,0 +1,178 @@
+{% extends 'base.html' %}
+{% block title %}My Conflict Flags — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0 fw-semibold">My Conflict Flags</h4>
+        <small class="text-muted">
+            Timetable slots where your availability could not be honoured
+        </small>
+    </div>
+    {% if open_flags %}
+    <span class="badge bg-warning text-dark fs-6">
+        {{ open_flags | length }} requiring response
+    </span>
+    {% endif %}
+</div>
+
+<!-- Open / Acknowledged flags -->
+{% if open_flags %}
+<div class="card border-0 shadow-sm mb-4 border-start border-warning border-3">
+    <div class="card-header bg-white border-bottom fw-semibold">
+        <i class="bi bi-flag-fill me-2 text-warning"></i>
+        Requires Your Response
+        <span class="badge bg-warning text-dark ms-1">{{ open_flags | length }}</span>
+    </div>
+    <div class="card-body">
+        {% for f in open_flags %}
+        <div class="border rounded-3 p-3 mb-3 {% if not loop.last %}mb-3{% endif %}">
+
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <div>
+                    <span class="fw-semibold">
+                        {{ f.timetable_entry.class_session.course.module_code }}
+                        — {{ f.timetable_entry.class_session.session_type | capitalize }}
+                    </span>
+                    {% if f.timetable_entry.class_session.student_group %}
+                    <span class="text-muted small ms-1">
+                        ({{ f.timetable_entry.class_session.student_group.group_label }})
+                    </span>
+                    {% endif %}
+                </div>
+                {% if f.response_deadline %}
+                <span class="badge {% if f.notification_sent %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                    Respond by {{ f.response_deadline.strftime('%d %b %Y') }}
+                </span>
+                {% endif %}
+            </div>
+
+            <div class="small text-muted mb-3">
+                <i class="bi bi-calendar-event me-1"></i>
+                Assigned to:
+                <strong>
+                    {{ f.timetable_entry.timeslot.day_of_week }}
+                    {{ f.timetable_entry.timeslot.period_label }}
+                    ({{ f.timetable_entry.timeslot.start_time.strftime('%H:%M') }}–{{ f.timetable_entry.timeslot.end_time.strftime('%H:%M') }})
+                </strong>
+                — this clashes with your declared unavailability for
+                <strong>
+                    {{ f.declaration.timeslot.day_of_week }}
+                    {{ f.declaration.timeslot.period_label }}
+                </strong>.
+            </div>
+
+            <form method="POST"
+                  action="{{ url_for('teacher.flag_respond', flag_id=f.id) }}">
+
+                <div class="mb-2">
+                    <label class="form-label fw-medium small">Your response</label>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio"
+                                   name="response" id="can_{{ f.id }}"
+                                   value="can_proceed" required>
+                            <label class="form-check-label" for="can_{{ f.id }}">
+                                <span class="text-success fw-medium">I can proceed</span>
+                                <div class="text-muted small">
+                                    I accept this slot. The timetable can be published as is.
+                                </div>
+                            </label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio"
+                                   name="response" id="cannot_{{ f.id }}"
+                                   value="cannot_proceed">
+                            <label class="form-check-label" for="cannot_{{ f.id }}">
+                                <span class="text-danger fw-medium">I cannot proceed</span>
+                                <div class="text-muted small">
+                                    I am unavailable. The admin will arrange a substitute.
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label small text-muted">
+                        Additional comments (optional)
+                    </label>
+                    <textarea name="comments" class="form-control form-control-sm" rows="2"
+                              placeholder="e.g. I have a medical appointment, or I am available from 3pm onwards..."></textarea>
+                </div>
+
+                <button type="submit" class="btn btn-sm text-white"
+                        style="background-color:#c0272d;"
+                        onclick="return confirm('Submit your response? This cannot be changed.')">
+                    <i class="bi bi-send me-1"></i>Submit Response
+                </button>
+
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+{% else %}
+<div class="alert alert-success py-2 mb-4">
+    <i class="bi bi-check-circle me-2"></i>
+    No conflict flags requiring your response.
+</div>
+{% endif %}
+
+<!-- Resolved flags -->
+{% if resolved_flags %}
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom fw-semibold">
+        <i class="bi bi-check2-circle me-2 text-success"></i>
+        Resolved
+        <span class="badge bg-success ms-1">{{ resolved_flags | length }}</span>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Session</th>
+                    <th>Slot</th>
+                    <th>Your Response</th>
+                    <th>Resolved At</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for f in resolved_flags %}
+                {% set resp = f.responses | sort(attribute='responded_at') | last %}
+                <tr>
+                    <td class="ps-3">
+                        {{ f.timetable_entry.class_session.course.module_code }}
+                        <span class="text-muted text-capitalize">
+                            — {{ f.timetable_entry.class_session.session_type }}
+                        </span>
+                    </td>
+                    <td>
+                        {{ f.timetable_entry.timeslot.day_of_week }}
+                        {{ f.timetable_entry.timeslot.period_label }}
+                    </td>
+                    <td>
+                        {% if resp %}
+                            {% if resp.response == 'can_proceed' %}
+                                <span class="badge bg-success">Can Proceed</span>
+                            {% else %}
+                                <span class="badge bg-danger">Cannot Proceed</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-muted">
+                        {{ f.resolved_at.strftime('%d %b %Y') if f.resolved_at else '—' }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

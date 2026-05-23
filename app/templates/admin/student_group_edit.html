@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %}Edit Student Group — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="mb-4">
+    <a href="{{ url_for('admin.student_groups') }}" class="text-decoration-none text-muted small">
+        <i class="bi bi-arrow-left me-1"></i>Back to Student Groups
+    </a>
+    <h4 class="fw-semibold mt-2 mb-0">Edit Student Group</h4>
+    <small class="text-muted">{{ group.group_label }}</small>
+</div>
+
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <form method="POST">
+
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">Programme</label>
+                        <input type="text" class="form-control bg-light"
+                               value="{{ group.programme.code }} — {{ group.programme.name }}" disabled>
+                        <div class="form-text">Programme cannot be changed.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="year_level" class="form-label fw-medium">
+                            Year Level <span class="text-danger">*</span>
+                        </label>
+                        <select class="form-select" id="year_level" name="year_level" required>
+                            <option value="1" {% if group.year_level == 1 %}selected{% endif %}>Year 1</option>
+                            <option value="2" {% if group.year_level == 2 %}selected{% endif %}>Year 2</option>
+                            <option value="3" {% if group.year_level == 3 %}selected{% endif %}>Year 3</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="group_label" class="form-label fw-medium">
+                            Group Label <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" class="form-control" id="group_label" name="group_label"
+                               value="{{ group.group_label }}" required>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="intake_size" class="form-label fw-medium">
+                            Intake Size <span class="text-danger">*</span>
+                        </label>
+                        <input type="number" class="form-control" id="intake_size" name="intake_size"
+                               value="{{ group.intake_size }}" min="1" required>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn text-white" style="background-color:#c0272d;">
+                            <i class="bi bi-check-lg me-1"></i>Save Changes
+                        </button>
+                        <a href="{{ url_for('admin.student_groups') }}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4 mt-3 mt-lg-0">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-info-circle me-2 text-muted"></i>Group Info
+            </div>
+            <div class="card-body small">
+                <dl class="row mb-0">
+                    <dt class="col-6 text-muted">Type</dt>
+                    <dd class="col-6">
+                        {% if group.parent_id %}Sub-group{% else %}Top-level cohort{% endif %}
+                    </dd>
+                    <dt class="col-6 text-muted">Sub-groups</dt>
+                    <dd class="col-6">{{ group.sub_groups | length }}</dd>
+                    <dt class="col-6 text-muted">Assigned Sessions</dt>
+                    <dd class="col-6">{{ group.class_sessions | length }}</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

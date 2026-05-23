@@ -1,0 +1,179 @@
+{% extends 'base.html' %}
+{% block title %}Availability Declarations — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0 fw-semibold">Availability Declarations</h4>
+        <small class="text-muted">Review and classify professor unavailability submissions</small>
+    </div>
+    <div>
+        {% if pending %}
+        <span class="badge bg-warning text-dark fs-6">
+            {{ pending | length }} pending
+        </span>
+        {% else %}
+        <span class="badge bg-success fs-6">All classified</span>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Pending -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white border-bottom fw-semibold">
+        <i class="bi bi-hourglass-split me-2 text-warning"></i>
+        Pending Classification
+        <span class="badge bg-warning text-dark ms-1">{{ pending | length }}</span>
+    </div>
+
+    {% if pending %}
+    <div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Professor</th>
+                    <th>Day</th>
+                    <th>Timeslot</th>
+                    <th>Time</th>
+                    <th>Reason</th>
+                    <th>Submitted</th>
+                    <th>Classify As</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in pending %}
+                <tr>
+                    <td class="ps-3 fw-medium">
+                        {{ d.professor.user.name }}
+                        <div class="text-muted fw-normal" style="font-size:0.75rem;">
+                            {{ d.professor.staff_id }}
+                        </div>
+                    </td>
+                    <td>{{ d.timeslot.day_of_week }}</td>
+                    <td>{{ d.timeslot.period_label }}</td>
+                    <td class="text-muted">
+                        {{ d.timeslot.start_time.strftime('%H:%M') }}–{{ d.timeslot.end_time.strftime('%H:%M') }}
+                    </td>
+                    <td style="max-width:200px; word-break:break-word;">{{ d.reason }}</td>
+                    <td class="text-muted">{{ d.submitted_at.strftime('%d %b %Y') }}</td>
+                    <td>
+                        <div class="d-flex gap-1">
+                            <!-- Strict -->
+                            <form method="POST">
+                                <input type="hidden" name="decl_id" value="{{ d.id }}">
+                                <input type="hidden" name="constraint_type" value="strict">
+                                <button type="submit"
+                                        class="btn btn-sm btn-outline-danger"
+                                        title="Hard block — solver will never assign this professor to this slot"
+                                        onclick="return confirm('Classify as Strict (hard block)? The solver will never assign {{ d.professor.user.name }} to this timeslot.')">
+                                    <i class="bi bi-slash-circle me-1"></i>Strict
+                                </button>
+                            </form>
+                            <!-- Preferred -->
+                            <form method="POST">
+                                <input type="hidden" name="decl_id" value="{{ d.id }}">
+                                <input type="hidden" name="constraint_type" value="preferred">
+                                <button type="submit"
+                                        class="btn btn-sm btn-outline-warning"
+                                        title="Soft constraint — solver avoids but may use if no alternative"
+                                        onclick="return confirm('Classify as Preferred (soft avoid)? The solver will try to avoid this slot for {{ d.professor.user.name }} but may use it if necessary.')">
+                                    <i class="bi bi-dash-circle me-1"></i>Preferred
+                                </button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% else %}
+    <div class="card-body text-center text-muted py-4">
+        <i class="bi bi-check-circle fs-2 text-success d-block mb-2"></i>
+        No pending declarations. All submissions have been classified.
+    </div>
+    {% endif %}
+</div>
+
+<!-- Classified -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom fw-semibold">
+        <i class="bi bi-check2-circle me-2 text-success"></i>
+        Classified
+        <span class="badge bg-secondary ms-1">{{ classified | length }}</span>
+    </div>
+
+    {% if classified %}
+    <div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Professor</th>
+                    <th>Day</th>
+                    <th>Timeslot</th>
+                    <th>Time</th>
+                    <th>Reason</th>
+                    <th>Type</th>
+                    <th>Reclassify</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in classified %}
+                <tr>
+                    <td class="ps-3 fw-medium">
+                        {{ d.professor.user.name }}
+                        <div class="text-muted fw-normal" style="font-size:0.75rem;">
+                            {{ d.professor.staff_id }}
+                        </div>
+                    </td>
+                    <td>{{ d.timeslot.day_of_week }}</td>
+                    <td>{{ d.timeslot.period_label }}</td>
+                    <td class="text-muted">
+                        {{ d.timeslot.start_time.strftime('%H:%M') }}–{{ d.timeslot.end_time.strftime('%H:%M') }}
+                    </td>
+                    <td style="max-width:200px; word-break:break-word;">{{ d.reason }}</td>
+                    <td>
+                        {% if d.constraint_type == 'strict' %}
+                            <span class="badge bg-danger">Strict</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark">Preferred</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <!-- Allow reclassification if admin made a mistake -->
+                        {% if d.constraint_type == 'strict' %}
+                        <form method="POST">
+                            <input type="hidden" name="decl_id" value="{{ d.id }}">
+                            <input type="hidden" name="constraint_type" value="preferred">
+                            <button type="submit" class="btn btn-sm btn-outline-warning"
+                                    onclick="return confirm('Change to Preferred?')">
+                                <i class="bi bi-arrow-repeat me-1"></i>→ Preferred
+                            </button>
+                        </form>
+                        {% else %}
+                        <form method="POST">
+                            <input type="hidden" name="decl_id" value="{{ d.id }}">
+                            <input type="hidden" name="constraint_type" value="strict">
+                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                    onclick="return confirm('Change to Strict?')">
+                                <i class="bi bi-arrow-repeat me-1"></i>→ Strict
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% else %}
+    <div class="card-body text-center text-muted py-4">
+        No declarations classified yet.
+    </div>
+    {% endif %}
+</div>
+
+{% endblock %}

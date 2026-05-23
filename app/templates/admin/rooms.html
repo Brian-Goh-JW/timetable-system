@@ -1,0 +1,104 @@
+{% extends 'base.html' %}
+{% block title %}Rooms — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h4 class="mb-0 fw-semibold">Rooms</h4>
+        <small class="text-muted">{{ rooms | length }} room(s) shown</small>
+    </div>
+    <a href="{{ url_for('admin.room_add') }}" class="btn text-white" style="background-color:#c0272d;">
+        <i class="bi bi-plus-lg me-1"></i>Add Room
+    </a>
+</div>
+
+<!-- Building filter -->
+<div class="mb-3 d-flex flex-wrap gap-2">
+    <a href="{{ url_for('admin.rooms') }}"
+       class="btn btn-sm {% if not active_building %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+        All
+    </a>
+    {% for b in buildings %}
+    <a href="{{ url_for('admin.rooms', building=b) }}"
+       class="btn btn-sm {% if active_building == b %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+        {{ b }}
+    </a>
+    {% endfor %}
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-4">Room Code</th>
+                    <th>Building</th>
+                    <th>Type</th>
+                    <th>Capacity</th>
+                    <th>Status</th>
+                    <th class="text-end pe-4">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for room in rooms %}
+                <tr class="{% if not room.is_active %}table-secondary text-muted{% endif %}">
+                    <td class="ps-4 fw-medium">{{ room.room_code }}</td>
+                    <td>{{ room.building }}</td>
+                    <td>
+                        <span class="badge
+                            {% if room.room_type == 'lecture' %}bg-primary
+                            {% elif room.room_type == 'lab' %}bg-warning text-dark
+                            {% else %}bg-secondary{% endif %}">
+                            {{ room.room_type | capitalize }}
+                        </span>
+                    </td>
+                    <td>{{ room.capacity }}</td>
+                    <td>
+                        {% if room.is_active %}
+                            <span class="badge bg-success">Active</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Inactive</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end pe-4">
+                        <div class="d-flex justify-content-end gap-2">
+
+                            <!-- Edit -->
+                            <a href="{{ url_for('admin.room_edit', room_id=room.id) }}"
+                               class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-pencil"></i>
+                            </a>
+
+                            <!-- Toggle active/inactive -->
+                            <form method="POST"
+                                  action="{{ url_for('admin.room_toggle', room_id=room.id) }}"
+                                  class="d-inline">
+                                <input type="hidden" name="building" value="{{ active_building }}">
+                                <button type="submit"
+                                        class="btn btn-sm {% if room.is_active %}btn-outline-warning{% else %}btn-outline-success{% endif %}"
+                                        title="{{ 'Deactivate' if room.is_active else 'Activate' }}">
+                                    <i class="bi {% if room.is_active %}bi-toggle-on{% else %}bi-toggle-off{% endif %}"></i>
+                                </button>
+                            </form>
+
+                            <!-- Delete -->
+                            <form method="POST"
+                                  action="{{ url_for('admin.room_delete', room_id=room.id) }}"
+                                  class="d-inline"
+                                  onsubmit="return confirm('Delete room {{ room.room_code }}? This cannot be undone.')">
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}

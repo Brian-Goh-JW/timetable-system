@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+{% block title %}Edit {{ course.module_code }} — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="mb-4">
+    <a href="{{ url_for('admin.courses') }}" class="text-decoration-none text-muted small">
+        <i class="bi bi-arrow-left me-1"></i>Back to Courses
+    </a>
+    <h4 class="fw-semibold mt-2 mb-0">Edit Course</h4>
+    <small class="text-muted">{{ course.module_code }} &mdash; Year {{ course.year_level }}</small>
+</div>
+
+<div class="row">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <form method="POST">
+
+                    <!-- Module code (read-only) -->
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">Module Code</label>
+                        <input type="text" class="form-control bg-light" value="{{ course.module_code }}" disabled>
+                        <div class="form-text">Module code cannot be changed.</div>
+                    </div>
+
+                    <!-- Title -->
+                    <div class="mb-3">
+                        <label for="title" class="form-label fw-medium">
+                            Module Title <span class="text-danger">*</span>
+                        </label>
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="title"
+                            name="title"
+                            value="{{ course.title if course.title != course.module_code else '' }}"
+                            placeholder="e.g. Logistics and Supply Chain Management"
+                            required
+                        >
+                    </div>
+
+                    <!-- Delivery mode (read-only) -->
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">Delivery Mode</label>
+                        <input type="text" class="form-control bg-light text-capitalize"
+                               value="{{ course.delivery_mode }}" disabled>
+                        <div class="form-text">Delivery mode is set from the source data.</div>
+                    </div>
+
+                    <!-- Split count — only for f2f and hybrid -->
+                    {% if course.delivery_mode in ('f2f', 'hybrid') %}
+                    <div class="mb-3">
+                        <label for="split_count" class="form-label fw-medium">
+                            Split Count
+                            <span class="text-danger">*</span>
+                        </label>
+                        <input
+                            type="number"
+                            class="form-control"
+                            id="split_count"
+                            name="split_count"
+                            min="1"
+                            value="{{ course.split_count if course.split_count is not none else '' }}"
+                            placeholder="e.g. 2"
+                        >
+                        <div class="form-text">
+                            Number of f2f sub-groups this course is split into.
+                            The scheduler is blocked until this is set for all f2f and hybrid courses.
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">Split Count</label>
+                        <input type="text" class="form-control bg-light" value="N/A — online course" disabled>
+                    </div>
+                    {% endif %}
+
+                    <!-- Remarks -->
+                    <div class="mb-4">
+                        <label for="remarks" class="form-label fw-medium">Remarks</label>
+                        <textarea
+                            class="form-control"
+                            id="remarks"
+                            name="remarks"
+                            rows="3"
+                            placeholder="Optional notes (imported from Excel, editable here)"
+                        >{{ course.remarks or '' }}</textarea>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn text-white" style="background-color:#c0272d;">
+                            <i class="bi bi-check-lg me-1"></i>Save Changes
+                        </button>
+                        <a href="{{ url_for('admin.courses') }}" class="btn btn-outline-secondary">
+                            Cancel
+                        </a>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info panel -->
+    <div class="col-lg-4 mt-3 mt-lg-0">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-info-circle me-2 text-muted"></i>Course Details
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0 small">
+                    <dt class="col-6 text-muted">Programme</dt>
+                    <dd class="col-6">{{ course.programme.code }}</dd>
+
+                    <dt class="col-6 text-muted">Year Level</dt>
+                    <dd class="col-6">Year {{ course.year_level }}</dd>
+
+                    <dt class="col-6 text-muted">Sessions / Week</dt>
+                    <dd class="col-6">{{ course.sessions_per_week }}</dd>
+
+                    <dt class="col-6 text-muted">Total Hours</dt>
+                    <dd class="col-6">{{ course.total_hours }}h</dd>
+
+                    <dt class="col-6 text-muted">Class Sessions</dt>
+                    <dd class="col-6">{{ course.class_sessions | length }}</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

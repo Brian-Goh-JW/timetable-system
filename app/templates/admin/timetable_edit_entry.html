@@ -1,0 +1,197 @@
+{% extends 'base.html' %}
+{% block title %}
+    {% if edit_mode == 'all' %}Edit All Weeks{% else %}Edit Week {{ entry.week_number }}{% endif %}
+    — {{ session.course.module_code }}
+{% endblock %}
+
+{% block content %}
+
+<div class="mb-4">
+    <a href="{{ url_for('admin.timetable_session_weeks',
+                        trimester=entry.trimester if edit_mode == 'single' else trimester,
+                        session_id=session.id) }}"
+       class="text-decoration-none text-muted small">
+        <i class="bi bi-arrow-left me-1"></i>Back to Session Weeks
+    </a>
+    <h4 class="fw-semibold mt-2 mb-0">
+        {% if edit_mode == 'all' %}
+            Edit All Weeks
+        {% else %}
+            Edit Week {{ entry.week_number }}
+        {% endif %}
+    </h4>
+    <small class="text-muted">
+        {{ session.course.module_code }} — {{ session.course.title }}
+        &mdash; {{ session.session_type | capitalize }}
+        {% if session.student_group %}
+            &mdash; {{ session.student_group.group_label }}
+        {% endif %}
+    </small>
+</div>
+
+{% if edit_mode == 'all' %}
+<div class="alert alert-warning py-2 mb-3 small">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    <strong>Edit All Weeks:</strong> This will update every teaching week for this session
+    in {{ trimester }}. Use individual week edit if you only need to change one week.
+</div>
+{% endif %}
+
+<div class="row g-3">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-pencil me-2 text-muted"></i>
+                Change Slot / Room / Professor
+            </div>
+            <div class="card-body">
+
+                <!-- Conflict warnings -->
+                {% if conflicts %}
+                <div class="alert alert-danger py-2 mb-3 small">
+                    <strong><i class="bi bi-exclamation-triangle me-1"></i>Conflicts detected:</strong>
+                    <ul class="mb-2 mt-1 ps-3">
+                        {% for c in conflicts %}
+                        <li>{{ c }}</li>
+                        {% endfor %}
+                    </ul>
+                    <div>
+                        Tick <strong>Force save</strong> below to override and save anyway.
+                    </div>
+                </div>
+                {% endif %}
+
+                <form method="POST">
+
+                    <!-- Timeslot -->
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">
+                            Timeslot <span class="text-danger">*</span>
+                        </label>
+                        <select name="timeslot_id" class="form-select" required>
+                            <option value="">— Select timeslot —</option>
+                            {% for ts in compat_slots %}
+                            <option value="{{ ts.id }}"
+                                {% if entry.timeslot_id == ts.id %}selected{% endif %}>
+                                {{ ts.day_of_week }} — {{ ts.period_label }}
+                                ({{ ts.start_time.strftime('%H:%M') }}–{{ ts.end_time.strftime('%H:%M') }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Only compatible timeslots shown (correct type and duration).</div>
+                    </div>
+
+                    <!-- Room (only for f2f sessions) -->
+                    {% if session.delivery_mode == 'f2f' %}
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">Room</label>
+                        <select name="room_id" class="form-select">
+                            <option value="">— No room —</option>
+                            {% for r in all_rooms %}
+                            <option value="{{ r.id }}"
+                                {% if entry.room_id == r.id %}selected{% endif %}>
+                                {{ r.room_code }} — {{ r.room_type | capitalize }}
+                                (cap. {{ r.capacity }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% else %}
+                    <input type="hidden" name="room_id" value="">
+                    {% endif %}
+
+                    <!-- Professor -->
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">Professor</label>
+                        <select name="professor_id" class="form-select">
+                            <option value="">— No professor —</option>
+                            {% for prof in professors %}
+                            {% set current_prof = entry.effective_professor %}
+                            <option value="{{ prof.id }}"
+                                {% if current_prof and current_prof.id == prof.id %}selected{% endif %}>
+                                {{ prof.user.name }} ({{ prof.staff_id }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                        {% if edit_mode == 'single' and session.professor %}
+                        <div class="form-text">
+                            Default professor: <strong>{{ session.professor.user.name }}</strong>.
+                            Selecting a different professor sets a week-specific override.
+                            Selecting the default clears the override.
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Force save checkbox (only shown when conflicts exist) -->
+                    {% if conflicts %}
+                    <div class="mb-3 form-check">
+                        <input type="checkbox" class="form-check-input" id="force_save"
+                               name="force_save" value="1">
+                        <label class="form-check-label text-danger fw-medium" for="force_save">
+                            Force save despite conflicts
+                        </label>
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn text-white" style="background-color:#c0272d;">
+                            <i class="bi bi-check-lg me-1"></i>Save Changes
+                        </button>
+                        <a href="{{ url_for('admin.timetable_session_weeks',
+                                            trimester=entry.trimester if edit_mode == 'single' else trimester,
+                                            session_id=session.id) }}"
+                           class="btn btn-outline-secondary">
+                            Cancel
+                        </a>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Current values panel -->
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-info-circle me-2 text-muted"></i>Current Values
+                {% if edit_mode == 'single' %}
+                    <span class="text-muted fw-normal">(Week {{ entry.week_number }})</span>
+                {% else %}
+                    <span class="text-muted fw-normal">(Recurring slot)</span>
+                {% endif %}
+            </div>
+            <div class="card-body small">
+                <dl class="row mb-0">
+                    <dt class="col-5 text-muted">Day</dt>
+                    <dd class="col-7">{{ entry.timeslot.day_of_week }}</dd>
+                    <dt class="col-5 text-muted">Period</dt>
+                    <dd class="col-7">{{ entry.timeslot.period_label }}</dd>
+                    <dt class="col-5 text-muted">Time</dt>
+                    <dd class="col-7">
+                        {{ entry.timeslot.start_time.strftime('%H:%M') }}–{{ entry.timeslot.end_time.strftime('%H:%M') }}
+                    </dd>
+                    <dt class="col-5 text-muted">Room</dt>
+                    <dd class="col-7">
+                        {% if entry.room %}{{ entry.room.room_code }}
+                        {% else %}<span class="fst-italic">Online</span>{% endif %}
+                    </dd>
+                    <dt class="col-5 text-muted">Professor</dt>
+                    <dd class="col-7">
+                        {% set ep = entry.effective_professor %}
+                        {% if ep %}{{ ep.user.name }}{% else %}—{% endif %}
+                        {% if entry.override_professor_id %}
+                            <span class="badge bg-warning text-dark">override</span>
+                        {% endif %}
+                    </dd>
+                    <dt class="col-5 text-muted">Session type</dt>
+                    <dd class="col-7 text-capitalize">{{ session.session_type }}</dd>
+                    <dt class="col-5 text-muted">Duration</dt>
+                    <dd class="col-7">{{ session.duration_hours }}h</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

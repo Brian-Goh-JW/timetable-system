@@ -1,0 +1,152 @@
+{% extends 'base.html' %}
+{% block title %}Class Timetable — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0 fw-semibold">Class Timetable</h4>
+        <small class="text-muted">Select your cohort group to view the weekly schedule</small>
+    </div>
+</div>
+
+<!-- Trimester tabs -->
+{% if trimesters %}
+<div class="mb-3 d-flex flex-wrap gap-2">
+    {% for t in trimesters %}
+    <a href="{{ url_for('student.timetable', trimester=t, group_id=group_id) }}"
+       class="btn btn-sm {% if active_trimester == t %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+        {{ t }}
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Group filter -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-2">
+        <form method="GET" class="row g-2 align-items-end">
+            <input type="hidden" name="trimester" value="{{ active_trimester }}">
+            <div class="col-sm-auto">
+                <label for="group_id" class="form-label small fw-medium mb-1">Your Group</label>
+                <select class="form-select form-select-sm" id="group_id" name="group_id"
+                        onchange="this.form.submit()">
+                    <option value="">— Select your group —</option>
+                    {% for g in all_groups %}
+                        {% if g.parent_id is none %}
+                            {# Top-level group #}
+                            <option value="{{ g.id }}"
+                                    {% if group_id | string == g.id | string %}selected{% endif %}>
+                                {{ g.group_label }} (Year {{ g.year_level }})
+                            </option>
+                            {% for sub in g.sub_groups | sort(attribute='group_label') %}
+                            <option value="{{ sub.id }}"
+                                    {% if group_id | string == sub.id | string %}selected{% endif %}>
+                                &nbsp;&nbsp;&nbsp;{{ sub.group_label }}
+                            </option>
+                            {% endfor %}
+                        {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-auto">
+                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-funnel me-1"></i>Filter
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Timetable results -->
+{% if selected_group and entries %}
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">
+            {{ active_trimester }} — {{ selected_group.group_label }}
+        </span>
+        <small class="text-muted">Recurring weekly slot for each session</small>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Day</th>
+                    <th>Period</th>
+                    <th>Time</th>
+                    <th>Module</th>
+                    <th>Type</th>
+                    <th>Delivery</th>
+                    <th>Professor</th>
+                    <th>Room</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in entries %}
+                <tr>
+                    <td class="ps-3 fw-medium">{{ e.timeslot.day_of_week }}</td>
+                    <td>{{ e.timeslot.period_label }}</td>
+                    <td class="text-muted">
+                        {{ e.timeslot.start_time.strftime('%H:%M') }}–{{ e.timeslot.end_time.strftime('%H:%M') }}
+                    </td>
+                    <td class="fw-medium">
+                        {{ e.class_session.course.module_code }}
+                        <div class="text-muted fw-normal" style="font-size:0.75rem;">
+                            {{ e.class_session.course.title }}
+                        </div>
+                    </td>
+                    <td class="text-capitalize">{{ e.class_session.session_type }}</td>
+                    <td>
+                        <span class="badge {% if e.class_session.delivery_mode == 'f2f' %}bg-success{% else %}bg-primary{% endif %}">
+                            {{ e.class_session.delivery_mode }}
+                        </span>
+                    </td>
+                    <td>
+                        {% if e.class_session.professor %}
+                            {{ e.class_session.professor.user.name }}
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if e.room %}
+                            {{ e.room.room_code }}
+                        {% else %}
+                            <span class="text-muted fst-italic">Online</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% elif selected_group %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body text-center text-muted py-5">
+        <i class="bi bi-calendar-x fs-2 d-block mb-2"></i>
+        No published sessions found for <strong>{{ selected_group.group_label }}</strong>
+        in <strong>{{ active_trimester }}</strong>.
+    </div>
+</div>
+
+{% elif active_trimester %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body text-center text-muted py-4">
+        <i class="bi bi-people fs-2 d-block mb-2"></i>
+        Select your group above to see your timetable.
+    </div>
+</div>
+
+{% else %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body text-center text-muted py-5">
+        <i class="bi bi-calendar3 fs-2 d-block mb-2"></i>
+        No published timetable available yet.<br>
+        <small>Check back after the admin publishes the timetable.</small>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
