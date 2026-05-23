@@ -1,13 +1,4 @@
 # SIT Timetable System
-**DSC2204 IT Project — Group 8**  
-Singapore Institute of Technology, Engineering Cluster  
-Academic Year 2025/2026
-
----
-
-## Project Overview
-
-A web-based timetabling system for the DSC (Digital Supply Chain) programme at SIT. The system automates timetable generation using a CP-SAT constraint solver, manages professor availability declarations, handles conflict flags with email notifications, and provides role-based timetable views for admins, professors, and students.
 
 ---
 
@@ -26,87 +17,145 @@ A web-based timetabling system for the DSC (Digital Supply Chain) programme at S
 
 ## Setup Instructions
 
-### 1. Clone the repository
+### Step 1 — Download the project
+
+Open a terminal (VS Code → Terminal → New Terminal) and run:
+
 ```bash
 git clone https://github.com/Brian-Goh-JW/timetable-system.git
 cd timetable-system
 ```
 
-### 2. Create and activate virtual environment
+> This downloads the project files to your machine and moves into the project folder.
+
+---
+
+### Step 2 — Create a virtual environment
+
+Still in the same terminal:
+
 ```bash
 python -m venv venv
+```
 
+Then activate it:
+
+```bash
 # Windows
 venv\Scripts\activate
 
-# macOS/Linux
+# macOS / Linux
 source venv/bin/activate
 ```
 
-### 3. Install dependencies
+> A virtual environment keeps project dependencies isolated from your system Python. You should see `(venv)` appear at the start of your terminal prompt once it's active.
+
+---
+
+### Step 3 — Install dependencies
+
 ```bash
 pip install flask flask-sqlalchemy flask-login flask-mail pymysql ortools pandas openpyxl
 ```
 
-### 4. Create the database
-In MySQL:
+> This installs all the Python packages the app needs to run. It may take a minute.
+
+---
+
+### Step 4 — Create the MySQL database
+
+Open **MySQL Workbench** (or any MySQL client) and run:
+
 ```sql
 CREATE DATABASE timetable_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-### 5. Configure credentials
-Create `config.py` in the project root (this file is gitignored — never commit it):
+> This creates a blank database that the app will write its tables into. You only need to do this once.
+
+---
+
+### Step 5 — Create the config file
+
+In VS Code, create a new file called `config.py` in the **project root** (same folder as `run.py`).
+
+> This file holds your database password and email credentials. It is listed in `.gitignore` and will never be committed to GitHub.
+
+Paste this template and fill in your own values:
+
 ```python
 class Config:
     SECRET_KEY = 'your-secret-key'
     SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://root:yourpassword@127.0.0.1/timetable_db'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # Flask-Mail (Gmail App Password for demo)
+    # Flask-Mail — Gmail SMTP (see note below)
     MAIL_SERVER   = 'smtp.gmail.com'
     MAIL_PORT     = 587
     MAIL_USE_TLS  = True
     MAIL_USE_SSL  = False
     MAIL_USERNAME = 'your.email@gmail.com'
-    MAIL_PASSWORD = 'your-app-password'   # 16-char Gmail App Password
+    MAIL_PASSWORD = 'your-app-password'   # 16-character Gmail App Password
     MAIL_DEFAULT_SENDER = ('SIT Timetable System', 'your.email@gmail.com')
 
-    # Admin inbox for "cannot proceed" notifications
+    # Admin inbox — receives "cannot proceed" notifications from professors
     ADMIN_EMAIL = 'your.email@gmail.com'
 ```
 
-> **Gmail App Password:** Go to myaccount.google.com/apppasswords (requires 2FA enabled) → create an app password → paste the 16-character code as MAIL_PASSWORD.
+**Getting a Gmail App Password:**
+1. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (requires 2FA to be enabled on your Google account first)
+2. Create a new app password with any name (e.g. "SIT Timetable")
+3. Copy the 16-character code and paste it as `MAIL_PASSWORD`
 
-> **SIT SMTP note:** Microsoft 365 SMTP AUTH is disabled for student accounts by institutional policy. Gmail is used as a workaround for demo purposes. In production, a service account with SMTP AUTH enabled or a transactional email provider (e.g. SendGrid) would be used.
+> **Why Gmail instead of SIT email?** Microsoft 365 SMTP AUTH is disabled for SIT student accounts by institutional policy, so the SIT email cannot send emails programmatically. Gmail with an App Password is used as a workaround for demo purposes.
 
-### 6. Initialise the database tables
+---
+
+### Step 6 — Create the database tables
+
+Back in your VS Code terminal (make sure `(venv)` is still active), run:
+
 ```bash
 python -c "from app import create_app, db; app = create_app(); app.app_context().push(); db.create_all()"
 ```
 
-### 7. Run bootstrap scripts (in order)
+> This tells SQLAlchemy to read all the model definitions and create the corresponding tables inside `timetable_db`. Run this once before any data is loaded.
+
+---
+
+### Step 7 — Run the bootstrap scripts (in order)
+
+These one-time scripts populate the database with initial data.
+
 ```bash
-# Create admin account
+# 1. Create the admin account
 python bootstrap/seed_admin.py
 
-# Load DSC programme data from Excel + CSV
-# Edit the file paths in bootstrap/excel_loader.py first
+# 2. Load DSC programme data (courses, rooms, professors, student groups)
+#    Open bootstrap/excel_loader.py first and update the file paths to your Excel/CSV files
 python bootstrap/excel_loader.py
 
-# Apply schema migrations (run once each)
+# 3. Apply schema additions (run each once)
 python bootstrap/add_fixed_timeslot.py
 python bootstrap/add_manual_edit_columns.py
 python bootstrap/add_flag_deadline.py
 
-# (Optional) Create a test student account
+# 4. (Optional) Create a test student account
 python bootstrap/seed_student.py
 ```
 
-### 8. Start the application
+> Each script prints a confirmation message when done. If a script says the record already exists, that's fine — it means you've already run it before.
+
+---
+
+### Step 8 — Start the application
+
 ```bash
 python run.py
 ```
-Open: http://127.0.0.1:5000/login
+
+Then open your browser and go to: **http://127.0.0.1:5000/login**
+
+> The app runs locally on your machine. Keep the terminal open while using the app — closing it stops the server.
 
 ---
 
@@ -118,8 +167,8 @@ Open: http://127.0.0.1:5000/login
 | **Professor** | braingohjw@gmail.com | David123! |
 | **Student** | student@sit.edu.sg | Student1234! |
 
-> The professor account belongs to David Lin Weidong (Staff ID: A100909).  
-> The student account is a generic test account — select a student group on the My Timetable page.
+The professor account is David Lin Weidong (Staff ID: A100909).  
+The student account is a generic test account — select a student group on the My Timetable page.
 
 ---
 
@@ -128,89 +177,89 @@ Open: http://127.0.0.1:5000/login
 ### Admin Workflow
 
 #### 1. Set up courses and sessions
-- **Courses** → select a course → **Sessions**
+- Go to **Courses** → select a course → **Sessions**
 - Assign a professor and student group to each session
-- Set a **Fixed Slot** if the course has a mandatory day/time (e.g. industry engagement events)
+- Set a **Fixed Slot** if the course must always fall on a specific day/time (e.g. industry engagement events)
 
 #### 2. Manage professors and rooms
-- **Professors** → Add / Edit professors and set temporary passwords
-- **Rooms** → Add / Edit teaching venues
+- Go to **Professors** → Add / Edit professors and set their temporary passwords
+- Go to **Rooms** → Add / Edit teaching venues
 
 #### 3. Classify availability declarations
-- **Declarations** → review professor submissions
-- Classify each as **Strict** (hard constraint — solver will never assign that slot) or **Preferred** (soft constraint — solver avoids if possible)
+- Go to **Declarations** → review what professors have submitted
+- Classify each as **Strict** (the solver will never assign that slot) or **Preferred** (the solver avoids it but may use it if necessary)
 
 #### 4. Generate the timetable
-- **Timetable** → enter Trimester Code (e.g. `2025-T3`) and Week 1 Start Date
+- Go to **Timetable** → enter a Trimester Code (e.g. `2025-T3`) and the Week 1 Start Date
 - Click **Run CP-SAT Solver**
-- Review the stats: Strict constraints applied, Preferred violations
-- If preferred violations exist, a conflict report is shown with affected sessions
+- After it finishes, check the summary: how many strict constraints were applied and how many preferred violations occurred
+- If there are preferred violations, a conflict report appears listing the affected sessions
 
 #### 5. Handle conflict flags
-- **Flags** → view auto-created flags for preferred violations
+- Go to **Flags** → flags are automatically created for any preferred violations
 - Set a response deadline and click **Notify** to email the professor
-- Professor logs in, reviews the flag, and responds "Can Proceed" or "Cannot Proceed"
-- If "Cannot Proceed", admin receives an email with next steps
+- The professor logs in, reviews the flag, and responds either "Can Proceed" or "Cannot Proceed"
+- If they say "Cannot Proceed", the admin receives an email to arrange next steps
 
 #### 6. Manual editing
-- **Timetable** → click the ✏️ pencil icon on any session → **View All Weeks**
-- Edit individual weeks: change timeslot, room, or professor
-- Conflict detection runs on save (warns on double-booking)
-- Use **Force Save** to override warnings if needed
-- All edits are logged in **Audit Log**
+- Go to **Timetable** → click the ✏️ pencil icon on any session → **View All Weeks**
+- You can change the timeslot, room, or professor for individual weeks
+- The system checks for double-booking conflicts on save
+- Use **Force Save** to override a warning if needed
+- All manual edits are recorded in the **Audit Log**
 
-#### 7. Publish
-- **Timetable** → click **Publish**
-- Professors and students can now view their timetable
+#### 7. Publish the timetable
+- Go to **Timetable** → click **Publish**
+- Once published, professors and students can see their timetable when they log in
 
 #### 8. View modes
-- **List View** — traditional table showing recurring weekly slot per session
-- **Weekly View** — calendar grid (Mon–Sun) showing a specific week, with week navigation
+- **List View** — a table showing the recurring weekly slot for each session
+- **Weekly View** — a calendar grid (Mon–Sun) for a specific week, with navigation arrows
 
 ---
 
 ### Professor Workflow
 
-1. Log in → **Dashboard** shows assigned sessions, pending declarations, open flags
-2. **My Timetable** → view published schedule (List or Weekly view)
-3. **Availability** → submit unavailability declarations with reason
-   - Admin will classify as Strict or Preferred
-   - Pending declarations can be deleted; classified ones cannot
-4. **My Flags** → respond to conflict notifications from admin
-   - **I can proceed** → flag resolved automatically
-   - **I cannot proceed** → admin notified by email to arrange a substitute
+1. Log in → the **Dashboard** shows your assigned sessions, any pending declarations, and open flags
+2. Go to **My Timetable** → view your published schedule in List or Weekly view
+3. Go to **Availability** → submit dates/times you are unavailable, with a reason
+   - The admin will classify your submission as Strict or Preferred
+   - You can delete a pending declaration; once classified you cannot
+4. Go to **My Flags** → respond to conflict notifications sent by the admin
+   - **I can proceed** → the flag is resolved automatically
+   - **I cannot proceed** → the admin is notified by email to arrange a substitute
 
 ---
 
 ### Student Workflow
 
-1. Log in → **Dashboard** shows published trimester info
-2. **My Timetable** → select your cohort group (e.g. DSC-Y1-A)
+1. Log in → the **Dashboard** shows published trimester information
+2. Go to **My Timetable** → select your cohort group (e.g. DSC-Y1-A)
 3. Toggle between **List View** and **Weekly View**
 4. Click any session block to see full details
 
 ---
 
-## Weekly View Guide
+## Weekly View
 
-The weekly calendar grid is available on all timetable pages.
+The weekly calendar grid is available on all timetable pages (admin, professor, student).
 
 | Colour | Session Type |
 |--------|-------------|
-| 🟢 Green | Tutorial |
-| 🔵 Blue | Lecture |
-| 🟠 Orange | Lab |
-| 🟣 Purple | Seminar |
-| Striped | Online session |
+| Green | Tutorial |
+| Blue | Lecture |
+| Orange | Lab |
+| Purple | Seminar |
+| Striped overlay | Online session |
 
-- Use **← / →** buttons or the **week dropdown** to navigate between weeks
-- Term break weeks show a warning banner
-- Click any session block to open a **details popup**
-- Admin popup includes an **Edit** link to the session week editor
+- Use the **← / →** buttons or the **week dropdown** to move between weeks
+- Weeks that fall in a term break show a warning banner and no sessions
+- Click any session block to open a details popup
+- The admin popup includes a direct **Edit** link to the week editor for that session
 
 ---
 
-## Database Schema (Key Tables)
+## Database Schema
 
 | Table | Purpose |
 |-------|---------|
@@ -256,10 +305,10 @@ timetable-system/
 
 ## Known Limitations
 
-- **Single professor:** All sessions are currently assigned to one professor (David Lin Weidong) as the DSC dataset only lists one teaching staff. The system fully supports multiple professors.
-- **Student accounts:** Student accounts are created manually via `bootstrap/seed_student.py`. A self-registration or admin-managed student UI is planned.
+- **Single professor:** The DSC dataset only lists one teaching staff (David Lin Weidong), so all sessions are assigned to him. The system is built to handle multiple professors.
+- **Student account creation:** Student accounts must be created manually via `bootstrap/seed_student.py`. An admin UI for managing student accounts is planned.
 - **Email SMTP:** SIT Microsoft 365 SMTP AUTH is blocked for student accounts. Gmail App Password is used for the demo.
-- **No mobile layout:** Designed for laptop/desktop screens. Weekly grid uses horizontal scroll on smaller screens.
+- **No mobile layout:** The app is designed for laptop/desktop screens. The weekly calendar grid uses horizontal scroll on smaller screens.
 
 ---
 
