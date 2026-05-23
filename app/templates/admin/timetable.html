@@ -213,9 +213,9 @@
 
         <!-- Trimester tabs -->
         {% if trimesters %}
-        <div class="mb-3 d-flex flex-wrap gap-2">
+        <div class="mb-2 d-flex flex-wrap gap-2">
             {% for t in trimesters %}
-            <a href="{{ url_for('admin.timetable', trimester=t) }}"
+            <a href="{{ url_for('admin.timetable', trimester=t, view=view_mode) }}"
                class="btn btn-sm {% if active_trimester == t %}btn-dark{% else %}btn-outline-secondary{% endif %}">
                 {{ t }}
             </a>
@@ -223,11 +223,193 @@
         </div>
         {% endif %}
 
+        <!-- View toggle -->
         {% if active_trimester and entries %}
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <small class="text-muted">
+                {% if view_mode == 'weekly' %}
+                    Weekly calendar — click a block for details
+                {% else %}
+                    Recurring weekly slot for each session
+                {% endif %}
+            </small>
+            <div class="btn-group btn-group-sm">
+                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='list') }}"
+                   class="btn btn-outline-secondary {% if view_mode == 'list' %}active{% endif %}">
+                    <i class="bi bi-list-ul me-1"></i>List
+                </a>
+                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=week_number) }}"
+                   class="btn btn-outline-secondary {% if view_mode == 'weekly' %}active{% endif %}">
+                    <i class="bi bi-calendar-week me-1"></i>Weekly
+                </a>
+            </div>
+        </div>
+        {% endif %}
+
+        {# ------------------------------------------------------------------ #}
+        {# WEEKLY VIEW                                                         #}
+        {# ------------------------------------------------------------------ #}
+        {% if view_mode == 'weekly' and active_trimester and entries %}
+
+        <!-- Week navigator -->
+        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+            {% if prev_week_num %}
+            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=prev_week_num) }}"
+               class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-chevron-left"></i> Wk {{ prev_week_num }}
+            </a>
+            {% else %}
+            <button class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-chevron-left"></i></button>
+            {% endif %}
+
+            <span class="fw-semibold">
+                Week {{ week_number }}
+                {% if current_cal_week and current_cal_week.start_date %}
+                    &nbsp;·&nbsp;
+                    <span class="text-muted fw-normal">
+                        {{ current_cal_week.start_date.strftime('%d %b') }} – {{ current_cal_week.end_date.strftime('%d %b %Y') }}
+                    </span>
+                {% endif %}
+                {% if current_cal_week and current_cal_week.is_term_break %}
+                    <span class="badge bg-warning text-dark ms-1">Term Break</span>
+                {% endif %}
+            </span>
+
+            {% if next_week_num %}
+            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=next_week_num) }}"
+               class="btn btn-sm btn-outline-secondary">
+                Wk {{ next_week_num }} <i class="bi bi-chevron-right"></i>
+            </a>
+            {% else %}
+            <button class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-chevron-right"></i></button>
+            {% endif %}
+
+            <!-- Week jump dropdown -->
+            <div class="ms-auto">
+                <select class="form-select form-select-sm" style="width:auto;"
+                        onchange="window.location=this.value">
+                    {% for cw in calendar_weeks %}
+                    <option value="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=cw.week_number) }}"
+                            {% if cw.week_number == week_number %}selected{% endif %}>
+                        Week {{ cw.week_number }}{% if cw.start_date %} ({{ cw.start_date.strftime('%d %b') }}){% endif %}{% if cw.is_term_break %} — Break{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        {% if current_cal_week and current_cal_week.is_term_break %}
+        <div class="alert alert-warning py-2">
+            <i class="bi bi-calendar-x me-2"></i>
+            Week {{ week_number }} is a <strong>term break</strong>. No scheduled classes.
+            {% if current_cal_week.notes %}<br><small>{{ current_cal_week.notes }}</small>{% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Weekly grid -->
         <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
-                <span class="fw-semibold">{{ active_trimester }} — Weekly Schedule</span>
-                <small class="text-muted">Showing recurring weekly slot for each session</small>
+            <div class="card-body p-0" style="overflow-x: auto;">
+                <table class="table table-bordered mb-0 weekly-grid" style="min-width: 780px; table-layout: fixed;">
+                    <colgroup>
+                        <col style="width: 80px;">
+                        {% for day in days_all %}
+                        <col style="width: {% if day in ['Saturday','Sunday'] %}60px{% else %}calc((100% - 80px) / 5){% endif %};">
+                        {% endfor %}
+                    </colgroup>
+                    <thead>
+                        <tr class="table-light text-center" style="font-size:0.8rem;">
+                            <th class="text-muted fw-normal">Period</th>
+                            {% for day in days_all %}
+                            <th class="fw-semibold {% if day in ['Saturday','Sunday'] %}text-muted{% endif %}">
+                                {{ day[:3] }}
+                                {% if current_cal_week and current_cal_week.start_date %}
+                                {% set day_offsets = {'Monday':0,'Tuesday':1,'Wednesday':2,'Thursday':3,'Friday':4,'Saturday':5,'Sunday':6} %}
+                                {% set offset = day_offsets[day] %}
+                                <div class="fw-normal text-muted" style="font-size:0.7rem;" id="hdr-{{ day }}"></div>
+                                <script>
+                                (function(){
+                                    var d = new Date('{{ current_cal_week.start_date.isoformat() }}');
+                                    d.setDate(d.getDate() + {{ offset }});
+                                    document.getElementById('hdr-{{ day }}').textContent =
+                                        d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
+                                })();
+                                </script>
+                                {% endif %}
+                            </th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if period_slots %}
+                        {% for ts in period_slots %}
+                        <tr style="height: 95px; vertical-align: top;">
+                            <!-- Period label cell -->
+                            <td class="text-center bg-light border-end p-1" style="font-size:0.72rem; vertical-align: middle;">
+                                <div class="fw-semibold">{{ ts.period_label }}</div>
+                                <div class="text-muted">{{ ts.start_time.strftime('%H:%M') }}</div>
+                                <div class="text-muted">–</div>
+                                <div class="text-muted">{{ ts.end_time.strftime('%H:%M') }}</div>
+                            </td>
+                            <!-- Day cells -->
+                            {% for day in days_all %}
+                            {% set entry = week_grid[day][ts.period_label] if ts.period_label in week_grid[day] else None %}
+                            <td class="p-1 {% if day in ['Saturday','Sunday'] %}bg-light{% endif %}" style="vertical-align: top;">
+                                {% if entry %}
+                                {% set stype = entry.class_session.session_type %}
+                                {% set is_online = entry.class_session.delivery_mode == 'online' %}
+                                <div class="session-block rounded p-1 h-100 session-{{ stype }} {% if is_online %}session-online{% endif %}"
+                                     style="cursor:pointer; font-size:0.72rem; overflow:hidden;"
+                                     data-bs-toggle="modal" data-bs-target="#sessionDetailModal"
+                                     data-module="{{ entry.class_session.course.module_code }}"
+                                     data-title="{{ entry.class_session.course.title }}"
+                                     data-type="{{ entry.class_session.session_type | capitalize }}"
+                                     data-delivery="{{ entry.class_session.delivery_mode }}"
+                                     data-day="{{ entry.timeslot.day_of_week }}"
+                                     data-period="{{ entry.timeslot.period_label }}"
+                                     data-time="{{ entry.timeslot.start_time.strftime('%H:%M') }}–{{ entry.timeslot.end_time.strftime('%H:%M') }}"
+                                     data-room="{{ entry.room.room_code if entry.room else 'Online' }}"
+                                     data-professor="{{ entry.effective_professor.user.name if entry.effective_professor else '—' }}"
+                                     data-group="{{ entry.class_session.student_group.group_label if entry.class_session.student_group else '—' }}"
+                                     data-status="{{ 'Published' if entry.is_published else 'Draft' }}"
+                                     data-edited="{{ 'Yes' if entry.is_manually_edited else 'No' }}"
+                                     data-edit-url="{{ url_for('admin.timetable_session_weeks', trimester=active_trimester, session_id=entry.class_session_id) }}">
+                                    <div class="fw-bold text-truncate">{{ entry.class_session.course.module_code }}</div>
+                                    <div class="text-capitalize">{{ entry.class_session.session_type }}</div>
+                                    {% if is_online %}
+                                    <span class="badge bg-primary" style="font-size:0.62rem;">Online</span>
+                                    {% else %}
+                                    <div class="text-truncate" style="color:inherit; opacity:0.85;">{{ entry.room.room_code if entry.room else '' }}</div>
+                                    {% endif %}
+                                    <div class="mt-auto pt-1" style="font-size:0.65rem; opacity:0.75;">
+                                        {% if not entry.is_published %}<span class="badge bg-secondary" style="font-size:0.6rem;">Draft</span>{% endif %}
+                                        {% if entry.is_manually_edited %}<span class="badge bg-info text-dark" style="font-size:0.6rem;">Edited</span>{% endif %}
+                                    </div>
+                                </div>
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="8" class="text-center text-muted py-5">
+                                <i class="bi bi-calendar-x fs-2 d-block mb-2"></i>
+                                No scheduled classes for Week {{ week_number }}.
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {# ------------------------------------------------------------------ #}
+        {# LIST VIEW (default)                                                 #}
+        {# ------------------------------------------------------------------ #}
+        {% elif active_trimester and entries %}
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                {{ active_trimester }} — Weekly Schedule
             </div>
             <div class="card-body p-0">
                 <table class="table table-hover align-middle mb-0 small">
@@ -267,32 +449,20 @@
                                 </span>
                             </td>
                             <td>
-                                {% if e.class_session.professor %}
-                                    {{ e.class_session.professor.user.name }}
-                                {% else %}
-                                    <span class="text-muted">—</span>
-                                {% endif %}
+                                {% if e.class_session.professor %}{{ e.class_session.professor.user.name }}
+                                {% else %}<span class="text-muted">—</span>{% endif %}
                             </td>
                             <td>
-                                {% if e.class_session.student_group %}
-                                    {{ e.class_session.student_group.group_label }}
-                                {% else %}
-                                    <span class="text-muted">—</span>
-                                {% endif %}
+                                {% if e.class_session.student_group %}{{ e.class_session.student_group.group_label }}
+                                {% else %}<span class="text-muted">—</span>{% endif %}
                             </td>
                             <td>
-                                {% if e.room %}
-                                    {{ e.room.room_code }}
-                                {% else %}
-                                    <span class="text-muted fst-italic">Online</span>
-                                {% endif %}
+                                {% if e.room %}{{ e.room.room_code }}
+                                {% else %}<span class="text-muted fst-italic">Online</span>{% endif %}
                             </td>
                             <td>
-                                {% if e.is_published %}
-                                    <span class="badge bg-success">Published</span>
-                                {% else %}
-                                    <span class="badge bg-secondary">Draft</span>
-                                {% endif %}
+                                {% if e.is_published %}<span class="badge bg-success">Published</span>
+                                {% else %}<span class="badge bg-secondary">Draft</span>{% endif %}
                             </td>
                             <td>
                                 <a href="{{ url_for('admin.timetable_session_weeks', trimester=active_trimester, session_id=e.class_session_id) }}"
@@ -308,22 +478,89 @@
         </div>
 
         {% elif active_trimester %}
-            <div class="card border-0 shadow-sm">
-                <div class="card-body text-center text-muted py-5">
-                    <i class="bi bi-calendar-x fs-2 d-block mb-2"></i>
-                    No timetable generated for <strong>{{ active_trimester }}</strong> yet.
-                </div>
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center text-muted py-5">
+                <i class="bi bi-calendar-x fs-2 d-block mb-2"></i>
+                No timetable generated for <strong>{{ active_trimester }}</strong> yet.
             </div>
+        </div>
         {% else %}
-            <div class="card border-0 shadow-sm">
-                <div class="card-body text-center text-muted py-5">
-                    <i class="bi bi-calendar3 fs-2 d-block mb-2"></i>
-                    Fill in the trimester details and run the solver to generate a timetable.
-                </div>
+        <div class="card border-0 shadow-sm">
+            <div class="card-body text-center text-muted py-5">
+                <i class="bi bi-calendar3 fs-2 d-block mb-2"></i>
+                Fill in the trimester details and run the solver to generate a timetable.
             </div>
+        </div>
         {% endif %}
     </div>
 
 </div>
+
+<!-- Session Detail Modal -->
+<div class="modal fade" id="sessionDetailModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <span id="modal-module" class="fw-bold"></span>
+                    <small class="text-muted ms-2" id="modal-type"></small>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <table class="table table-sm table-borderless mb-0">
+                    <tr><th class="text-muted fw-normal" style="width:35%;">Module</th><td id="md-title"></td></tr>
+                    <tr><th class="text-muted fw-normal">Day / Period</th><td id="md-day"></td></tr>
+                    <tr><th class="text-muted fw-normal">Time</th><td id="md-time"></td></tr>
+                    <tr><th class="text-muted fw-normal">Delivery</th><td id="md-delivery"></td></tr>
+                    <tr><th class="text-muted fw-normal">Room</th><td id="md-room"></td></tr>
+                    <tr><th class="text-muted fw-normal">Professor</th><td id="md-professor"></td></tr>
+                    <tr><th class="text-muted fw-normal">Group</th><td id="md-group"></td></tr>
+                    <tr><th class="text-muted fw-normal">Status</th><td id="md-status"></td></tr>
+                    <tr><th class="text-muted fw-normal">Manually Edited</th><td id="md-edited"></td></tr>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <a id="md-edit-link" href="#" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-pencil me-1"></i>View / Edit Weeks
+                </a>
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.weekly-grid td, .weekly-grid th { padding: 0.25rem; }
+.session-block { min-height: 70px; display: flex; flex-direction: column; }
+.session-lecture  { background: #dbeafe; border-left: 3px solid #3b82f6; color: #1e3a5f; }
+.session-tutorial { background: #dcfce7; border-left: 3px solid #16a34a; color: #14532d; }
+.session-lab      { background: #ffedd5; border-left: 3px solid #f97316; color: #7c2d12; }
+.session-seminar  { background: #ede9fe; border-left: 3px solid #7c3aed; color: #3b0764; }
+.session-online   { opacity: 0.85; background-image: repeating-linear-gradient(
+    45deg, transparent, transparent 4px, rgba(255,255,255,0.4) 4px, rgba(255,255,255,0.4) 8px); }
+.session-block:hover { filter: brightness(0.95); }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var modal = document.getElementById('sessionDetailModal');
+    modal.addEventListener('show.bs.modal', function (event) {
+        var el = event.relatedTarget;
+        document.getElementById('modal-module').textContent   = el.dataset.module;
+        document.getElementById('modal-type').textContent     = el.dataset.type;
+        document.getElementById('md-title').textContent       = el.dataset.title;
+        document.getElementById('md-day').textContent         = el.dataset.day + ' · ' + el.dataset.period;
+        document.getElementById('md-time').textContent        = el.dataset.time;
+        document.getElementById('md-delivery').textContent    = el.dataset.delivery === 'online' ? 'Online' : 'Face-to-face';
+        document.getElementById('md-room').textContent        = el.dataset.room;
+        document.getElementById('md-professor').textContent   = el.dataset.professor;
+        document.getElementById('md-group').textContent       = el.dataset.group;
+        document.getElementById('md-status').textContent      = el.dataset.status;
+        document.getElementById('md-edited').textContent      = el.dataset.edited;
+        document.getElementById('md-edit-link').href          = el.dataset.editUrl;
+    });
+});
+</script>
 
 {% endblock %}

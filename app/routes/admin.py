@@ -1159,6 +1159,20 @@ def timetable():
 
         elif action == 'reset':
             from app.models.academic_calendar import AcademicCalendar
+            from app.models.timetable_flag import TimetableFlag
+            from app.models.flag_response import FlagResponse
+
+            # Delete flag responses and flags first (FK references timetable_entries)
+            flag_ids = [
+                f.id for f in TimetableFlag.query
+                .join(TimetableFlag.timetable_entry)
+                .filter(TimetableEntry.trimester == trimester)
+                .all()
+            ]
+            if flag_ids:
+                FlagResponse.query.filter(FlagResponse.flag_id.in_(flag_ids)).delete(synchronize_session=False)
+                TimetableFlag.query.filter(TimetableFlag.id.in_(flag_ids)).delete(synchronize_session=False)
+
             deleted = TimetableEntry.query.filter_by(trimester=trimester).delete()
             AcademicCalendar.query.filter_by(trimester=trimester).delete()
             db.session.commit()
@@ -1191,10 +1205,70 @@ def timetable():
         e.timeslot.start_time
     ))
 
+    # ---------------------------------------------------------------------------
+    # Weekly view support
+    # ---------------------------------------------------------------------------
+    from app.models.academic_calendar import AcademicCalendar
+
+    DAYS_ALL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    view_mode       = request.args.get('view', 'list')
+    week_number     = request.args.get('week', 1, type=int)
+    calendar_weeks  = []
+    period_slots    = []
+    week_grid       = {d: {} for d in DAYS_ALL}
+    current_cal_week = None
+    prev_week_num   = None
+    next_week_num   = None
+
+    if trimester:
+        calendar_weeks = (AcademicCalendar.query
+                          .filter_by(trimester=trimester)
+                          .order_by(AcademicCalendar.week_number)
+                          .all())
+
+        all_week_nums = [cw.week_number for cw in calendar_weeks] if calendar_weeks else list(range(1, 14))
+        if week_number not in all_week_nums:
+            week_number = all_week_nums[0]
+
+        current_idx      = all_week_nums.index(week_number)
+        prev_week_num    = all_week_nums[current_idx - 1] if current_idx > 0 else None
+        next_week_num    = all_week_nums[current_idx + 1] if current_idx < len(all_week_nums) - 1 else None
+        current_cal_week = next((cw for cw in calendar_weeks if cw.week_number == week_number), None)
+
+        period_slots = (TimeSlot.query
+                        .filter_by(day_of_week='Monday')
+                        .order_by(TimeSlot.start_time, TimeSlot.end_time, TimeSlot.period_label)
+                        .all())
+
+        week_entries_raw = (TimetableEntry.query
+                            .join(TimetableEntry.class_session)
+                            .join(TimetableEntry.timeslot)
+                            .filter(
+                                TimetableEntry.trimester == trimester,
+                                TimetableEntry.week_number == week_number,
+                            )
+                            .all())
+
+        week_grid = {day: {ts.period_label: None for ts in period_slots} for day in DAYS_ALL}
+        for entry in week_entries_raw:
+            d = entry.timeslot.day_of_week
+            p = entry.timeslot.period_label
+            if d in week_grid and p in week_grid[d]:
+                week_grid[d][p] = entry
+
     return render_template('admin/timetable.html',
                            issues=issues,
                            trimesters=trimesters,
                            active_trimester=trimester,
                            entries=unique_entries,
                            stats=stats,
-                           result=result)
+                           result=result,
+                           view_mode=view_mode,
+                           week_number=week_number,
+                           calendar_weeks=calendar_weeks,
+                           current_cal_week=current_cal_week,
+                           prev_week_num=prev_week_num,
+                           next_week_num=next_week_num,
+                           period_slots=period_slots,
+                           week_grid=week_grid,
+                           days_all=DAYS_ALL)
