@@ -522,29 +522,42 @@ def student_group_delete(group_id):
 def course_sessions(course_id):
     course = Course.query.get_or_404(course_id)
 
-    # Auto-expand f2f sessions based on split_count.
-    # If a course has split_count=2 and only 1 f2f tutorial session,
-    # we create a second one so each sub-group can be assigned separately.
-    if course.split_count and course.split_count > 1:
-        f2f_sessions = [s for s in course.class_sessions if s.delivery_mode == 'f2f']
-        # Group by session_type to check counts
-        from collections import defaultdict
-        type_counts = defaultdict(list)
-        for s in f2f_sessions:
-            type_counts[s.session_type].append(s)
+    # Sync f2f session count to split_count (expand up or trim down).
+    from collections import defaultdict
+    target_count = course.split_count if course.split_count and course.split_count > 0 else 1
+    f2f_sessions = [s for s in course.class_sessions if s.delivery_mode == 'f2f']
+    type_counts = defaultdict(list)
+    for s in f2f_sessions:
+        type_counts[s.session_type].append(s)
 
-        for stype, sessions in type_counts.items():
-            while len(sessions) < course.split_count:
-                new_session = ClassSession(
-                    course_id=course.id,
-                    session_type=stype,
-                    delivery_mode='f2f',
-                    duration_hours=sessions[0].duration_hours,
-                    professor_id=None,
-                    student_group_id=None,
-                )
-                db.session.add(new_session)
-                sessions.append(new_session)
+    changed = False
+    for stype, sessions in type_counts.items():
+        # Expand: create sessions if below target
+        while len(sessions) < target_count:
+            new_session = ClassSession(
+                course_id=course.id,
+                session_type=stype,
+                delivery_mode='f2f',
+                duration_hours=sessions[0].duration_hours,
+                professor_id=None,
+                student_group_id=None,
+            )
+            db.session.add(new_session)
+            sessions.append(new_session)
+            changed = True
+
+        # Trim: remove excess sessions if above target.
+        # Only removes sessions that are fully unassigned with no timetable entries.
+        while len(sessions) > target_count:
+            last = sessions[-1]
+            if not last.professor_id and not last.student_group_id and not last.timetable_entries:
+                db.session.delete(last)
+                sessions.pop()
+                changed = True
+            else:
+                break  # Leave assigned sessions alone — admin must clear them manually
+
+    if changed:
         db.session.commit()
 
     # Reload sessions after potential expansion
@@ -1108,6 +1121,46 @@ def audit_log():
                            active_trimester=trimester_filter)
 
 
+@admin_bp.route('/audit-log/export')
+@login_required
+def audit_log_export():
+    """Download audit log as CSV."""
+    import csv
+    import io
+    from flask import Response
+
+    trimester_filter = request.args.get('trimester', '')
+    query = AuditLog.query.order_by(AuditLog.timestamp.desc())
+    if trimester_filter:
+        query = query.filter_by(trimester=trimester_filter)
+    logs = query.all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Timestamp', 'Admin', 'Trimester', 'Module', 'Session Type',
+                     'Scope', 'Old Timeslot', 'New Timeslot',
+                     'Old Room', 'New Room', 'Old Professor', 'New Professor'])
+    for log in logs:
+        writer.writerow([
+            log.timestamp.strftime('%Y-%m-%d %H:%M'),
+            log.user.name if log.user else '',
+            log.trimester or '',
+            log.module_code or '',
+            log.session_type or '',
+            'All weeks' if log.action == 'edit_all_weeks' else (log.week_label or ''),
+            log.old_timeslot or '', log.new_timeslot or '',
+            log.old_room or '',    log.new_room or '',
+            log.old_professor or '', log.new_professor or '',
+        ])
+
+    filename = f'audit_log{"_" + trimester_filter if trimester_filter else ""}.csv'
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename={filename}'}
+    )
+
+
 # ---------------------------------------------------------------------------
 # Timetable — generate and view
 # ---------------------------------------------------------------------------
@@ -1139,7 +1192,16 @@ def timetable():
             else:
                 try:
                     start_date = date.fromisoformat(start_raw)
-                    success, message, stats = solve(trimester, start_date)
+                    # Parse term break weeks (comma-separated, e.g. "7" or "7,14")
+                    break_raw = request.form.get('term_break_weeks', '7').strip()
+                    term_break_weeks = set()
+                    for part in break_raw.split(','):
+                        part = part.strip()
+                        if part.isdigit():
+                            term_break_weeks.add(int(part))
+                    if not term_break_weeks:
+                        term_break_weeks = {7}   # safe fallback
+                    success, message, stats = solve(trimester, start_date, term_break_weeks)
                     result = {'success': success, 'message': message}
                     if success:
                         flash(message, 'success')
@@ -1249,12 +1311,20 @@ def timetable():
                             )
                             .all())
 
-        week_grid = {day: {ts.period_label: None for ts in period_slots} for day in DAYS_ALL}
+        # Store a list per cell so multiple sessions in the same slot all appear
+        week_grid = {day: {ts.period_label: [] for ts in period_slots} for day in DAYS_ALL}
         for entry in week_entries_raw:
             d = entry.timeslot.day_of_week
             p = entry.timeslot.period_label
             if d in week_grid and p in week_grid[d]:
-                week_grid[d][p] = entry
+                week_grid[d][p].append(entry)
+
+    # Year levels available in this trimester (for filter buttons)
+    year_levels = sorted(set(
+        e.class_session.course.year_level
+        for e in unique_entries
+        if e.class_session.course.year_level
+    )) if unique_entries else []
 
     return render_template('admin/timetable.html',
                            issues=issues,
@@ -1271,4 +1341,5 @@ def timetable():
                            next_week_num=next_week_num,
                            period_slots=period_slots,
                            week_grid=week_grid,
-                           days_all=DAYS_ALL)
+                           days_all=DAYS_ALL,
+                           year_levels=year_levels)

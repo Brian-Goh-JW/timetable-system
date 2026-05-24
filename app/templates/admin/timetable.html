@@ -59,7 +59,19 @@
                             Week 1 Start Date <span class="text-danger">*</span>
                         </label>
                         <input type="date" class="form-control" id="start_date" name="start_date" required>
-                        <div class="form-text">Must be a Monday. Week 7 will be automatically set as term break.</div>
+                        <div class="form-text">Must be a Monday.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="term_break_weeks" class="form-label fw-medium">
+                            Term Break Week(s)
+                        </label>
+                        <input type="text" class="form-control" id="term_break_weeks"
+                               name="term_break_weeks" value="7" placeholder="e.g. 7 or 6,7">
+                        <div class="form-text">
+                            Week numbers to mark as term break, comma-separated.
+                            These weeks are skipped by the solver.
+                        </div>
                     </div>
 
                     <button type="submit"
@@ -223,9 +235,9 @@
         </div>
         {% endif %}
 
-        <!-- View toggle -->
+        <!-- View toggle + year filter -->
         {% if active_trimester and entries %}
-        <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
             <small class="text-muted">
                 {% if view_mode == 'weekly' %}
                     Weekly calendar — click a block for details
@@ -244,6 +256,17 @@
                 </a>
             </div>
         </div>
+
+        <!-- Year level filter (client-side, no reload) -->
+        {% if year_levels %}
+        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap" id="year-filter">
+            <span class="text-muted small fw-medium">Filter:</span>
+            <button class="btn btn-sm btn-dark" onclick="filterYear('all', this)">All Years</button>
+            {% for yr in year_levels %}
+            <button class="btn btn-sm btn-outline-secondary" onclick="filterYear('{{ yr }}', this)">Year {{ yr }}</button>
+            {% endfor %}
+        </div>
+        {% endif %}
         {% endif %}
 
         {# ------------------------------------------------------------------ #}
@@ -342,7 +365,7 @@
                     <tbody>
                         {% if period_slots %}
                         {% for ts in period_slots %}
-                        <tr style="height: 95px; vertical-align: top;">
+                        <tr style="min-height: 80px; vertical-align: top;">
                             <!-- Period label cell -->
                             <td class="text-center bg-light border-end p-1" style="font-size:0.72rem; vertical-align: middle;">
                                 <div class="fw-semibold">{{ ts.period_label }}</div>
@@ -350,15 +373,19 @@
                                 <div class="text-muted">–</div>
                                 <div class="text-muted">{{ ts.end_time.strftime('%H:%M') }}</div>
                             </td>
-                            <!-- Day cells -->
+                            <!-- Day cells — each cell may contain multiple sessions (e.g. split groups) -->
                             {% for day in days_all %}
-                            {% set entry = week_grid[day][ts.period_label] if ts.period_label in week_grid[day] else None %}
+                            {% set cell_entries = week_grid[day][ts.period_label] if ts.period_label in week_grid[day] else [] %}
                             <td class="p-1 {% if day in ['Saturday','Sunday'] %}bg-light{% endif %}" style="vertical-align: top;">
-                                {% if entry %}
+                                {% for entry in cell_entries %}
                                 {% set stype = entry.class_session.session_type %}
                                 {% set is_online = entry.class_session.delivery_mode == 'online' %}
-                                <div class="session-block rounded p-1 h-100 session-{{ stype }} {% if is_online %}session-online{% endif %}"
+                                {% set yr = entry.class_session.course.year_level %}
+                                {% set grp = entry.class_session.student_group.group_label if entry.class_session.student_group else '' %}
+                                <div class="session-block rounded p-1 session-{{ stype }} {% if is_online %}session-online{% endif %} {% if not loop.last %}mb-1{% endif %}"
                                      style="cursor:pointer; font-size:0.72rem; overflow:hidden;"
+                                     data-year="{{ yr }}"
+                                     data-group="{{ grp }}"
                                      data-bs-toggle="modal" data-bs-target="#sessionDetailModal"
                                      data-module="{{ entry.class_session.course.module_code }}"
                                      data-title="{{ entry.class_session.course.title }}"
@@ -369,7 +396,7 @@
                                      data-time="{{ entry.timeslot.start_time.strftime('%H:%M') }}–{{ entry.timeslot.end_time.strftime('%H:%M') }}"
                                      data-room="{{ entry.room.room_code if entry.room else 'Online' }}"
                                      data-professor="{{ entry.effective_professor.user.name if entry.effective_professor else '—' }}"
-                                     data-group="{{ entry.class_session.student_group.group_label if entry.class_session.student_group else '—' }}"
+                                     data-group-label="{{ grp if grp else '—' }}"
                                      data-status="{{ 'Published' if entry.is_published else 'Draft' }}"
                                      data-edited="{{ 'Yes' if entry.is_manually_edited else 'No' }}"
                                      data-edit-url="{{ url_for('admin.timetable_session_weeks', trimester=active_trimester, session_id=entry.class_session_id) }}">
@@ -380,12 +407,15 @@
                                     {% else %}
                                     <div class="text-truncate" style="color:inherit; opacity:0.85;">{{ entry.room.room_code if entry.room else '' }}</div>
                                     {% endif %}
-                                    <div class="mt-auto pt-1" style="font-size:0.65rem; opacity:0.75;">
-                                        {% if not entry.is_published %}<span class="badge bg-secondary" style="font-size:0.6rem;">Draft</span>{% endif %}
-                                        {% if entry.is_manually_edited %}<span class="badge bg-info text-dark" style="font-size:0.6rem;">Edited</span>{% endif %}
+                                    {% if grp %}
+                                    <div class="text-truncate" style="font-size:0.62rem; opacity:0.75;">{{ grp }}</div>
+                                    {% endif %}
+                                    <div class="mt-1" style="font-size:0.62rem; opacity:0.75;">
+                                        {% if not entry.is_published %}<span class="badge bg-secondary" style="font-size:0.58rem;">Draft</span>{% endif %}
+                                        {% if entry.is_manually_edited %}<span class="badge bg-info text-dark" style="font-size:0.58rem;">Edited</span>{% endif %}
                                     </div>
                                 </div>
-                                {% endif %}
+                                {% endfor %}
                             </td>
                             {% endfor %}
                         </tr>
@@ -430,7 +460,7 @@
                     </thead>
                     <tbody>
                         {% for e in entries %}
-                        <tr>
+                        <tr data-year="{{ e.class_session.course.year_level }}">
                             <td class="ps-3 fw-medium">{{ e.timeslot.day_of_week }}</td>
                             <td>{{ e.timeslot.period_label }}</td>
                             <td class="text-muted">
@@ -532,7 +562,7 @@
 
 <style>
 .weekly-grid td, .weekly-grid th { padding: 0.25rem; }
-.session-block { min-height: 70px; display: flex; flex-direction: column; }
+.session-block { min-height: 65px; display: flex; flex-direction: column; }
 .session-lecture  { background: #dbeafe; border-left: 3px solid #3b82f6; color: #1e3a5f; }
 .session-tutorial { background: #dcfce7; border-left: 3px solid #16a34a; color: #14532d; }
 .session-lab      { background: #ffedd5; border-left: 3px solid #f97316; color: #7c2d12; }
@@ -540,6 +570,7 @@
 .session-online   { opacity: 0.85; background-image: repeating-linear-gradient(
     45deg, transparent, transparent 4px, rgba(255,255,255,0.4) 4px, rgba(255,255,255,0.4) 8px); }
 .session-block:hover { filter: brightness(0.95); }
+.session-block.filtered-out { display: none !important; }
 </style>
 
 <script>
@@ -555,11 +586,51 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('md-delivery').textContent    = el.dataset.delivery === 'online' ? 'Online' : 'Face-to-face';
         document.getElementById('md-room').textContent        = el.dataset.room;
         document.getElementById('md-professor').textContent   = el.dataset.professor;
-        document.getElementById('md-group').textContent       = el.dataset.group;
+        document.getElementById('md-group').textContent       = el.dataset.groupLabel || '—';
         document.getElementById('md-status').textContent      = el.dataset.status;
         document.getElementById('md-edited').textContent      = el.dataset.edited;
         document.getElementById('md-edit-link').href          = el.dataset.editUrl;
     });
+});
+
+function filterYear(year, btn) {
+    // Persist selection so it survives week navigation / view toggle
+    localStorage.setItem('adminTimetableYearFilter', year);
+
+    // Update active button styles
+    document.querySelectorAll('#year-filter button').forEach(function(b) {
+        b.classList.remove('btn-dark', 'active');
+        b.classList.add('btn-outline-secondary');
+    });
+    btn.classList.remove('btn-outline-secondary');
+    btn.classList.add('btn-dark', 'active');
+
+    // Filter weekly view blocks
+    document.querySelectorAll('.session-block').forEach(function(block) {
+        if (year === 'all' || String(block.dataset.year) === String(year)) {
+            block.classList.remove('filtered-out');
+        } else {
+            block.classList.add('filtered-out');
+        }
+    });
+
+    // Filter list view rows
+    document.querySelectorAll('tbody tr[data-year]').forEach(function(row) {
+        if (year === 'all' || String(row.dataset.year) === String(year)) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+// Restore saved filter on every page load
+document.addEventListener('DOMContentLoaded', function () {
+    var saved = localStorage.getItem('adminTimetableYearFilter');
+    if (saved && saved !== 'all') {
+        var btn = document.querySelector('#year-filter button[onclick*="' + saved + '"]');
+        if (btn) filterYear(saved, btn);
+    }
 });
 </script>
 

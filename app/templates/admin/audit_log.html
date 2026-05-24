@@ -8,7 +8,13 @@
         <h4 class="mb-0 fw-semibold">Audit Log</h4>
         <small class="text-muted">Record of all manual timetable edits</small>
     </div>
-    <span class="badge bg-secondary fs-6">{{ logs | length }} entries</span>
+    <div class="d-flex align-items-center gap-2">
+        <span class="badge bg-secondary fs-6">{{ logs | length }} entries</span>
+        <a href="{{ url_for('admin.audit_log_export', trimester=active_trimester) }}"
+           class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-download me-1"></i>Export CSV
+        </a>
+    </div>
 </div>
 
 <!-- Trimester filter -->

@@ -10,6 +10,12 @@
     </div>
 </div>
 
+<div class="mb-3 d-flex gap-2 align-items-center">
+    <input type="text" id="course-search" class="form-control form-control-sm" style="max-width:320px;"
+           placeholder="Search module code or title…" oninput="filterCourses()">
+    <span id="course-count" class="text-muted small"></span>
+</div>
+
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
         <table class="table table-hover align-middle mb-0">
@@ -72,5 +78,22 @@
         </table>
     </div>
 </div>
+
+<script>
+function filterCourses() {
+    var q = document.getElementById('course-search').value.toLowerCase();
+    var rows = document.querySelectorAll('tbody tr');
+    var visible = 0;
+    rows.forEach(function(row) {
+        var show = !q || row.textContent.toLowerCase().includes(q);
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+    var total = rows.length;
+    document.getElementById('course-count').textContent =
+        q ? (visible + ' of ' + total + ' modules') : (total + ' modules');
+}
+document.addEventListener('DOMContentLoaded', function() { filterCourses(); });
+</script>
 
 {% endblock %}

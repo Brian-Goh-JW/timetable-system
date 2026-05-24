@@ -68,20 +68,29 @@ def _conflicting_group_ids(group_id):
     return ids
 
 
-def _get_or_create_calendar(trimester, start_date):
-    """Seed AcademicCalendar rows for the trimester if they don't exist yet."""
+def _get_or_create_calendar(trimester, start_date, term_break_weeks=None):
+    """Seed AcademicCalendar rows for the trimester if they don't exist yet.
+
+    Args:
+        term_break_weeks: set of week numbers to mark as term breaks.
+                          Defaults to {7} if not provided.
+    """
+    if term_break_weeks is None:
+        term_break_weeks = {7}
+
     existing = AcademicCalendar.query.filter_by(trimester=trimester).first()
     if not existing:
         current = start_date
         for week_num in range(1, 14):
+            is_break = week_num in term_break_weeks
             db.session.add(AcademicCalendar(
                 trimester=trimester,
                 week_number=week_num,
                 start_date=current,
                 end_date=current + timedelta(days=4),
-                is_term_break=(week_num == 7),
+                is_term_break=is_break,
                 is_public_holiday=False,
-                notes='Term break' if week_num == 7 else None,
+                notes='Term break' if is_break else None,
             ))
             current += timedelta(weeks=1)
         db.session.commit()
@@ -96,17 +105,20 @@ def _get_or_create_calendar(trimester, start_date):
 # Main solver
 # ---------------------------------------------------------------------------
 
-def solve(trimester, start_date):
+def solve(trimester, start_date, term_break_weeks=None):
     """
     Run CP-SAT to schedule all ready ClassSessions for the given trimester.
 
     Args:
-        trimester  : str  — e.g. '2025-T3'
-        start_date : date — Monday of Week 1
+        trimester         : str       — e.g. '2025-T3'
+        start_date        : date      — Monday of Week 1
+        term_break_weeks  : set[int]  — week numbers to mark as term breaks (default: {7})
 
     Returns:
         (success: bool, message: str, stats: dict)
     """
+    if term_break_weeks is None:
+        term_break_weeks = {7}
 
     # 1. Load sessions that are ready:
     #    - f2f sessions need both professor and student group
@@ -286,9 +298,40 @@ def solve(trimester, start_date):
                 decl  = pref_decl_map.get((s.professor_id, ts_id))
                 penalty_vars.append((is_violated, s, avoid_idx, decl))
 
-    # Only set an objective if there are soft constraints to optimise
-    if penalty_vars:
-        model.Minimize(sum(pv for pv, *_ in penalty_vars))
+    # Soft constraint G — day spread
+    # Penalise pairs of sessions that land on the same day to prevent
+    # Mon–Wed clustering when no availability declarations exist.
+    # Weight (1) is far lower than preferred violation weight (100), so
+    # spreading never overrides availability preference satisfaction.
+    _day_num    = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
+    slot_to_day = [_day_num.get(ts.day_of_week, 5) for ts in timeslots]
+
+    day_var_map = {}
+    for s in sessions:
+        dv = model.NewIntVar(0, 5, f'day_{s.id}')
+        model.AddElement(slot_vars[s.id], slot_to_day, dv)
+        day_var_map[s.id] = dv
+
+    spread_cost_vars = []
+    for i in range(len(sessions)):
+        for j in range(i + 1, len(sessions)):
+            si, sj = sessions[i], sessions[j]
+            same_day_b = model.NewBoolVar(f'sd_{si.id}_{sj.id}')
+            model.Add(day_var_map[si.id] == day_var_map[sj.id]).OnlyEnforceIf(same_day_b)
+            model.Add(day_var_map[si.id] != day_var_map[sj.id]).OnlyEnforceIf(same_day_b.Not())
+            spread_cost_vars.append(same_day_b)
+
+    # Combined objective:
+    #   preferred violations → weight 100 (must satisfy first)
+    #   day spread penalty   → weight 1   (secondary, never overrides above)
+    obj_terms = []
+    for pv, *_ in penalty_vars:
+        obj_terms.append(100 * pv)
+    for sv in spread_cost_vars:
+        obj_terms.append(sv)
+
+    if obj_terms:
+        model.Minimize(sum(obj_terms))
 
     # 5. Solve
     cp_solver = cp_model.CpSolver()
@@ -328,7 +371,7 @@ def solve(trimester, start_date):
     # 7. Write TimetableEntry records
     TimetableEntry.query.filter_by(trimester=trimester).delete()
 
-    cal_weeks      = _get_or_create_calendar(trimester, start_date)
+    cal_weeks      = _get_or_create_calendar(trimester, start_date, term_break_weeks)
     teaching_weeks = [w for w in cal_weeks if not w.is_term_break and not w.is_public_holiday]
 
     entries = 0

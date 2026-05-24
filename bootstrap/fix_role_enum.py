@@ -1,3 +1,10 @@
+"""
+One-time migration: updates the users.role ENUM to include 'professor'.
+Run once if the role column was originally created without the 'professor' value.
+Affects table: users — column: role
+
+Run: python bootstrap/fix_role_enum.py
+"""
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

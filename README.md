@@ -126,6 +126,18 @@ python -c "from app import create_app, db; app = create_app(); app.app_context()
 
 These one-time scripts populate the database with initial data.
 
+| Script | What it does |
+|--------|-------------|
+| `seed_admin.py` | Creates the admin login account in the `users` table |
+| `excel_loader.py` | Loads courses, rooms, professors, student groups, and timeslots from Excel/CSV into the database |
+| `add_fixed_timeslot.py` | Adds `fixed_timeslot_id` column to `class_sessions` (for pinning sessions to a specific slot) |
+| `add_manual_edit_columns.py` | Adds `override_professor_id` to `timetable_entries` and creates the `audit_logs` table |
+| `add_flag_deadline.py` | Adds `response_deadline` and `notification_sent` columns to `timetable_flags` |
+| `fix_role_enum.py` | Updates `users.role` ENUM to include `'professor'` — only needed if the column was created without it |
+| `seed_student.py` | Creates a test student login account in the `users` table |
+
+Run them in this order:
+
 ```bash
 # 1. Create the admin account
 python bootstrap/seed_admin.py
@@ -143,7 +155,7 @@ python bootstrap/add_flag_deadline.py
 python bootstrap/seed_student.py
 ```
 
-> Each script prints a confirmation message when done. If a script says the record already exists, that's fine — it means you've already run it before.
+> Each script prints a confirmation message when done. If a script says the record already exists, that's fine — it means you have already run it before.
 
 ---
 
