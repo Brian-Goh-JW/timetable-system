@@ -71,6 +71,10 @@
                                    href="{{ url_for('admin.student_groups') }}">Student Groups</a>
                             </li>
                             <li class="nav-item">
+                                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.student') and not request.endpoint.startswith('admin.student_group') %}active{% endif %}"
+                                   href="{{ url_for('admin.students') }}">Students</a>
+                            </li>
+                            <li class="nav-item">
                                 <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.room') %}active{% endif %}"
                                    href="{{ url_for('admin.rooms') }}">Rooms</a>
                             </li>

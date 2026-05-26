@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
 from flask_login import login_required, current_user
 
 from app import db
@@ -14,6 +14,16 @@ from app.models.flag_response import FlagResponse
 teacher_bp = Blueprint('teacher', __name__, url_prefix='/teacher')
 
 DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+
+
+@teacher_bp.before_request
+@login_required
+def require_professor():
+    """Reject any non-professor user trying to access teacher routes."""
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.login'))
+    if current_user.role != 'professor':
+        abort(403)
 
 
 # ---------------------------------------------------------------------------

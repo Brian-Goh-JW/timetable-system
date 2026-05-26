@@ -55,7 +55,7 @@ source venv/bin/activate
 ### Step 3 — Install dependencies
 
 ```bash
-pip install flask flask-sqlalchemy flask-login flask-mail pymysql ortools pandas openpyxl
+pip install -r requirements.txt
 ```
 
 > This installs all the Python packages the app needs to run. It may take a minute.
@@ -124,38 +124,33 @@ python -c "from app import create_app, db; app = create_app(); app.app_context()
 
 ### Step 7 — Run the bootstrap scripts (in order)
 
-These one-time scripts populate the database with initial data.
+These one-time scripts set up the database with initial data and apply schema migrations.
 
-| Script | What it does |
-|--------|-------------|
-| `seed_admin.py` | Creates the admin login account in the `users` table |
-| `excel_loader.py` | Loads courses, rooms, professors, student groups, and timeslots from Excel/CSV into the database |
-| `add_fixed_timeslot.py` | Adds `fixed_timeslot_id` column to `class_sessions` (for pinning sessions to a specific slot) |
-| `add_manual_edit_columns.py` | Adds `override_professor_id` to `timetable_entries` and creates the `audit_logs` table |
-| `add_flag_deadline.py` | Adds `response_deadline` and `notification_sent` columns to `timetable_flags` |
-| `fix_role_enum.py` | Updates `users.role` ENUM to include `'professor'` — only needed if the column was created without it |
-| `seed_student.py` | Creates a test student login account in the `users` table |
+| Script | What it does | Tables affected |
+|--------|-------------|-----------------|
+| `1_seed_admin.py` | Creates the admin login account | `users` |
+| `2_excel_loader.py` | Loads courses, timeslots, and rooms from Excel/CSV | `programmes`, `courses`, `class_sessions`, `timeslots`, `rooms` |
+| `3_migrate.py` | Applies all column and table additions needed after initial setup | `class_sessions`, `timetable_entries`, `timetable_flags`, `audit_logs`, `users` |
+| `4_seed_student.py` | *(Optional)* Creates a test student login for demo | `users` |
 
 Run them in this order:
 
 ```bash
 # 1. Create the admin account
-python bootstrap/seed_admin.py
+python bootstrap/1_seed_admin.py
 
-# 2. Load DSC programme data (courses, rooms, professors, student groups)
-#    Open bootstrap/excel_loader.py first and update the file paths to your Excel/CSV files
-python bootstrap/excel_loader.py
+# 2. Load DSC programme data
+#    Open bootstrap/2_excel_loader.py first and update DSC_EXCEL and VENUE_CSV paths
+python bootstrap/2_excel_loader.py
 
-# 3. Apply schema additions (run each once)
-python bootstrap/add_fixed_timeslot.py
-python bootstrap/add_manual_edit_columns.py
-python bootstrap/add_flag_deadline.py
+# 3. Apply all schema migrations (run once)
+python bootstrap/3_migrate.py
 
 # 4. (Optional) Create a test student account
-python bootstrap/seed_student.py
+python bootstrap/4_seed_student.py
 ```
 
-> Each script prints a confirmation message when done. If a script says the record already exists, that's fine — it means you have already run it before.
+> Each script prints a confirmation message when done. If a script says a column already exists, that's fine — it means you have already run it before.
 
 ---
 
@@ -298,17 +293,22 @@ timetable-system/
 │   ├── engine/
 │   │   ├── solver.py          # CP-SAT timetable generator
 │   │   └── checker.py         # Pre-solve validation
-│   ├── models/                # SQLAlchemy ORM models
+│   ├── models/                # SQLAlchemy ORM models (one file per table)
 │   ├── routes/
-│   │   ├── admin.py           # Admin blueprint
-│   │   ├── teacher.py         # Professor blueprint
-│   │   ├── student.py         # Student blueprint
-│   │   └── auth.py            # Login / logout
-│   ├── templates/             # Jinja2 HTML templates
+│   │   ├── admin.py           # Admin blueprint  (/admin/*)
+│   │   ├── teacher.py         # Professor blueprint (/teacher/*)
+│   │   ├── student.py         # Student blueprint (/student/*)
+│   │   └── auth.py            # Login / logout (/login, /logout)
+│   ├── templates/             # Jinja2 HTML templates (admin/, teacher/, student/, auth/)
 │   └── utils/
 │       └── email.py           # Flask-Mail notifications
-├── bootstrap/                 # One-time setup scripts
-├── config.py                  # Credentials (gitignored)
+├── bootstrap/                 # One-time setup scripts — run in numbered order
+│   ├── 1_seed_admin.py        # Creates admin account → users
+│   ├── 2_excel_loader.py      # Loads Excel/CSV data → programmes, courses, timeslots, rooms
+│   ├── 3_migrate.py           # Schema additions → class_sessions, timetable_entries, timetable_flags, audit_logs
+│   └── 4_seed_student.py      # (Optional) test student account → users
+├── config.py                  # Credentials — gitignored, create from README template
+├── requirements.txt           # Python dependencies
 ├── run.py                     # App entry point
 └── README.md
 ```

@@ -1,9 +1,11 @@
 """
-Creates the initial Admin user account.
-Run once after excel_loader.py to set up the first Admin login.
+STEP 1 — Create the admin login account.
+Run once after db.create_all() (Step 6 in README).
 
 Usage:
-    python bootstrap/seed_admin.py
+    python bootstrap/1_seed_admin.py
+
+Creates in table: users
 """
 
 import sys

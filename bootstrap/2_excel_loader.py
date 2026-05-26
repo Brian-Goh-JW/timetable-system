@@ -1,9 +1,14 @@
 """
-One-time bootstrap script — populates timetable_db from Excel and CSV source files.
-Run once to initialise the database. All future data operations go through the web app.
+STEP 2 — Load course, room, and timeslot data from Excel/CSV source files.
+Run once after 1_seed_admin.py.
 
 Usage:
-    python bootstrap/excel_loader.py
+    python bootstrap/2_excel_loader.py
+
+Update DSC_EXCEL and VENUE_CSV below to point to your local files before running.
+
+Creates/populates tables:
+    programmes, courses, class_sessions, rooms, timeslots
 """
 
 import sys
@@ -20,8 +25,12 @@ from app.models.class_session import ClassSession
 from app.models.room import Room
 from app.models.timeslot import TimeSlot
 
+# -------------------------------------------------
+# Update these paths to your local Excel/CSV files
+# -------------------------------------------------
 DSC_EXCEL = r'C:\Users\brain\Downloads\2510_DSC (1).xlsx'
 VENUE_CSV  = r'C:\Users\brain\Downloads\Venue Information(Campus Court).csv'
+# -------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +163,7 @@ def load_courses_and_sessions(programme):
         else:
             course_mode = 'f2f'
 
-        # Total contact hours: sum (duration × weeks) for the first occurrence of each unique session
+        # Total contact hours: sum (duration x weeks) for the first occurrence of each unique session
         total_hours = 0
         seen = set()
         for _, row in group.iterrows():
@@ -173,15 +182,15 @@ def load_courses_and_sessions(programme):
         )
 
         course = Course(
-            programme_id    = programme.id,
-            module_code     = module_code,
-            title           = module_code,          # no title column in Excel; Admin can update via web app
-            year_level      = year_level,
-            delivery_mode   = course_mode,
+            programme_id      = programme.id,
+            module_code       = module_code,
+            title             = module_code,          # no title column in Excel; Admin can update via web app
+            year_level        = year_level,
+            delivery_mode     = course_mode,
             sessions_per_week = len(unique_sessions),
-            total_hours     = total_hours,
-            remarks         = remarks,
-            split_count     = None,                 # Admin must set this through the web app before scheduling
+            total_hours       = total_hours,
+            remarks           = remarks,
+            split_count       = None,                 # Admin must set this through the web app before scheduling
         )
         db.session.add(course)
         db.session.flush()      # get course.id before committing
@@ -226,7 +235,7 @@ def load_rooms():
     for _, row in df.iterrows():
         location = str(row['Location Name']).strip()
 
-        # Room code is the first three dash-separated segments e.g. 'E2-01-01-Lectorial 6' → 'E2-01-01'
+        # Room code is the first three dash-separated segments e.g. 'E2-01-01-Lectorial 6' -> 'E2-01-01'
         parts = location.split('-')
         if len(parts) >= 3:
             room_code = '-'.join(parts[:3])

@@ -57,28 +57,16 @@ def timetable():
     ]
 
     active_trimester = request.args.get('trimester', trimesters[-1] if trimesters else '')
-    group_id_raw     = request.args.get('group_id', '')
 
-    # All groups for the dropdown (top-level + sub-groups, sorted by year then label)
-    all_groups = (
-        StudentGroup.query
-        .order_by(StudentGroup.year_level, StudentGroup.group_label)
-        .all()
-    )
+    # Auto-load the student's assigned group — no manual selection needed.
+    # student_group_id is set by the admin on the student's account.
+    selected_group = current_user.student_group  # None if not yet assigned
 
-    selected_group = None
     entries = []
 
-    if active_trimester and group_id_raw:
-        try:
-            selected_group = StudentGroup.query.get(int(group_id_raw))
-        except (ValueError, TypeError):
-            selected_group = None
-
-    if selected_group:
-        # Resolve which group IDs this student belongs to:
-        # If they picked a sub-group, include both the sub-group and its parent.
-        # If they picked a top-level group, include the top-level only (no sub-group entries).
+    if selected_group and active_trimester:
+        # Show sessions for the student's sub-group AND the parent group
+        # (parent group covers shared sessions not split by sub-group).
         group_ids = {selected_group.id}
         if selected_group.parent_id:
             group_ids.add(selected_group.parent_id)
@@ -160,20 +148,18 @@ def timetable():
                                 )
                                 .all())
 
-            week_grid = {day: {ts.period_label: None for ts in period_slots} for day in DAYS_ALL}
+            week_grid = {day: {ts.period_label: [] for ts in period_slots} for day in DAYS_ALL}
             for entry in week_entries_raw:
                 d = entry.timeslot.day_of_week
                 p = entry.timeslot.period_label
                 if d in week_grid and p in week_grid[d]:
-                    week_grid[d][p] = entry
+                    week_grid[d][p].append(entry)
 
     return render_template(
         'student/timetable.html',
         trimesters=trimesters,
         active_trimester=active_trimester,
-        all_groups=all_groups,
         selected_group=selected_group,
-        group_id=group_id_raw,
         entries=entries,
         view_mode=view_mode,
         week_number=week_number,

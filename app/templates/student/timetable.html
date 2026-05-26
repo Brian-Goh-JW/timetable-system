@@ -6,57 +6,27 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h4 class="mb-0 fw-semibold">Class Timetable</h4>
-        <small class="text-muted">Select your cohort group to view the weekly schedule</small>
+        <small class="text-muted">
+            {% if selected_group %}
+                Showing schedule for <strong>{{ selected_group.group_label }}</strong>
+            {% else %}
+                Your cohort group has not been assigned yet
+            {% endif %}
+        </small>
     </div>
 </div>
 
 <!-- Trimester tabs -->
 {% if trimesters %}
-<div class="mb-2 d-flex flex-wrap gap-2">
+<div class="mb-3 d-flex flex-wrap gap-2">
     {% for t in trimesters %}
-    <a href="{{ url_for('student.timetable', trimester=t, group_id=group_id, view=view_mode) }}"
+    <a href="{{ url_for('student.timetable', trimester=t, view=view_mode) }}"
        class="btn btn-sm {% if active_trimester == t %}btn-dark{% else %}btn-outline-secondary{% endif %}">
         {{ t }}
     </a>
     {% endfor %}
 </div>
 {% endif %}
-
-<!-- Group filter -->
-<div class="card border-0 shadow-sm mb-3">
-    <div class="card-body py-2">
-        <form method="GET" class="row g-2 align-items-end">
-            <input type="hidden" name="trimester" value="{{ active_trimester }}">
-            <input type="hidden" name="view" value="{{ view_mode }}">
-            <div class="col-sm-auto">
-                <label for="group_id" class="form-label small fw-medium mb-1">Your Group</label>
-                <select class="form-select form-select-sm" id="group_id" name="group_id"
-                        onchange="this.form.submit()">
-                    <option value="">— Select your group —</option>
-                    {% for g in all_groups %}
-                        {% if g.parent_id is none %}
-                            <option value="{{ g.id }}"
-                                    {% if group_id | string == g.id | string %}selected{% endif %}>
-                                {{ g.group_label }} (Year {{ g.year_level }})
-                            </option>
-                            {% for sub in g.sub_groups | sort(attribute='group_label') %}
-                            <option value="{{ sub.id }}"
-                                    {% if group_id | string == sub.id | string %}selected{% endif %}>
-                                &nbsp;&nbsp;&nbsp;{{ sub.group_label }}
-                            </option>
-                            {% endfor %}
-                        {% endif %}
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-sm-auto">
-                <button type="submit" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-funnel me-1"></i>Filter
-                </button>
-            </div>
-        </form>
-    </div>
-</div>
 
 {% if selected_group and entries %}
 
@@ -67,11 +37,11 @@
         {% else %}Recurring slot each teaching week{% endif %}
     </small>
     <div class="btn-group btn-group-sm">
-        <a href="{{ url_for('student.timetable', trimester=active_trimester, group_id=group_id, view='list') }}"
+        <a href="{{ url_for('student.timetable', trimester=active_trimester, view='list') }}"
            class="btn btn-outline-secondary {% if view_mode == 'list' %}active{% endif %}">
             <i class="bi bi-list-ul me-1"></i>List
         </a>
-        <a href="{{ url_for('student.timetable', trimester=active_trimester, group_id=group_id, view='weekly', week=week_number) }}"
+        <a href="{{ url_for('student.timetable', trimester=active_trimester, view='weekly', week=week_number) }}"
            class="btn btn-outline-secondary {% if view_mode == 'weekly' %}active{% endif %}">
             <i class="bi bi-calendar-week me-1"></i>Weekly
         </a>
@@ -86,7 +56,7 @@
 <!-- Week navigator -->
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
     {% if prev_week_num %}
-    <a href="{{ url_for('student.timetable', trimester=active_trimester, group_id=group_id, view='weekly', week=prev_week_num) }}"
+    <a href="{{ url_for('student.timetable', trimester=active_trimester, view='weekly', week=prev_week_num) }}"
        class="btn btn-sm btn-outline-secondary">
         <i class="bi bi-chevron-left"></i> Wk {{ prev_week_num }}
     </a>
@@ -108,7 +78,7 @@
     </span>
 
     {% if next_week_num %}
-    <a href="{{ url_for('student.timetable', trimester=active_trimester, group_id=group_id, view='weekly', week=next_week_num) }}"
+    <a href="{{ url_for('student.timetable', trimester=active_trimester, view='weekly', week=next_week_num) }}"
        class="btn btn-sm btn-outline-secondary">
         Wk {{ next_week_num }} <i class="bi bi-chevron-right"></i>
     </a>
@@ -120,7 +90,7 @@
         <select class="form-select form-select-sm" style="width:auto;"
                 onchange="window.location=this.value">
             {% for cw in calendar_weeks %}
-            <option value="{{ url_for('student.timetable', trimester=active_trimester, group_id=group_id, view='weekly', week=cw.week_number) }}"
+            <option value="{{ url_for('student.timetable', trimester=active_trimester, view='weekly', week=cw.week_number) }}"
                     {% if cw.week_number == week_number %}selected{% endif %}>
                 Week {{ cw.week_number }}{% if cw.start_date %} ({{ cw.start_date.strftime('%d %b') }}){% endif %}{% if cw.is_term_break %} — Break{% endif %}
             </option>
@@ -181,9 +151,10 @@
                         <div class="text-muted">{{ ts.end_time.strftime('%H:%M') }}</div>
                     </td>
                     {% for day in days_all %}
-                    {% set entry = week_grid[day][ts.period_label] if ts.period_label in week_grid[day] else None %}
+                    {% set cell_entries = week_grid[day][ts.period_label] if ts.period_label in week_grid[day] else [] %}
                     <td class="p-1 {% if day in ['Saturday','Sunday'] %}bg-light{% endif %}" style="vertical-align: top;">
-                        {% if entry %}
+                        {% for entry in cell_entries %}
+                        {% if loop.first %}
                         {% set stype = entry.class_session.session_type %}
                         {% set is_online = entry.class_session.delivery_mode == 'online' %}
                         <div class="session-block rounded p-1 h-100 session-{{ stype }} {% if is_online %}session-online{% endif %}"
@@ -210,6 +181,7 @@
                             {% endif %}
                         </div>
                         {% endif %}
+                        {% endfor %}
                     </td>
                     {% endfor %}
                 </tr>
@@ -271,7 +243,8 @@
                         </span>
                     </td>
                     <td>
-                        {% if e.class_session.professor %}{{ e.class_session.professor.user.name }}
+                        {% set ep = e.effective_professor %}
+                        {% if ep %}{{ ep.user.name }}
                         {% else %}<span class="text-muted">—</span>{% endif %}
                     </td>
                     <td>
@@ -295,11 +268,12 @@
     </div>
 </div>
 
-{% elif active_trimester %}
+{% elif not selected_group %}
 <div class="card border-0 shadow-sm">
-    <div class="card-body text-center text-muted py-4">
-        <i class="bi bi-people fs-2 d-block mb-2"></i>
-        Select your group above to see your timetable.
+    <div class="card-body text-center text-muted py-5">
+        <i class="bi bi-person-exclamation fs-2 d-block mb-2"></i>
+        <strong>Your cohort group has not been assigned yet.</strong><br>
+        <small>Please contact your administrator to have your group assigned.</small>
     </div>
 </div>
 

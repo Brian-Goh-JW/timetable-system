@@ -1,6 +1,6 @@
 import math
-from flask import Blueprint, render_template, redirect, url_for, flash, request
-from flask_login import login_required
+from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
+from flask_login import login_required, current_user
 from app import db
 from app.models.course import Course
 from app.models.professor import Professor
@@ -16,6 +16,16 @@ from app.models.timeslot import TimeSlot
 from app.models.audit_log import AuditLog
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
+
+
+@admin_bp.before_request
+@login_required
+def require_admin():
+    """Reject any non-admin user trying to access admin routes."""
+    if not current_user.is_authenticated:
+        return redirect(url_for('auth.login'))
+    if current_user.role != 'admin':
+        abort(403)
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +212,121 @@ def professor_edit(professor_id):
         return redirect(url_for('admin.professors'))
 
     return render_template('admin/professor_edit.html', professor=professor)
+
+
+# ---------------------------------------------------------------------------
+# Students
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/students')
+@login_required
+def students():
+    all_students = (User.query
+                    .filter_by(role='student')
+                    .order_by(User.name)
+                    .all())
+    return render_template('admin/students.html', students=all_students)
+
+
+@admin_bp.route('/students/add', methods=['GET', 'POST'])
+@login_required
+def student_add():
+    all_groups = (StudentGroup.query
+                  .order_by(StudentGroup.year_level, StudentGroup.group_label)
+                  .all())
+
+    if request.method == 'POST':
+        name     = request.form.get('name', '').strip()
+        email    = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '').strip()
+        group_id = request.form.get('student_group_id', '').strip()
+
+        errors = []
+        if not name:     errors.append('Full name is required.')
+        if not email:    errors.append('Email address is required.')
+        if not password: errors.append('Password is required.')
+
+        if email and User.query.filter_by(email=email).first():
+            errors.append(f'An account with email {email} already exists.')
+
+        if errors:
+            for e in errors:
+                flash(e, 'danger')
+            return render_template('admin/student_add.html',
+                                   all_groups=all_groups, form=request.form)
+
+        student = User(
+            name             = name,
+            email            = email,
+            role             = 'student',
+            student_group_id = int(group_id) if group_id else None,
+        )
+        student.set_password(password)
+        db.session.add(student)
+        db.session.commit()
+        flash(f'Student account created for {name}.', 'success')
+        return redirect(url_for('admin.students'))
+
+    return render_template('admin/student_add.html', all_groups=all_groups, form={})
+
+
+@admin_bp.route('/students/<int:user_id>/edit', methods=['GET', 'POST'])
+@login_required
+def student_edit(user_id):
+    student = User.query.get_or_404(user_id)
+    if student.role != 'student':
+        abort(404)
+
+    all_groups = (StudentGroup.query
+                  .order_by(StudentGroup.year_level, StudentGroup.group_label)
+                  .all())
+
+    if request.method == 'POST':
+        name     = request.form.get('name', '').strip()
+        email    = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '').strip()
+        group_id = request.form.get('student_group_id', '').strip()
+
+        errors = []
+        if not name:  errors.append('Full name is required.')
+        if not email: errors.append('Email address is required.')
+
+        existing = User.query.filter_by(email=email).first()
+        if existing and existing.id != student.id:
+            errors.append(f'Another account is already using {email}.')
+
+        if errors:
+            for e in errors:
+                flash(e, 'danger')
+            return render_template('admin/student_edit.html',
+                                   student=student, all_groups=all_groups)
+
+        student.name             = name
+        student.email            = email
+        student.student_group_id = int(group_id) if group_id else None
+        if password:
+            student.set_password(password)
+            flash('Password has been reset.', 'info')
+
+        db.session.commit()
+        flash(f'{name} updated successfully.', 'success')
+        return redirect(url_for('admin.students'))
+
+    return render_template('admin/student_edit.html',
+                           student=student, all_groups=all_groups)
+
+
+@admin_bp.route('/students/<int:user_id>/delete', methods=['POST'])
+@login_required
+def student_delete(user_id):
+    student = User.query.get_or_404(user_id)
+    if student.role != 'student':
+        abort(404)
+    name = student.name
+    db.session.delete(student)
+    db.session.commit()
+    flash(f'Student account for {name} deleted.', 'success')
+    return redirect(url_for('admin.students'))
 
 
 # ---------------------------------------------------------------------------
@@ -475,6 +600,22 @@ def student_group_generate(group_id):
         flash('Number of sub-groups must be 2 or more.', 'danger')
         return redirect(url_for('admin.student_groups'))
 
+    # Guard: refuse if existing sub-groups already have sessions assigned (would cause FK violation)
+    existing_subs = StudentGroup.query.filter_by(parent_id=parent.id).all()
+    if existing_subs:
+        sub_ids = [s.id for s in existing_subs]
+        blocking = ClassSession.query.filter(
+            ClassSession.student_group_id.in_(sub_ids)
+        ).first()
+        if blocking:
+            flash(
+                f'Cannot regenerate sub-groups for {parent.group_label} — '
+                f'existing sub-groups have sessions assigned. '
+                f'Clear all session assignments first.',
+                'danger'
+            )
+            return redirect(url_for('admin.student_groups'))
+
     # Delete existing sub-groups for this parent before regenerating
     StudentGroup.query.filter_by(parent_id=parent.id).delete()
 
@@ -500,8 +641,18 @@ def student_group_generate(group_id):
 def student_group_delete(group_id):
     group = StudentGroup.query.get_or_404(group_id)
 
-    if group.class_sessions:
-        flash(f'Group {group.group_label} cannot be deleted — it has sessions assigned to it.', 'danger')
+    # Check this group AND all its sub-groups for assigned sessions
+    all_ids = [group.id] + [sub.id for sub in group.sub_groups]
+    blocking = ClassSession.query.filter(
+        ClassSession.student_group_id.in_(all_ids)
+    ).first()
+    if blocking:
+        flash(
+            f'Group {group.group_label} cannot be deleted — '
+            f'it or its sub-groups have sessions assigned. '
+            f'Clear all session assignments first.',
+            'danger'
+        )
         return redirect(url_for('admin.student_groups'))
 
     label = group.group_label
@@ -786,7 +937,6 @@ def timetable_session_weeks(trimester, session_id):
 @login_required
 def timetable_edit_entry(entry_id):
     """Edit a single week's timetable entry."""
-    from flask_login import current_user
     entry   = TimetableEntry.query.get_or_404(entry_id)
     session = entry.class_session
 
@@ -882,7 +1032,6 @@ def timetable_edit_entry(entry_id):
 @login_required
 def timetable_edit_all_weeks(trimester, session_id):
     """Edit all weeks for a session at once."""
-    from flask_login import current_user
     session = ClassSession.query.get_or_404(session_id)
 
     entries = (TimetableEntry.query

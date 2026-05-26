@@ -1,9 +1,11 @@
 """
-Creates a test Student user account for demo purposes.
+STEP 4 (Optional) — Create a test student login account for demo purposes.
 Run once after publishing the timetable.
 
 Usage:
-    python bootstrap/seed_student.py
+    python bootstrap/4_seed_student.py
+
+Creates in table: users
 """
 
 import sys

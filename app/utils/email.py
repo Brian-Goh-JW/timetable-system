@@ -1,6 +1,6 @@
 """
 Email notification utilities for the SIT Timetable System.
-Uses Flask-Mail with SIT Microsoft 365 SMTP.
+Uses Flask-Mail with Gmail SMTP (configured via MAIL_SERVER / MAIL_USERNAME in config.py).
 """
 
 from flask import current_app, url_for

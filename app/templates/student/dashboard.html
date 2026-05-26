@@ -26,6 +26,16 @@
                         No timetable has been published yet.
                     {% endif %}
                 </p>
+                {% if current_user.student_group %}
+                <p class="small text-muted mb-3">
+                    Your group: <span class="badge bg-secondary">{{ current_user.student_group.group_label }}</span>
+                </p>
+                {% else %}
+                <p class="small text-warning mb-3">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    No group assigned yet — contact your administrator.
+                </p>
+                {% endif %}
                 <a href="{{ url_for('student.timetable') }}" class="btn btn-sm text-white"
                    style="background-color:#c0272d;">
                     <i class="bi bi-calendar3 me-1"></i>View Timetable
@@ -43,8 +53,8 @@
                 <ol class="ps-3 mb-0">
                     <li class="mb-1">Click <strong>View Timetable</strong>.</li>
                     <li class="mb-1">Select your <strong>trimester</strong> from the tabs.</li>
-                    <li class="mb-1">Choose your <strong>year group</strong> from the dropdown (e.g. DSC-Y1-A).</li>
-                    <li>Your weekly schedule will be displayed.</li>
+                    <li class="mb-1">Your timetable loads automatically based on your assigned group.</li>
+                    <li>Toggle between <strong>List</strong> and <strong>Weekly</strong> view.</li>
                 </ol>
             </div>
         </div>

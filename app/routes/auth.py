@@ -5,6 +5,14 @@ from app.models.user import User
 auth_bp = Blueprint('auth', __name__)
 
 
+@auth_bp.route('/')
+def index():
+    """Redirect root URL to login (or dashboard if already logged in)."""
+    if current_user.is_authenticated:
+        return _redirect_by_role(current_user.role)
+    return redirect(url_for('auth.login'))
+
+
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     # If already logged in, send straight to the right dashboard
