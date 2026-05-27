@@ -36,11 +36,10 @@
                     </div>
 
                     <div class="mb-3">
-                        <label for="group_label" class="form-label fw-medium">
-                            Group Label <span class="text-danger">*</span>
-                        </label>
-                        <input type="text" class="form-control" id="group_label" name="group_label"
-                               value="{{ group.group_label }}" required>
+                        <label class="form-label fw-medium">Group Label</label>
+                        <input type="text" class="form-control bg-light" id="group_label_display"
+                               value="{{ group.group_label }}" readonly>
+                        <div class="form-text">Generated automatically — not editable.</div>
                     </div>
 
                     <div class="mb-4">
@@ -83,5 +82,17 @@
         </div>
     </div>
 </div>
+
+<script>
+    const yearSelect   = document.getElementById('year_level');
+    const labelDisplay = document.getElementById('group_label_display');
+    const progCode     = '{{ group.programme.code }}';
+
+    function updateLabel() {
+        labelDisplay.value = `${progCode}-Y${yearSelect.value}`;
+    }
+
+    yearSelect.addEventListener('change', updateLabel);
+</script>
 
 {% endblock %}

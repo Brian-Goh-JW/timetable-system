@@ -489,12 +489,10 @@ def student_group_add():
     if request.method == 'POST':
         programme_id = request.form.get('programme_id', '').strip()
         year_level   = request.form.get('year_level', '').strip()
-        group_label  = request.form.get('group_label', '').strip().upper()
         intake_size  = request.form.get('intake_size', '').strip()
 
         errors = []
         if not programme_id: errors.append('Programme is required.')
-        if not group_label:  errors.append('Group label is required.')
 
         try:
             year_level = int(year_level)
@@ -512,7 +510,14 @@ def student_group_add():
             errors.append('Intake size must be a positive number.')
             intake_size = ''
 
-        if StudentGroup.query.filter_by(group_label=group_label).first():
+        # Generate group label from programme code and year level
+        programme = Programme.query.get(int(programme_id)) if programme_id else None
+        group_label = f'{programme.code}-Y{year_level}' if programme and year_level != '' else ''
+
+        if not group_label:
+            errors.append('Could not generate group label. Select a programme and year level.')
+
+        if group_label and StudentGroup.query.filter_by(group_label=group_label).first():
             errors.append(f'A group with label {group_label} already exists.')
 
         if errors:
@@ -544,12 +549,10 @@ def student_group_edit(group_id):
     programmes = Programme.query.order_by(Programme.code).all()
 
     if request.method == 'POST':
-        group_label = request.form.get('group_label', '').strip().upper()
         intake_size = request.form.get('intake_size', '').strip()
         year_level  = request.form.get('year_level', '').strip()
 
         errors = []
-        if not group_label: errors.append('Group label is required.')
 
         try:
             year_level = int(year_level)
@@ -564,6 +567,9 @@ def student_group_edit(group_id):
         except (ValueError, TypeError):
             errors.append('Intake size must be a positive number.')
             intake_size = ''
+
+        # Generate label from the fixed programme code and the new year level
+        group_label = f'{group.programme.code}-Y{year_level}' if year_level != '' else ''
 
         existing = StudentGroup.query.filter_by(group_label=group_label).first()
         if existing and existing.id != group.id:

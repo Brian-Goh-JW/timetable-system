@@ -25,6 +25,7 @@
                             <option value="" disabled selected>Select programme</option>
                             {% for prog in programmes %}
                             <option value="{{ prog.id }}"
+                                    data-code="{{ prog.code }}"
                                 {% if form.get('programme_id') == prog.id|string %}selected{% endif %}>
                                 {{ prog.code }} — {{ prog.name }}
                             </option>
@@ -45,13 +46,11 @@
                     </div>
 
                     <div class="mb-3">
-                        <label for="group_label" class="form-label fw-medium">
-                            Group Label <span class="text-danger">*</span>
-                        </label>
-                        <input type="text" class="form-control" id="group_label" name="group_label"
-                               value="{{ form.get('group_label', '') }}"
-                               placeholder="e.g. DSC-Y1" required>
-                        <div class="form-text">Short identifier used throughout the system.</div>
+                        <label class="form-label fw-medium">Group Label</label>
+                        <input type="text" class="form-control bg-light" id="group_label_display"
+                               placeholder="Auto-generated from programme and year level"
+                               readonly>
+                        <div class="form-text">Generated automatically — not editable.</div>
                     </div>
 
                     <div class="mb-4">
@@ -76,5 +75,24 @@
         </div>
     </div>
 </div>
+
+<script>
+    const progSelect  = document.getElementById('programme_id');
+    const yearSelect  = document.getElementById('year_level');
+    const labelDisplay = document.getElementById('group_label_display');
+
+    function updateLabel() {
+        const selectedOpt = progSelect.options[progSelect.selectedIndex];
+        const code = selectedOpt && selectedOpt.dataset.code ? selectedOpt.dataset.code : '';
+        const year = yearSelect.value;
+        labelDisplay.value = (code && year) ? `${code}-Y${year}` : '';
+    }
+
+    progSelect.addEventListener('change', updateLabel);
+    yearSelect.addEventListener('change', updateLabel);
+
+    // Restore label on validation failure (page re-render with form values)
+    updateLabel();
+</script>
 
 {% endblock %}
