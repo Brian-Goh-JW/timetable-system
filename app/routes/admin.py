@@ -550,42 +550,19 @@ def student_group_edit(group_id):
 
     if request.method == 'POST':
         intake_size = request.form.get('intake_size', '').strip()
-        year_level  = request.form.get('year_level', '').strip()
-
-        errors = []
-
-        try:
-            year_level = int(year_level)
-        except (ValueError, TypeError):
-            errors.append('Year level must be a number.')
-            year_level = group.year_level
 
         try:
             intake_size = int(intake_size)
             if intake_size < 1:
                 raise ValueError
         except (ValueError, TypeError):
-            errors.append('Intake size must be a positive number.')
-            intake_size = ''
-
-        # Generate label from the fixed programme code and the new year level
-        group_label = f'{group.programme.code}-Y{year_level}' if year_level != '' else ''
-
-        existing = StudentGroup.query.filter_by(group_label=group_label).first()
-        if existing and existing.id != group.id:
-            errors.append(f'Another group already has the label {group_label}.')
-
-        if errors:
-            for e in errors:
-                flash(e, 'danger')
+            flash('Intake size must be a positive number.', 'danger')
             return render_template('admin/student_group_edit.html',
                                    group=group, programmes=programmes)
 
-        group.group_label  = group_label
-        group.intake_size  = intake_size
-        group.year_level   = year_level
+        group.intake_size = intake_size
         db.session.commit()
-        flash(f'Group {group_label} updated successfully.', 'success')
+        flash(f'Group {group.group_label} updated successfully.', 'success')
         return redirect(url_for('admin.student_groups'))
 
     return render_template('admin/student_group_edit.html',
@@ -626,7 +603,7 @@ def student_group_generate(group_id):
     StudentGroup.query.filter_by(parent_id=parent.id).delete()
 
     sub_size = math.ceil(parent.intake_size / num)
-    labels = [chr(65 + i) for i in range(num)]   # A, B, C, ...
+    labels = [f'T{i+1}' for i in range(num)]   # T1, T2, T3, ...
 
     for label in labels:
         db.session.add(StudentGroup(
