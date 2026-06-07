@@ -5,6 +5,7 @@ from flask_login import login_required, current_user
 
 from app import db
 from app.models.class_session import ClassSession
+from app.models.class_session_professor import ClassSessionProfessor
 from app.models.timetable_entry import TimetableEntry
 from app.models.timeslot import TimeSlot
 from app.models.availability_declaration import AvailabilityDeclaration
@@ -35,14 +36,17 @@ def require_professor():
 def dashboard():
     prof = current_user.professor_profile
 
-    total_sessions = ClassSession.query.filter_by(professor_id=prof.id).count()
+    # Sessions this professor is assigned to (primary or co-teacher)
+    my_session_ids = db.session.query(ClassSessionProfessor.session_id)\
+        .filter_by(professor_id=prof.id).subquery()
+
+    total_sessions = ClassSession.query.filter(ClassSession.id.in_(my_session_ids)).count()
 
     # Count distinct sessions that have at least one published entry
     published_sessions = (
         db.session.query(TimetableEntry.class_session_id)
-        .join(TimetableEntry.class_session)
         .filter(
-            ClassSession.professor_id == prof.id,
+            TimetableEntry.class_session_id.in_(my_session_ids),
             TimetableEntry.is_published == True,
         )
         .distinct()
@@ -60,9 +64,8 @@ def dashboard():
     # Most recent published trimester with entries for this professor
     latest_entry = (
         TimetableEntry.query
-        .join(TimetableEntry.class_session)
         .filter(
-            ClassSession.professor_id == prof.id,
+            TimetableEntry.class_session_id.in_(my_session_ids),
             TimetableEntry.is_published == True,
         )
         .order_by(TimetableEntry.trimester.desc())
@@ -90,13 +93,16 @@ def dashboard():
 def timetable():
     prof = current_user.professor_profile
 
+    # Sessions this professor is assigned to (primary or co-teacher)
+    my_session_ids = db.session.query(ClassSessionProfessor.session_id)\
+        .filter_by(professor_id=prof.id).subquery()
+
     # All trimesters that have published entries for this professor
     trimesters = [
         r[0] for r in (
             db.session.query(TimetableEntry.trimester)
-            .join(TimetableEntry.class_session)
             .filter(
-                ClassSession.professor_id == prof.id,
+                TimetableEntry.class_session_id.in_(my_session_ids),
                 TimetableEntry.is_published == True,
             )
             .distinct()
@@ -110,10 +116,9 @@ def timetable():
     # Fetch all published entries for this prof in the active trimester
     all_entries = (
         TimetableEntry.query
-        .join(TimetableEntry.class_session)
         .join(TimetableEntry.timeslot)
         .filter(
-            ClassSession.professor_id == prof.id,
+            TimetableEntry.class_session_id.in_(my_session_ids),
             TimetableEntry.trimester == active_trimester,
             TimetableEntry.is_published == True,
         )
@@ -169,10 +174,9 @@ def timetable():
                         .all())
 
         week_entries_raw = (TimetableEntry.query
-                            .join(TimetableEntry.class_session)
                             .join(TimetableEntry.timeslot)
                             .filter(
-                                ClassSession.professor_id == prof.id,
+                                TimetableEntry.class_session_id.in_(my_session_ids),
                                 TimetableEntry.trimester == active_trimester,
                                 TimetableEntry.week_number == week_number,
                                 TimetableEntry.is_published == True,

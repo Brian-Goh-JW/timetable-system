@@ -4,8 +4,9 @@ Assigns each ClassSession to a fixed (TimeSlot, Room) that repeats every teachin
 """
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import timedelta, date
 from ortools.sat.python import cp_model
+import holidays as holidays_lib
 
 from app import db
 from app.models.class_session import ClassSession
@@ -68,6 +69,13 @@ def _conflicting_group_ids(group_id):
     return ids
 
 
+def _get_sg_holidays(start_date, end_date):
+    """Return a set of SG public holiday dates covering the given date range."""
+    years = set(range(start_date.year, end_date.year + 1))
+    sg_ph = holidays_lib.Singapore(years=years)
+    return set(sg_ph.keys())
+
+
 def _get_or_create_calendar(trimester, start_date, term_break_weeks=None):
     """Seed AcademicCalendar rows for the trimester if they don't exist yet.
 
@@ -80,17 +88,32 @@ def _get_or_create_calendar(trimester, start_date, term_break_weeks=None):
 
     existing = AcademicCalendar.query.filter_by(trimester=trimester).first()
     if not existing:
+        trimester_end = start_date + timedelta(weeks=13)
+        sg_holidays   = _get_sg_holidays(start_date, trimester_end)
+
         current = start_date
         for week_num in range(1, 14):
             is_break = week_num in term_break_weeks
+            # Check if any day Mon–Fri of this week is a SG public holiday
+            week_days  = [current + timedelta(days=d) for d in range(5)]
+            ph_days    = [d for d in week_days if d in sg_holidays]
+            is_ph      = len(ph_days) > 0
+            ph_names   = ', '.join(
+                holidays_lib.Singapore(years={d.year}).get(d, '') for d in ph_days
+            )
+
+            notes = []
+            if is_break: notes.append('Term break')
+            if is_ph:    notes.append(f'Public holiday: {ph_names}')
+
             db.session.add(AcademicCalendar(
-                trimester=trimester,
-                week_number=week_num,
-                start_date=current,
-                end_date=current + timedelta(days=4),
-                is_term_break=is_break,
-                is_public_holiday=False,
-                notes='Term break' if is_break else None,
+                trimester        = trimester,
+                week_number      = week_num,
+                start_date       = current,
+                end_date         = current + timedelta(days=4),
+                is_term_break    = is_break,
+                is_public_holiday= is_ph,
+                notes            = '; '.join(notes) if notes else None,
             ))
             current += timedelta(weeks=1)
         db.session.commit()
@@ -105,14 +128,21 @@ def _get_or_create_calendar(trimester, start_date, term_break_weeks=None):
 # Main solver
 # ---------------------------------------------------------------------------
 
-def solve(trimester, start_date, term_break_weeks=None):
+def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, academic_year=None,
+          pinned_slots=None, historical_preferred=None):
     """
     Run CP-SAT to schedule all ready ClassSessions for the given trimester.
 
     Args:
-        trimester         : str       — e.g. '2025-T3'
-        start_date        : date      — Monday of Week 1
-        term_break_weeks  : set[int]  — week numbers to mark as term breaks (default: {7})
+        trimester         : str            — internal key, e.g. 'AY2526-T1'
+        start_date        : date           — Monday of Week 1
+        term_break_weeks  : set[int]       — week numbers to mark as term breaks (default: {7})
+        trimester_num     : int|None       — 1, 2, or 3 — filters sessions by ClassSession.trimester
+        academic_year     : str|None       — e.g. 'AY2526' — tagged onto each TimetableEntry
+        pinned_slots         : dict[int, int]          — {session_id: timeslot_id} to preserve from last run
+                                                         (Option A partial re-generation — ignored if strictly blocked)
+        historical_preferred : dict[(str,str), int]    — {(module_code, session_type): timeslot_id}
+                                                         soft preference to follow previous year's slot pattern
 
     Returns:
         (success: bool, message: str, stats: dict)
@@ -124,15 +154,21 @@ def solve(trimester, start_date, term_break_weeks=None):
     #    - f2f sessions need both professor and student group
     #    - online sessions only need a professor (no room or group required)
     from sqlalchemy import or_
-    sessions = (ClassSession.query
-                .filter(
-                    ClassSession.professor_id.isnot(None),
-                    or_(
-                        ClassSession.delivery_mode == 'online',
-                        ClassSession.student_group_id.isnot(None),
-                    )
-                )
-                .all())
+    from app.models.class_session_professor import ClassSessionProfessor
+    # A session is ready if it has at least one professor assigned
+    ready_session_ids = db.session.query(ClassSessionProfessor.session_id).distinct().subquery()
+    filters = [
+        ClassSession.id.in_(ready_session_ids),
+        or_(
+            ClassSession.delivery_mode == 'online',
+            ClassSession.student_group_id.isnot(None),
+        ),
+    ]
+    # Filter by trimester number if specified (1, 2, or 3)
+    if trimester_num is not None:
+        filters.append(ClassSession.trimester == trimester_num)
+
+    sessions = ClassSession.query.filter(*filters).all()
 
     if not sessions:
         return False, 'No sessions are ready to schedule. Assign professors and student groups first.', {}
@@ -198,23 +234,25 @@ def solve(trimester, start_date, term_break_weeks=None):
     # Pre-check: if strict declarations block ALL compatible slots for a session,
     # the problem is immediately infeasible — catch it early with a clear message.
     for s in sessions:
-        if s.professor_id in strict_blocked:
-            remaining = [
-                idx for idx in compat_slots[s.id]
-                if idx not in strict_blocked[s.professor_id]
-            ]
-            if not remaining:
-                ts_labels = ', '.join(
-                    f'{timeslots[i].day_of_week} {timeslots[i].period_label}'
-                    for i in strict_blocked[s.professor_id]
-                    if i in compat_slots[s.id]
-                )
-                return False, (
-                    f'Strict availability declarations for {s.professor.user.name} '
-                    f'block all compatible slots for {s.course.module_code} '
-                    f'({s.session_type}). Blocked: {ts_labels}. '
-                    f'Review declarations or reassign the session.'
-                ), {}
+        for prof_id in s.all_professor_ids:
+            if prof_id in strict_blocked:
+                remaining = [
+                    idx for idx in compat_slots[s.id]
+                    if idx not in strict_blocked[prof_id]
+                ]
+                if not remaining:
+                    prof = next((a.professor for a in s.professor_assignments if a.professor_id == prof_id), None)
+                    ts_labels = ', '.join(
+                        f'{timeslots[i].day_of_week} {timeslots[i].period_label}'
+                        for i in strict_blocked[prof_id]
+                        if i in compat_slots[s.id]
+                    )
+                    return False, (
+                        f'Strict availability declarations for {prof.user.name if prof else prof_id} '
+                        f'block all compatible slots for {s.course.module_code} '
+                        f'({s.session_type}). Blocked: {ts_labels}. '
+                        f'Review declarations or reassign the session.'
+                    ), {}
 
     # 4. Build CP-SAT model
     model = cp_model.CpModel()
@@ -235,10 +273,11 @@ def solve(trimester, start_date, term_break_weeks=None):
         for s in sessions if s.delivery_mode == 'f2f'
     }
 
-    # Hard constraint A — no professor double-booking
+    # Hard constraint A — no professor double-booking (all professors incl. co-teachers)
     by_prof = defaultdict(list)
     for s in sessions:
-        by_prof[s.professor_id].append(s)
+        for prof_id in s.all_professor_ids:
+            by_prof[prof_id].append(s)
     for sess_list in by_prof.values():
         if len(sess_list) > 1:
             model.AddAllDifferent([slot_vars[s.id] for s in sess_list])
@@ -262,19 +301,43 @@ def solve(trimester, start_date, term_break_weeks=None):
             model.Add(room_vars[si.id] != room_vars[sj.id]).OnlyEnforceIf(same)
 
     # Hard constraint D — fixed timeslot pins
-    # If a session has fixed_timeslot_id set, the solver must assign it to exactly that slot.
+    # Priority: fixed_timeslot_id (admin-set permanent pin) > pinned_slots (Option A carry-over)
+    # Safety: never pin to a slot that is strictly blocked for any professor — that would make
+    # the model infeasible.  Instead, quietly drop the pin so the solver can find a new slot.
+    pins_applied    = 0
+    pins_dropped    = 0
     for s in sessions:
-        if s.fixed_timeslot_id:
-            fixed_idx = ts_id_to_index.get(s.fixed_timeslot_id)
-            if fixed_idx is not None and fixed_idx in compat_slots[s.id]:
-                model.Add(slot_vars[s.id] == fixed_idx)
+        pinned_idx = None
 
-    # Hard constraint E — strict availability declarations
-    # For every session whose professor has a strict block on a timeslot,
-    # forbid that timeslot for the session (only if it was compatible to begin with).
+        if s.fixed_timeslot_id:
+            # Permanent admin pin
+            pinned_idx = ts_id_to_index.get(s.fixed_timeslot_id)
+        elif pinned_slots and s.id in pinned_slots:
+            # Option A carry-over from previous run
+            pinned_idx = ts_id_to_index.get(pinned_slots[s.id])
+
+        if pinned_idx is None or pinned_idx not in compat_slots[s.id]:
+            continue
+
+        # Drop pin silently if any professor has a strict block on that slot
+        is_strictly_blocked = any(
+            pinned_idx in strict_blocked.get(prof_id, set())
+            for prof_id in s.all_professor_ids
+        )
+        if is_strictly_blocked:
+            pins_dropped += 1
+            continue
+
+        model.Add(slot_vars[s.id] == pinned_idx)
+        pins_applied += 1
+
+    # Hard constraint E — strict availability declarations (all professors)
     strict_constraints_added = 0
     for s in sessions:
-        for blocked_idx in strict_blocked.get(s.professor_id, set()):
+        blocked_indices = set()
+        for prof_id in s.all_professor_ids:
+            blocked_indices |= strict_blocked.get(prof_id, set())
+        for blocked_idx in blocked_indices:
             if blocked_idx in compat_slots[s.id]:
                 model.Add(slot_vars[s.id] != blocked_idx)
                 strict_constraints_added += 1
@@ -289,13 +352,17 @@ def solve(trimester, start_date, term_break_weeks=None):
     }
 
     for s in sessions:
-        for avoid_idx in preferred_avoided.get(s.professor_id, set()):
+        avoided_indices = set()
+        for prof_id in s.all_professor_ids:
+            avoided_indices |= preferred_avoided.get(prof_id, set())
+        for avoid_idx in avoided_indices:
             if avoid_idx in compat_slots[s.id]:
                 is_violated = model.NewBoolVar(f'pref_viol_{s.id}_{avoid_idx}')
                 model.Add(slot_vars[s.id] == avoid_idx).OnlyEnforceIf(is_violated)
                 model.Add(slot_vars[s.id] != avoid_idx).OnlyEnforceIf(is_violated.Not())
                 ts_id = timeslots[avoid_idx].id
-                decl  = pref_decl_map.get((s.professor_id, ts_id))
+                # Use primary professor for declaration lookup
+                decl  = pref_decl_map.get((s.primary_professor_id, ts_id))
                 penalty_vars.append((is_violated, s, avoid_idx, decl))
 
     # Soft constraint G — day spread
@@ -321,12 +388,41 @@ def solve(trimester, start_date, term_break_weeks=None):
             model.Add(day_var_map[si.id] != day_var_map[sj.id]).OnlyEnforceIf(same_day_b.Not())
             spread_cost_vars.append(same_day_b)
 
+    # Soft constraint H — historical slot preference
+    # When generating a new AY, prefer the same timeslot that was used in the previous year's
+    # equivalent trimester (e.g. AY2627-T1 prefers AY2526-T1 slots).
+    # Weight = 10: stronger than day-spread (1) but weaker than availability declarations (100).
+    hist_penalty_vars = []   # BoolVar: 1 = session NOT in historical slot
+    if historical_preferred:
+        for s in sessions:
+            key = (s.course.module_code.upper(), s.session_type)
+            hist_ts_id = historical_preferred.get(key)
+            if hist_ts_id is None:
+                continue
+            hist_idx = ts_id_to_index.get(hist_ts_id)
+            if hist_idx is None or hist_idx not in compat_slots[s.id]:
+                continue
+            # Don't encourage a historically-preferred slot that is now strictly blocked
+            is_strictly_blocked = any(
+                hist_idx in strict_blocked.get(prof_id, set())
+                for prof_id in s.all_professor_ids
+            )
+            if is_strictly_blocked:
+                continue
+            not_hist = model.NewBoolVar(f'not_hist_{s.id}')
+            model.Add(slot_vars[s.id] != hist_idx).OnlyEnforceIf(not_hist)
+            model.Add(slot_vars[s.id] == hist_idx).OnlyEnforceIf(not_hist.Not())
+            hist_penalty_vars.append((not_hist, s, hist_idx))
+
     # Combined objective:
-    #   preferred violations → weight 100 (must satisfy first)
-    #   day spread penalty   → weight 1   (secondary, never overrides above)
+    #   availability violations  → weight 100 (highest priority)
+    #   historical slot changes  → weight 10  (strong preference for continuity)
+    #   day spread penalty       → weight 1   (tiebreaker)
     obj_terms = []
     for pv, *_ in penalty_vars:
         obj_terms.append(100 * pv)
+    for not_hist, *_ in hist_penalty_vars:
+        obj_terms.append(10 * not_hist)
     for sv in spread_cost_vars:
         obj_terms.append(sv)
 
@@ -353,10 +449,11 @@ def solve(trimester, start_date, term_break_weeks=None):
     for is_violated, s, avoid_idx, decl in penalty_vars:
         if cp_solver.Value(is_violated) == 1:
             ts = timeslots[avoid_idx]
-            preferred_violations.append({
-                'professor'      : s.professor.user.name,
-                'staff_id'       : s.professor.staff_id,
-                'professor_id'   : s.professor_id,
+            primary = s.primary_professor
+        preferred_violations.append({
+                'professor'      : primary.user.name if primary else '?',
+                'staff_id'       : primary.staff_id  if primary else '?',
+                'professor_id'   : s.primary_professor_id,
                 'module_code'    : s.course.module_code,
                 'module_title'   : s.course.title,
                 'session_type'   : s.session_type,
@@ -371,23 +468,77 @@ def solve(trimester, start_date, term_break_weeks=None):
     # 7. Write TimetableEntry records
     TimetableEntry.query.filter_by(trimester=trimester).delete()
 
-    cal_weeks      = _get_or_create_calendar(trimester, start_date, term_break_weeks)
-    teaching_weeks = [w for w in cal_weeks if not w.is_term_break and not w.is_public_holiday]
+    cal_weeks = _get_or_create_calendar(trimester, start_date, term_break_weeks)
+    # Only skip full term breaks — public holiday weeks are handled per-session-day below
+    non_break_weeks = [w for w in cal_weeks if not w.is_term_break]
+
+    # Pre-compute SG holidays for precise per-day check
+    if non_break_weeks:
+        ph_dates = _get_sg_holidays(non_break_weeks[0].start_date,
+                                    non_break_weeks[-1].end_date)
+    else:
+        ph_dates = set()
+
+    # Load events for this trimester (cancel-outcome events block dates)
+    from app.models.event import Event
+    event_filters = [Event.outcome == 'cancel']
+    if trimester_num is not None:
+        # Match events with no trimester set (school-wide) OR events matching this trimester
+        event_filters.append(
+            db.or_(Event.trimester == None, Event.trimester == trimester_num)
+        )
+    if academic_year is not None:
+        # Match events with no AY set OR events matching this AY
+        event_filters.append(
+            db.or_(Event.academic_year == None, Event.academic_year == academic_year)
+        )
+    cancel_events = Event.query.filter(*event_filters).all()
+    # Build: date -> set of blocked timeslot_ids (empty set = full day block)
+    event_blocks = {}  # date -> set of ts_ids (empty = full day)
+    for ev in cancel_events:
+        if ev.event_date not in event_blocks:
+            event_blocks[ev.event_date] = set() if ev.is_full_day else set(ev.blocked_timeslot_ids)
+        else:
+            if ev.is_full_day:
+                event_blocks[ev.event_date] = set()  # full day override
+            elif event_blocks[ev.event_date]:  # only add if not already full day
+                event_blocks[ev.event_date].update(ev.blocked_timeslot_ids)
+
+    _day_offset = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
 
     entries = 0
+    skipped_ph = 0
+    skipped_ev = 0
     for s in sessions:
         ts      = timeslots[cp_solver.Value(slot_vars[s.id])]
         room_id = None
         if s.delivery_mode == 'f2f' and s.id in room_vars:
             room_id = rooms[cp_solver.Value(room_vars[s.id])].id
 
-        for week in teaching_weeks:
+        day_offset = _day_offset.get(ts.day_of_week, 0)
+
+        for week in non_break_weeks:
+            session_date = week.start_date + timedelta(days=day_offset)
+
+            # Skip public holidays
+            if session_date in ph_dates:
+                skipped_ph += 1
+                continue
+
+            # Skip event-blocked dates
+            if session_date in event_blocks:
+                blocked_ts = event_blocks[session_date]
+                if not blocked_ts or ts.id in blocked_ts:  # full day or specific slot
+                    skipped_ev += 1
+                    continue
+
             db.session.add(TimetableEntry(
                 class_session_id  = s.id,
                 timeslot_id       = ts.id,
                 room_id           = room_id,
                 week_number       = week.week_number,
                 trimester         = trimester,
+                academic_year     = academic_year,
                 is_published      = False,
                 is_manually_edited= False,
             ))
@@ -397,9 +548,15 @@ def solve(trimester, start_date, term_break_weeks=None):
 
     return True, 'Timetable generated successfully.', {
         'sessions_scheduled'        : len(sessions),
-        'teaching_weeks'            : len(teaching_weeks),
+        'teaching_weeks'            : len(non_break_weeks),
         'entries_created'           : entries,
+        'entries_skipped_ph'        : skipped_ph,
+        'entries_skipped_events'    : skipped_ev,
         'solver_status'             : 'Optimal' if status == cp_model.OPTIMAL else 'Feasible',
         'strict_constraints_applied': strict_constraints_added,
         'preferred_violations'      : preferred_violations,
+        'pins_applied'              : pins_applied,
+        'pins_dropped'              : pins_dropped,
+        'historical_honoured'       : sum(1 for nh, *_ in hist_penalty_vars if cp_solver.Value(nh) == 0),
+        'historical_changed'        : sum(1 for nh, *_ in hist_penalty_vars if cp_solver.Value(nh) == 1),
     }

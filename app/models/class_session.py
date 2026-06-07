@@ -4,19 +4,53 @@ from app import db
 class ClassSession(db.Model):
     __tablename__ = 'class_sessions'
 
-    id = db.Column(db.Integer, primary_key=True)
-    course_id = db.Column(db.Integer, db.ForeignKey('courses.id'), nullable=False)
-    session_type = db.Column(db.Enum('lecture', 'lab', 'seminar', 'tutorial'), nullable=False)
-    delivery_mode = db.Column(db.Enum('f2f', 'online'), nullable=False)     # hybrid courses split into separate sessions
-    duration_hours = db.Column(db.Integer, nullable=False)                  # session length in hours e.g. 2, 3
-    professor_id = db.Column(db.Integer, db.ForeignKey('professors.id'), nullable=True)         # assigned by Admin
-    student_group_id = db.Column(db.Integer, db.ForeignKey('student_groups.id'), nullable=True) # assigned after split
-    fixed_timeslot_id = db.Column(db.Integer, db.ForeignKey('timeslots.id'), nullable=True)     # optional hard pin
+    id                = db.Column(db.Integer, primary_key=True)
+    course_id         = db.Column(db.Integer, db.ForeignKey('courses.id'),         nullable=False)
+    session_type      = db.Column(db.Enum('lecture', 'lab', 'seminar', 'tutorial'), nullable=False)
+    delivery_mode     = db.Column(db.Enum('f2f', 'online'),                         nullable=False)
+    duration_hours    = db.Column(db.Integer,                                        nullable=False)
+    student_group_id  = db.Column(db.Integer, db.ForeignKey('student_groups.id'),  nullable=True)
+    fixed_timeslot_id = db.Column(db.Integer, db.ForeignKey('timeslots.id'),        nullable=True)
+    trimester         = db.Column(db.Integer,                                        nullable=True)  # 1, 2, or 3
 
-    course = db.relationship('Course', backref='class_sessions')
-    professor = db.relationship('Professor', backref='class_sessions')
+    course        = db.relationship('Course',       backref='class_sessions')
     student_group = db.relationship('StudentGroup', backref='class_sessions')
-    fixed_timeslot = db.relationship('TimeSlot', foreign_keys=[fixed_timeslot_id])
+    fixed_timeslot= db.relationship('TimeSlot',     foreign_keys=[fixed_timeslot_id])
+
+    # All professor assignments — ordered by display_order (0 = primary)
+    professor_assignments = db.relationship(
+        'ClassSessionProfessor',
+        backref='class_session',
+        cascade='all, delete-orphan',
+        order_by='ClassSessionProfessor.display_order',
+    )
+
+    # -----------------------------------------------------------------------
+    # Convenience helpers
+    # -----------------------------------------------------------------------
+
+    @property
+    def primary_professor(self):
+        """Primary Professor object, or None."""
+        for a in self.professor_assignments:
+            if a.is_primary:
+                return a.professor
+        return self.professor_assignments[0].professor if self.professor_assignments else None
+
+    @property
+    def primary_professor_id(self):
+        p = self.primary_professor
+        return p.id if p else None
+
+    @property
+    def all_professors(self):
+        """List of all Professor objects for this session."""
+        return [a.professor for a in self.professor_assignments]
+
+    @property
+    def all_professor_ids(self):
+        return [a.professor_id for a in self.professor_assignments]
 
     def __repr__(self):
-        return f'<ClassSession {self.course.module_code if self.course else "?"} {self.session_type} ({self.delivery_mode})>'
+        code = self.course.module_code if self.course else '?'
+        return f'<ClassSession {code} {self.session_type} ({self.delivery_mode})>'

@@ -1,0 +1,166 @@
+{% extends 'base.html' %}
+{% block title %}Add Event — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="mb-4">
+    <a href="{{ url_for('admin.events') }}" class="text-decoration-none text-muted small">
+        <i class="bi bi-arrow-left me-1"></i>Back to Events
+    </a>
+    <h4 class="fw-semibold mt-2 mb-0">Add Event</h4>
+    <small class="text-muted">Block or displace sessions on a specific date</small>
+</div>
+
+<div class="row">
+    <div class="col-lg-7">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <form method="POST">
+
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">Event Name <span class="text-danger">*</span></label>
+                        <input type="text" name="name" class="form-control"
+                               value="{{ form.get('name', '') }}"
+                               placeholder="e.g. DSC Poster Day" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">Description</label>
+                        <textarea name="description" class="form-control" rows="2"
+                                  placeholder="Optional notes about this event">{{ form.get('description', '') }}</textarea>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col">
+                            <label class="form-label fw-medium">Event Date <span class="text-danger">*</span></label>
+                            <input type="date" name="event_date" class="form-control"
+                                   value="{{ form.get('event_date', '') }}" required>
+                        </div>
+                        <div class="col">
+                            <label class="form-label fw-medium">Trimester</label>
+                            <select name="trimester" class="form-select">
+                                <option value="">— Any —</option>
+                                <option value="1" {% if form.get('trimester') == '1' %}selected{% endif %}>Tri 1</option>
+                                <option value="2" {% if form.get('trimester') == '2' %}selected{% endif %}>Tri 2</option>
+                                <option value="3" {% if form.get('trimester') == '3' %}selected{% endif %}>Tri 3</option>
+                            </select>
+                        </div>
+                        <div class="col">
+                            <label class="form-label fw-medium">Academic Year</label>
+                            <input type="text" name="academic_year" class="form-control"
+                                   value="{{ form.get('academic_year', '') }}"
+                                   placeholder="e.g. AY2526">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">Time Scope</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="is_full_day"
+                                   id="is_full_day" onchange="toggleTimeslots(this)"
+                                   {% if form.get('is_full_day', 'on') == 'on' %}checked{% endif %}>
+                            <label class="form-check-label" for="is_full_day">Full day (blocks all sessions on this date)</label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3" id="timeslot-picker" style="display:none;">
+                        <label class="form-label fw-medium">Specific Timeslots to Block</label>
+                        <div class="row row-cols-2 row-cols-md-3 g-2">
+                            {% for ts in timeslots %}
+                            <div class="col">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                           name="timeslot_ids" value="{{ ts.id }}"
+                                           id="ts_{{ ts.id }}">
+                                    <label class="form-check-label small" for="ts_{{ ts.id }}">
+                                        {{ ts.day_of_week }} {{ ts.period_label }}
+                                        <span class="text-muted">({{ ts.start_time.strftime('%H:%M') }})</span>
+                                    </label>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">Who is Affected</label>
+                        <select name="scope" class="form-select" onchange="toggleScope(this)">
+                            <option value="school_wide" {% if form.get('scope','school_wide') == 'school_wide' %}selected{% endif %}>School-wide (all programmes)</option>
+                            <option value="programme" {% if form.get('scope') == 'programme' %}selected{% endif %}>Specific Programme</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="programme-picker" style="display:none;">
+                        <label class="form-label fw-medium">Programme</label>
+                        <select name="programme_id" class="form-select">
+                            <option value="">— Select —</option>
+                            {% for prog in programmes %}
+                            <option value="{{ prog.id }}" {% if form.get('programme_id') == prog.id|string %}selected{% endif %}>
+                                {{ prog.code }} — {{ prog.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">Outcome for Affected Sessions</label>
+                        <select name="outcome" class="form-select">
+                            <option value="cancel" {% if form.get('outcome', 'cancel') == 'cancel' %}selected{% endif %}>Cancel — remove those session occurrences</option>
+                            <option value="reschedule" {% if form.get('outcome') == 'reschedule' %}selected{% endif %}>Reschedule — move to another slot (requires re-generation)</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="is_recurring"
+                                   id="is_recurring" {% if form.get('is_recurring') == 'on' %}checked{% endif %}>
+                            <label class="form-check-label" for="is_recurring">
+                                Recurring annual event (applies every year on this date)
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn text-white" style="background-color:#c0272d;">
+                            <i class="bi bi-plus-lg me-1"></i>Add Event
+                        </button>
+                        <a href="{{ url_for('admin.events') }}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4 mt-3 mt-lg-0">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-info-circle me-2 text-muted"></i>How Events Work
+            </div>
+            <div class="card-body small text-muted">
+                <p><strong>Cancel:</strong> Session occurrences on this date are removed from the timetable. Students have no class that day.</p>
+                <p><strong>Reschedule:</strong> Flags affected sessions. Re-generate that trimester to let the solver find alternative slots (unaffected sessions stay pinned).</p>
+                <p class="mb-0"><strong>Tip:</strong> Add events <em>before</em> generating the timetable so the solver avoids these dates automatically.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function toggleTimeslots(cb) {
+    document.getElementById('timeslot-picker').style.display = cb.checked ? 'none' : 'block';
+}
+function toggleScope(sel) {
+    document.getElementById('programme-picker').style.display =
+        sel.value === 'programme' ? 'block' : 'none';
+}
+// Init on load
+document.addEventListener('DOMContentLoaded', function() {
+    toggleTimeslots(document.getElementById('is_full_day'));
+    toggleScope(document.querySelector('[name=scope]'));
+});
+</script>
+{% endblock %}

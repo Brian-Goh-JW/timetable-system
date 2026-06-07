@@ -146,9 +146,10 @@ def professor_add():
             errors.append('A professor with this Staff ID already exists.')
 
         if errors:
+            departments = sorted({p.department for p in Professor.query.all() if p.department})
             for e in errors:
                 flash(e, 'danger')
-            return render_template('admin/professor_add.html', form=request.form)
+            return render_template('admin/professor_add.html', form=request.form, departments=departments)
 
         # Create User account + Professor profile in one transaction
         user = User(name=name, email=email, role='professor')
@@ -163,7 +164,8 @@ def professor_add():
         flash(f'Professor {name} added successfully.', 'success')
         return redirect(url_for('admin.professors'))
 
-    return render_template('admin/professor_add.html', form={})
+    departments = sorted({p.department for p in Professor.query.all() if p.department})
+    return render_template('admin/professor_add.html', form={}, departments=departments)
 
 
 @admin_bp.route('/professors/<int:professor_id>/edit', methods=['GET', 'POST'])
@@ -193,10 +195,11 @@ def professor_edit(professor_id):
         if existing_sid and existing_sid.id != professor.id:
             errors.append('Another professor already has this Staff ID.')
 
+        departments = sorted({p.department for p in Professor.query.all() if p.department})
         if errors:
             for e in errors:
                 flash(e, 'danger')
-            return render_template('admin/professor_edit.html', professor=professor)
+            return render_template('admin/professor_edit.html', professor=professor, departments=departments)
 
         user.name            = name
         user.email           = email
@@ -211,7 +214,8 @@ def professor_edit(professor_id):
         flash(f'{name} updated successfully.', 'success')
         return redirect(url_for('admin.professors'))
 
-    return render_template('admin/professor_edit.html', professor=professor)
+    departments = sorted({p.department for p in Professor.query.all() if p.department})
+    return render_template('admin/professor_edit.html', professor=professor, departments=departments)
 
 
 # ---------------------------------------------------------------------------
@@ -510,12 +514,8 @@ def student_group_add():
             errors.append('Intake size must be a positive number.')
             intake_size = ''
 
-        # Generate group label from programme code and year level
         programme = Programme.query.get(int(programme_id)) if programme_id else None
         group_label = f'{programme.code}-Y{year_level}' if programme and year_level != '' else ''
-
-        if not group_label:
-            errors.append('Could not generate group label. Select a programme and year level.')
 
         if group_label and StudentGroup.query.filter_by(group_label=group_label).first():
             errors.append(f'A group with label {group_label} already exists.')
@@ -550,16 +550,8 @@ def student_group_edit(group_id):
 
     if request.method == 'POST':
         intake_size = request.form.get('intake_size', '').strip()
-        year_level  = request.form.get('year_level', '').strip()
 
         errors = []
-
-        try:
-            year_level = int(year_level)
-        except (ValueError, TypeError):
-            errors.append('Year level must be a number.')
-            year_level = group.year_level
-
         try:
             intake_size = int(intake_size)
             if intake_size < 1:
@@ -568,28 +560,17 @@ def student_group_edit(group_id):
             errors.append('Intake size must be a positive number.')
             intake_size = ''
 
-        # Generate label from the fixed programme code and the new year level
-        group_label = f'{group.programme.code}-Y{year_level}' if year_level != '' else ''
-
-        existing = StudentGroup.query.filter_by(group_label=group_label).first()
-        if existing and existing.id != group.id:
-            errors.append(f'Another group already has the label {group_label}.')
-
         if errors:
             for e in errors:
                 flash(e, 'danger')
-            return render_template('admin/student_group_edit.html',
-                                   group=group, programmes=programmes)
+            return render_template('admin/student_group_edit.html', group=group)
 
-        group.group_label  = group_label
-        group.intake_size  = intake_size
-        group.year_level   = year_level
+        group.intake_size = intake_size
         db.session.commit()
-        flash(f'Group {group_label} updated successfully.', 'success')
+        flash(f'Group {group.group_label} updated successfully.', 'success')
         return redirect(url_for('admin.student_groups'))
 
-    return render_template('admin/student_group_edit.html',
-                           group=group, programmes=programmes)
+    return render_template('admin/student_group_edit.html', group=group)
 
 
 @admin_bp.route('/student-groups/<int:group_id>/generate-subgroups', methods=['POST'])
@@ -772,17 +753,39 @@ def course_sessions(course_id):
                 methods=['POST'])
 @login_required
 def session_assign(course_id, session_id):
+    from app.models.class_session_professor import ClassSessionProfessor
+
     session = ClassSession.query.get_or_404(session_id)
-    professor_id_raw   = request.form.get('professor_id', '').strip()
     student_group_raw  = request.form.get('student_group_id', '').strip()
+    fixed_ts_raw       = request.form.get('fixed_timeslot_id', '').strip()
 
-    fixed_ts_raw = request.form.get('fixed_timeslot_id', '').strip()
-
-    session.professor_id      = int(professor_id_raw) if professor_id_raw  else None
     session.student_group_id  = int(student_group_raw) if student_group_raw else None
     session.fixed_timeslot_id = int(fixed_ts_raw)      if fixed_ts_raw      else None
-    db.session.commit()
 
+    # Rebuild professor assignments from form
+    primary_raw   = request.form.get('professor_id_primary', '').strip()
+    co_raws       = request.form.getlist('professor_id_co')
+
+    # Delete existing assignments
+    ClassSessionProfessor.query.filter_by(session_id=session.id).delete()
+
+    order = 0
+    if primary_raw:
+        db.session.add(ClassSessionProfessor(
+            session_id=session.id, professor_id=int(primary_raw),
+            is_primary=True, display_order=0
+        ))
+        order = 1
+    for co_raw in co_raws:
+        co_raw = co_raw.strip()
+        if co_raw:
+            db.session.add(ClassSessionProfessor(
+                session_id=session.id, professor_id=int(co_raw),
+                is_primary=False, display_order=order
+            ))
+            order += 1
+
+    db.session.commit()
     flash('Session updated.', 'success')
     return redirect(url_for('admin.course_sessions', course_id=course_id))
 
@@ -1141,6 +1144,39 @@ def timetable_edit_all_weeks(trimester, session_id):
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Historical slot preference helper
+# ---------------------------------------------------------------------------
+
+def _build_historical_preferred(academic_year, trimester_num):
+    """
+    Look up the previous AY's equivalent trimester entries and build a dict:
+      {(module_code, session_type): timeslot_id}
+    Used as soft constraint so the solver prefers to keep sessions in the
+    same slot as last year.
+    """
+    if not academic_year or len(academic_year) < 6:
+        return {}
+    try:
+        y1 = int(academic_year[2:4])
+        y2 = int(academic_year[4:6])
+        prev_ay = f'AY{y1 - 1:02d}{y2 - 1:02d}'
+    except ValueError:
+        return {}
+
+    prev_tri_key = f'{prev_ay}-T{trimester_num}'
+    prev_entries = (TimetableEntry.query
+                    .filter_by(trimester=prev_tri_key)
+                    .all())
+    preferred = {}
+    for e in prev_entries:
+        key = (e.class_session.course.module_code.upper(), e.class_session.session_type)
+        if key not in preferred:
+            preferred[key] = e.timeslot_id
+    return preferred
+
+
+# ---------------------------------------------------------------------------
 # Timetable Flags
 # ---------------------------------------------------------------------------
 
@@ -1332,16 +1368,132 @@ def timetable():
     stats    = {}
     trimester = request.args.get('trimester', '')
 
+    # Compute default AY for the form (SIT AY starts August)
+    today = date.today()
+    if today.month >= 8:
+        ay_default = f'AY{str(today.year)[2:]}{str(today.year + 1)[2:]}'
+    else:
+        ay_default = f'AY{str(today.year - 1)[2:]}{str(today.year)[2:]}'
+
+    selected_tri = None   # remembered for re-populating the form after POST
+    ay_stats     = {}    # {tri_num: {'success', 'message', 'stats'}} for Full AY run
+
     if request.method == 'POST':
         action    = request.form.get('action', '')
         trimester = request.form.get('trimester', '').strip()
         start_raw = request.form.get('start_date', '').strip()
 
-        if action == 'generate':
-            if issues:
-                flash('Resolve all blocking issues before generating.', 'danger')
-            elif not trimester:
-                flash('Trimester code is required.', 'danger')
+        if action == 'generate_ay':
+            # ---------------------------------------------------------------
+            # Full Academic Year — run solver for Tri 1, 2, 3 sequentially
+            # ---------------------------------------------------------------
+            academic_year = request.form.get('academic_year', '').strip().upper()
+            preserve      = request.form.get('preserve_existing') == 'on'
+            break_raw     = request.form.get('term_break_weeks', '7').strip()
+            term_break_weeks = set()
+            for part in break_raw.split(','):
+                part = part.strip()
+                if part.isdigit():
+                    term_break_weeks.add(int(part))
+            if not term_break_weeks:
+                term_break_weeks = {7}
+
+            if not academic_year:
+                flash('Academic year is required (e.g. AY2526).', 'danger')
+            else:
+                any_success = False
+                for tri_num in [1, 2, 3]:
+                    tri_key  = f'{academic_year}-T{tri_num}'
+                    sd_raw   = request.form.get(f'start_date_t{tri_num}', '').strip()
+                    if not sd_raw:
+                        ay_stats[tri_num] = {
+                            'success': False,
+                            'message': f'Tri {tri_num}: no start date provided — skipped.',
+                            'stats'  : {},
+                        }
+                        continue
+
+                    tri_issues = get_blocking_issues(trimester_num=tri_num)
+                    if tri_issues:
+                        ay_stats[tri_num] = {
+                            'success': False,
+                            'message': f'Tri {tri_num}: {len(tri_issues)} blocking issue(s) — skipped. '
+                                       f'({tri_issues[0]}...)',
+                            'stats'  : {},
+                        }
+                        continue
+
+                    try:
+                        start_date = date.fromisoformat(sd_raw)
+                        # Option A — pin existing entries for this trimester
+                        pinned_slots = None
+                        if preserve:
+                            existing = TimetableEntry.query.filter_by(trimester=tri_key).all()
+                            seen_sess = set()
+                            pinned_slots = {}
+                            for e in existing:
+                                if e.class_session_id not in seen_sess:
+                                    seen_sess.add(e.class_session_id)
+                                    pinned_slots[e.class_session_id] = e.timeslot_id
+
+                        historical_preferred = _build_historical_preferred(academic_year, tri_num)
+
+                        success, message, s = solve(
+                            tri_key, start_date, term_break_weeks,
+                            trimester_num=tri_num,
+                            academic_year=academic_year,
+                            pinned_slots=pinned_slots,
+                            historical_preferred=historical_preferred,
+                        )
+                        if success:
+                            any_success = True
+                            _auto_create_flags(tri_key, s.get('preferred_violations', []))
+                        ay_stats[tri_num] = {
+                            'success': success,
+                            'message': message,
+                            'stats'  : s,
+                        }
+                    except Exception as e:
+                        ay_stats[tri_num] = {
+                            'success': False,
+                            'message': f'Solver error: {str(e)}',
+                            'stats'  : {},
+                        }
+
+                if any_success:
+                    succeeded = [t for t, v in ay_stats.items() if v['success']]
+                    flash(
+                        f'{academic_year} — Tri {", ".join(str(t) for t in succeeded)} '
+                        f'generated successfully.',
+                        'success'
+                    )
+                else:
+                    flash('No trimesters were generated. Check issues above.', 'danger')
+
+                # For the tab display, default to T1 after a Full AY run
+                if not trimester:
+                    trimester = f'{academic_year}-T1'
+
+        elif action == 'generate':
+            # New fields: academic_year + trimester_num; build the internal key
+            academic_year = request.form.get('academic_year', '').strip().upper()
+            tri_raw       = request.form.get('trimester_num', '').strip()
+            trimester_num = int(tri_raw) if tri_raw.isdigit() and tri_raw in ('1', '2', '3') else None
+            selected_tri  = trimester_num
+            if academic_year and trimester_num:
+                trimester = f'{academic_year}-T{trimester_num}'
+
+            # Re-check issues scoped to the selected trimester only
+            tri_issues = get_blocking_issues(trimester_num=trimester_num) if trimester_num else issues
+
+            if tri_issues:
+                flash('Resolve all blocking issues for this trimester before generating.', 'danger')
+                for iss in tri_issues[:5]:
+                    flash(iss, 'warning')
+            elif not academic_year:
+                flash('Academic year is required (e.g. AY2526).', 'danger')
+            elif not trimester_num:
+                flash('Trimester number (1, 2, or 3) is required.', 'danger')
             elif not start_raw:
                 flash('Start date is required.', 'danger')
             else:
@@ -1356,7 +1508,27 @@ def timetable():
                             term_break_weeks.add(int(part))
                     if not term_break_weeks:
                         term_break_weeks = {7}   # safe fallback
-                    success, message, stats = solve(trimester, start_date, term_break_weeks)
+                    # Option A — preserve existing slot assignments if requested
+                    pinned_slots = None
+                    preserve = request.form.get('preserve_existing') == 'on'
+                    if preserve:
+                        existing = TimetableEntry.query.filter_by(trimester=trimester).all()
+                        seen_sess = set()
+                        pinned_slots = {}
+                        for e in existing:
+                            if e.class_session_id not in seen_sess:
+                                seen_sess.add(e.class_session_id)
+                                pinned_slots[e.class_session_id] = e.timeslot_id
+
+                    historical_preferred = _build_historical_preferred(academic_year, trimester_num)
+
+                    success, message, stats = solve(
+                        trimester, start_date, term_break_weeks,
+                        trimester_num=trimester_num,
+                        academic_year=academic_year,
+                        pinned_slots=pinned_slots,
+                        historical_preferred=historical_preferred,
+                    )
                     result = {'success': success, 'message': message}
                     if success:
                         flash(message, 'success')
@@ -1487,6 +1659,7 @@ def timetable():
                            active_trimester=trimester,
                            entries=unique_entries,
                            stats=stats,
+                           ay_stats=ay_stats,
                            result=result,
                            view_mode=view_mode,
                            week_number=week_number,
@@ -1497,4 +1670,218 @@ def timetable():
                            period_slots=period_slots,
                            week_grid=week_grid,
                            days_all=DAYS_ALL,
-                           year_levels=year_levels)
+                           year_levels=year_levels,
+                           ay_default=ay_default,
+                           selected_tri=selected_tri)
+
+
+# ---------------------------------------------------------------------------
+# Timetable Similarity — mirrored timetable report across trimesters
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/timetable/similarity')
+@login_required
+def timetable_similarity():
+    """
+    Show how consistent session slots are across trimesters of the same AY.
+    Addresses Meeting 5 point 6: Prof David wants to see why it is (or isn't) mirrored.
+    """
+    academic_year = request.args.get('ay', '')
+
+    # Available AYs from timetable entries
+    all_ays = sorted(set(
+        e[0] for e in db.session.query(TimetableEntry.academic_year).distinct().all()
+        if e[0]
+    ))
+
+    rows = []
+    tri_labels = []
+
+    if academic_year:
+        # Gather entries for T1, T2, T3 of this AY
+        tri_data = {}  # tri_num → {(module_code, session_type): timeslot}
+        for tri_num in [1, 2, 3]:
+            tri_key = f'{academic_year}-T{tri_num}'
+            entries = TimetableEntry.query.filter_by(trimester=tri_key).all()
+            if not entries:
+                continue
+            tri_labels.append(tri_num)
+            slot_map = {}
+            for e in entries:
+                key = (
+                    e.class_session.course.module_code,
+                    e.class_session.course.title,
+                    e.class_session.session_type,
+                    e.class_session.course.year_level,
+                )
+                if key not in slot_map:
+                    slot_map[key] = {
+                        'timeslot': e.timeslot,
+                        'label'   : f'{e.timeslot.day_of_week[:3]} {e.timeslot.start_time.strftime("%H:%M")}–{e.timeslot.end_time.strftime("%H:%M")}',
+                    }
+            tri_data[tri_num] = slot_map
+
+        # Collect all (module, type) pairs across all trimesters
+        all_keys = set()
+        for sd in tri_data.values():
+            all_keys.update(sd.keys())
+
+        for key in sorted(all_keys, key=lambda k: (k[3] or 0, k[0], k[2])):
+            module_code, title, session_type, year_level = key
+            slots = {t: tri_data[t].get(key) for t in tri_labels}
+
+            # Determine consistency
+            slot_labels = [s['label'] for s in slots.values() if s]
+            unique_slots = set(slot_labels)
+            if len(unique_slots) == 1:
+                consistency = 'same'
+            elif len(unique_slots) == 0:
+                consistency = 'none'
+            else:
+                consistency = 'different'
+
+            rows.append({
+                'module_code' : module_code,
+                'title'       : title,
+                'session_type': session_type,
+                'year_level'  : year_level,
+                'slots'       : slots,
+                'consistency' : consistency,
+            })
+
+    same_count = sum(1 for r in rows if r['consistency'] == 'same')
+    diff_count = sum(1 for r in rows if r['consistency'] == 'different')
+
+    return render_template('admin/timetable_similarity.html',
+                           all_ays=all_ays,
+                           academic_year=academic_year,
+                           tri_labels=tri_labels,
+                           rows=rows,
+                           same_count=same_count,
+                           diff_count=diff_count)
+
+
+# ---------------------------------------------------------------------------
+# Events — planned events as hard constraints
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/events')
+@login_required
+def events():
+    from app.models.event import Event
+    from app.models.timetable_entry import TimetableEntry
+    from datetime import date
+
+    all_events = Event.query.order_by(Event.event_date).all()
+
+    # For each event, count how many published timetable entries are affected
+    impact = {}
+    for ev in all_events:
+        affected = (TimetableEntry.query
+                    .join(TimetableEntry.class_session)
+                    .join(TimetableEntry.timeslot)
+                    .filter(TimetableEntry.is_published == True)
+                    .all())
+        count = 0
+        for entry in affected:
+            session_date = entry.class_session  # placeholder — detailed check in template
+            count_check = _event_affects_entry(ev, entry)
+            if count_check:
+                count += 1
+        impact[ev.id] = count
+
+    return render_template('admin/events.html', events=all_events, impact=impact)
+
+
+def _event_affects_entry(event, entry):
+    """Return True if an event blocks a specific timetable entry."""
+    from datetime import timedelta
+    _day_offset = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
+    cal = entry.academic_calendar_week if hasattr(entry, 'academic_calendar_week') else None
+
+    # We need the entry's actual date — requires the calendar week
+    from app.models.academic_calendar import AcademicCalendar
+    cal_week = AcademicCalendar.query.filter_by(
+        trimester=entry.trimester,
+        week_number=entry.week_number
+    ).first()
+    if not cal_week:
+        return False
+
+    day_offset = _day_offset.get(entry.timeslot.day_of_week, 0)
+    entry_date = cal_week.start_date + timedelta(days=day_offset)
+
+    if entry_date != event.event_date:
+        return False
+
+    if event.is_full_day:
+        return True
+
+    # Check specific timeslots
+    blocked = event.blocked_timeslot_ids
+    return entry.timeslot_id in blocked
+
+
+@admin_bp.route('/events/add', methods=['GET', 'POST'])
+@login_required
+def event_add():
+    from app.models.event import Event
+    programmes = Programme.query.order_by(Programme.code).all()
+    timeslots  = TimeSlot.query.order_by(TimeSlot.day_of_week, TimeSlot.start_time).all()
+
+    if request.method == 'POST':
+        name         = request.form.get('name', '').strip()
+        description  = request.form.get('description', '').strip()
+        event_date   = request.form.get('event_date', '').strip()
+        is_full_day  = request.form.get('is_full_day') == 'on'
+        timeslot_ids = ','.join(request.form.getlist('timeslot_ids'))
+        scope        = request.form.get('scope', 'school_wide')
+        programme_id = request.form.get('programme_id', '').strip() or None
+        outcome      = request.form.get('outcome', 'cancel')
+        trimester    = request.form.get('trimester', '').strip() or None
+        academic_year= request.form.get('academic_year', '').strip() or None
+        is_recurring = request.form.get('is_recurring') == 'on'
+
+        errors = []
+        if not name:       errors.append('Event name is required.')
+        if not event_date: errors.append('Event date is required.')
+
+        if errors:
+            for e in errors:
+                flash(e, 'danger')
+            return render_template('admin/event_add.html',
+                                   programmes=programmes, timeslots=timeslots, form=request.form)
+
+        from datetime import date as date_cls
+        ev = Event(
+            name         = name,
+            description  = description or None,
+            event_date   = date_cls.fromisoformat(event_date),
+            is_full_day  = is_full_day,
+            timeslot_ids = timeslot_ids if not is_full_day else None,
+            scope        = scope,
+            programme_id = int(programme_id) if programme_id else None,
+            outcome      = outcome,
+            trimester    = int(trimester) if trimester else None,
+            academic_year= academic_year or None,
+            is_recurring = is_recurring,
+        )
+        db.session.add(ev)
+        db.session.commit()
+        flash(f'Event "{name}" added successfully.', 'success')
+        return redirect(url_for('admin.events'))
+
+    return render_template('admin/event_add.html',
+                           programmes=programmes, timeslots=timeslots, form={})
+
+
+@admin_bp.route('/events/<int:event_id>/delete', methods=['POST'])
+@login_required
+def event_delete(event_id):
+    from app.models.event import Event
+    ev = Event.query.get_or_404(event_id)
+    name = ev.name
+    db.session.delete(ev)
+    db.session.commit()
+    flash(f'Event "{name}" deleted.', 'success')
+    return redirect(url_for('admin.events'))

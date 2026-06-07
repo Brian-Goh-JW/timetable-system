@@ -25,7 +25,6 @@
                             <option value="" disabled selected>Select programme</option>
                             {% for prog in programmes %}
                             <option value="{{ prog.id }}"
-                                    data-code="{{ prog.code }}"
                                 {% if form.get('programme_id') == prog.id|string %}selected{% endif %}>
                                 {{ prog.code }} — {{ prog.name }}
                             </option>
@@ -47,10 +46,9 @@
 
                     <div class="mb-3">
                         <label class="form-label fw-medium">Group Label</label>
-                        <input type="text" class="form-control bg-light" id="group_label_display"
-                               placeholder="Auto-generated from programme and year level"
-                               readonly>
-                        <div class="form-text">Generated automatically — not editable.</div>
+                        <input type="text" class="form-control bg-light" id="group_label_preview"
+                               placeholder="Auto-generated (e.g. DSC-Y1)" disabled>
+                        <div class="form-text">Generated automatically from programme and year level.</div>
                     </div>
 
                     <div class="mb-4">
@@ -76,23 +74,23 @@
     </div>
 </div>
 
+{% endblock %}
+
+{% block extra_scripts %}
 <script>
-    const progSelect  = document.getElementById('programme_id');
-    const yearSelect  = document.getElementById('year_level');
-    const labelDisplay = document.getElementById('group_label_display');
-
-    function updateLabel() {
-        const selectedOpt = progSelect.options[progSelect.selectedIndex];
-        const code = selectedOpt && selectedOpt.dataset.code ? selectedOpt.dataset.code : '';
-        const year = yearSelect.value;
-        labelDisplay.value = (code && year) ? `${code}-Y${year}` : '';
+const programmes = { {% for p in programmes %}"{{ p.id }}": "{{ p.code }}"{% if not loop.last %}, {% endif %}{% endfor %} };
+function updateLabel() {
+    const progId = document.getElementById('programme_id').value;
+    const yr = document.getElementById('year_level').value;
+    const preview = document.getElementById('group_label_preview');
+    if (progId && yr) {
+        preview.value = (programmes[progId] || '') + '-Y' + yr;
+    } else {
+        preview.value = '';
+        preview.placeholder = 'Auto-generated (e.g. DSC-Y1)';
     }
-
-    progSelect.addEventListener('change', updateLabel);
-    yearSelect.addEventListener('change', updateLabel);
-
-    // Restore label on validation failure (page re-render with form values)
-    updateLabel();
+}
+document.getElementById('programme_id').addEventListener('change', updateLabel);
+document.getElementById('year_level').addEventListener('change', updateLabel);
 </script>
-
 {% endblock %}

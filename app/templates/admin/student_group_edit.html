@@ -21,25 +21,19 @@
                         <label class="form-label fw-medium">Programme</label>
                         <input type="text" class="form-control bg-light"
                                value="{{ group.programme.code }} — {{ group.programme.name }}" disabled>
-                        <div class="form-text">Programme cannot be changed.</div>
                     </div>
 
                     <div class="mb-3">
-                        <label for="year_level" class="form-label fw-medium">
-                            Year Level <span class="text-danger">*</span>
-                        </label>
-                        <select class="form-select" id="year_level" name="year_level" required>
-                            <option value="1" {% if group.year_level == 1 %}selected{% endif %}>Year 1</option>
-                            <option value="2" {% if group.year_level == 2 %}selected{% endif %}>Year 2</option>
-                            <option value="3" {% if group.year_level == 3 %}selected{% endif %}>Year 3</option>
-                        </select>
+                        <label class="form-label fw-medium">Year Level</label>
+                        <input type="text" class="form-control bg-light"
+                               value="Year {{ group.year_level }}" disabled>
                     </div>
 
                     <div class="mb-3">
                         <label class="form-label fw-medium">Group Label</label>
-                        <input type="text" class="form-control bg-light" id="group_label_display"
-                               value="{{ group.group_label }}" readonly>
-                        <div class="form-text">Generated automatically — not editable.</div>
+                        <input type="text" class="form-control bg-light"
+                               value="{{ group.group_label }}" disabled>
+                        <div class="form-text">Group label cannot be changed.</div>
                     </div>
 
                     <div class="mb-4">
@@ -48,6 +42,7 @@
                         </label>
                         <input type="number" class="form-control" id="intake_size" name="intake_size"
                                value="{{ group.intake_size }}" min="1" required>
+                        <div class="form-text">Only the cohort size can be changed.</div>
                     </div>
 
                     <div class="d-flex gap-2">
@@ -82,17 +77,5 @@
         </div>
     </div>
 </div>
-
-<script>
-    const yearSelect   = document.getElementById('year_level');
-    const labelDisplay = document.getElementById('group_label_display');
-    const progCode     = '{{ group.programme.code }}';
-
-    function updateLabel() {
-        labelDisplay.value = `${progCode}-Y${yearSelect.value}`;
-    }
-
-    yearSelect.addEventListener('change', updateLabel);
-</script>
 
 {% endblock %}

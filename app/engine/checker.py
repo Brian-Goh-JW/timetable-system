@@ -8,24 +8,40 @@ from app.models.class_session import ClassSession
 from app.models.timeslot import TimeSlot
 
 
-def get_blocking_issues():
+def get_blocking_issues(trimester_num=None):
     """
     Returns a list of human-readable issue strings.
     Empty list means the system is ready to schedule.
+
+    Args:
+        trimester_num : int|None — if provided, only check sessions for that trimester (1/2/3).
+                                   If None, check all sessions.
     """
+    from sqlalchemy import exists
+    from app.models.class_session_professor import ClassSessionProfessor
+
     issues = []
 
-    # 1. F2f / hybrid courses with no split count set
+    # Build a base session filter (optionally scoped to one trimester)
+    def session_base():
+        q = ClassSession.query
+        if trimester_num is not None:
+            q = q.filter(ClassSession.trimester == trimester_num)
+        return q
+
+    # 1. F2f / hybrid courses with no split count AND no sessions yet
+    #    (If sessions are already loaded from Excel, split_count is not needed)
     missing_split = Course.query.filter(
         Course.delivery_mode.in_(['f2f', 'hybrid']),
         Course.split_count.is_(None)
     ).all()
     for c in missing_split:
-        issues.append(f'{c.module_code}: split count not set.')
+        if not c.class_sessions:
+            issues.append(f'{c.module_code}: no sessions and split count not set.')
 
-    # 2. Sessions with no professor assigned
-    no_prof = ClassSession.query.filter(
-        ClassSession.professor_id.is_(None)
+    # 2. Sessions with no professor assigned (check junction table)
+    no_prof = session_base().filter(
+        ~exists().where(ClassSessionProfessor.session_id == ClassSession.id)
     ).all()
     for s in no_prof:
         issues.append(
@@ -34,7 +50,7 @@ def get_blocking_issues():
         )
 
     # 3. F2f sessions with no student group assigned
-    no_group = ClassSession.query.filter(
+    no_group = session_base().filter(
         ClassSession.delivery_mode == 'f2f',
         ClassSession.student_group_id.is_(None)
     ).all()
@@ -45,7 +61,7 @@ def get_blocking_issues():
         )
 
     # 4. Sessions with a fixed timeslot that is incompatible (wrong duration or type)
-    fixed_sessions = ClassSession.query.filter(
+    fixed_sessions = session_base().filter(
         ClassSession.fixed_timeslot_id.isnot(None)
     ).all()
     for s in fixed_sessions:

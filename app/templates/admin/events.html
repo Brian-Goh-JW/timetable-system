@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+{% block title %}Events — SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0 fw-semibold">Events</h4>
+        <small class="text-muted">Planned events that block or displace sessions (hard constraints)</small>
+    </div>
+    <a href="{{ url_for('admin.event_add') }}" class="btn text-white" style="background-color:#c0272d;">
+        <i class="bi bi-plus-lg me-1"></i>Add Event
+    </a>
+</div>
+
+{% if not events %}
+<div class="alert alert-info">
+    No events added yet. Add events to block sessions on specific dates before generating the timetable.
+</div>
+{% else %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-4">Date</th>
+                    <th>Event Name</th>
+                    <th>Scope</th>
+                    <th>Time</th>
+                    <th>Outcome</th>
+                    <th>Trimester</th>
+                    <th>Affected Entries</th>
+                    <th class="text-end pe-4">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ev in events %}
+                <tr>
+                    <td class="ps-4 fw-medium">{{ ev.event_date.strftime('%d %b %Y') }}</td>
+                    <td>
+                        {{ ev.name }}
+                        {% if ev.is_recurring %}
+                            <span class="badge bg-secondary ms-1" style="font-size:0.65rem;">Recurring</span>
+                        {% endif %}
+                        {% if ev.description %}
+                            <div class="text-muted small">{{ ev.description }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if ev.scope == 'school_wide' %}
+                            <span class="badge bg-dark">School-wide</span>
+                        {% elif ev.scope == 'programme' %}
+                            <span class="badge bg-primary">{{ ev.programme.code if ev.programme else 'Programme' }}</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Course</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if ev.is_full_day %}
+                            <span class="text-muted small">Full day</span>
+                        {% else %}
+                            <span class="text-muted small">Specific slots</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if ev.outcome == 'cancel' %}
+                            <span class="badge bg-danger">Cancel</span>
+                        {% else %}
+                            <span class="badge bg-warning text-dark">Reschedule</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if ev.trimester %}
+                            <span class="badge bg-secondary">Tri {{ ev.trimester }}</span>
+                        {% else %}
+                            <span class="text-muted small">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% set count = impact.get(ev.id, 0) %}
+                        {% if count > 0 %}
+                            <span class="badge bg-danger">{{ count }} affected</span>
+                        {% else %}
+                            <span class="text-muted small">None</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end pe-4">
+                        <form method="POST" action="{{ url_for('admin.event_delete', event_id=ev.id) }}"
+                              onsubmit="return confirm('Delete event \'{{ ev.name }}\'?')">
+                            <button type="submit" class="btn btn-sm btn-outline-danger">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

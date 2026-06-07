@@ -7,8 +7,10 @@ from app.models.room import Room
 from app.models.timeslot import TimeSlot
 from app.models.academic_calendar import AcademicCalendar
 from app.models.class_session import ClassSession
+from app.models.class_session_professor import ClassSessionProfessor
 from app.models.timetable_entry import TimetableEntry
 from app.models.availability_declaration import AvailabilityDeclaration
 from app.models.timetable_flag import TimetableFlag
 from app.models.flag_response import FlagResponse
 from app.models.audit_log import AuditLog
+from app.models.event import Event

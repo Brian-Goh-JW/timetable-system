@@ -16,7 +16,11 @@
     {% for t in trimesters %}
     <a href="{{ url_for('teacher.timetable', trimester=t, view=view_mode) }}"
        class="btn btn-sm {% if active_trimester == t %}btn-dark{% else %}btn-outline-secondary{% endif %}">
-        {{ t }}
+        {% if t | length >= 9 and t[2:6].isdigit() and '-T' in t %}
+            {{ t[:2] ~ t[2:4] ~ '/' ~ t[4:6] ~ ' Tri ' ~ t[-1] }}
+        {% else %}
+            {{ t }}
+        {% endif %}
     </a>
     {% endfor %}
 </div>
@@ -211,10 +215,12 @@
                     <th>Delivery</th>
                     <th>Group</th>
                     <th>Room</th>
+                    <th>Teaching Team</th>
                 </tr>
             </thead>
             <tbody>
                 {% for e in entries %}
+                {% set all_profs = e.class_session.all_professors %}
                 <tr>
                     <td class="ps-3 fw-medium">{{ e.timeslot.day_of_week }}</td>
                     <td>{{ e.timeslot.period_label }}</td>
@@ -240,6 +246,20 @@
                     <td>
                         {% if e.room %}{{ e.room.room_code }}
                         {% else %}<span class="text-muted fst-italic">Online</span>{% endif %}
+                    </td>
+                    <td>
+                        {% for p in all_profs %}
+                            {% if p.id == prof.id %}
+                                <span class="fw-medium">{{ p.user.name }}</span>
+                                {% if e.class_session.primary_professor and e.class_session.primary_professor.id == p.id %}
+                                    <span class="badge bg-secondary ms-1" style="font-size:0.6rem;">Primary</span>
+                                {% else %}
+                                    <span class="badge bg-info text-dark ms-1" style="font-size:0.6rem;">Co-teacher</span>
+                                {% endif %}
+                            {% else %}
+                                <div class="text-muted small">{{ p.user.name }}</div>
+                            {% endif %}
+                        {% endfor %}
                     </td>
                 </tr>
                 {% endfor %}

@@ -15,19 +15,24 @@
     <!-- Left: Generate panel -->
     <div class="col-lg-4">
 
-        <!-- Blocking issues -->
+        <!-- Readiness summary -->
         {% if issues %}
-        <div class="card border-0 shadow-sm mb-3 border-start border-danger border-3">
+        <div class="card border-0 shadow-sm mb-3 border-start border-warning border-3">
             <div class="card-body">
-                <h6 class="fw-semibold text-danger mb-2">
-                    <i class="bi bi-exclamation-triangle me-2"></i>Blocking Issues
+                <h6 class="fw-semibold text-warning mb-2">
+                    <i class="bi bi-exclamation-triangle me-2"></i>Unresolved Issues (All Trimesters)
                 </h6>
                 <ul class="mb-0 small ps-3">
-                    {% for issue in issues %}
+                    {% for issue in issues[:8] %}
                     <li>{{ issue }}</li>
                     {% endfor %}
+                    {% if issues | length > 8 %}
+                    <li class="text-muted">…and {{ issues | length - 8 }} more.</li>
+                    {% endif %}
                 </ul>
-                <div class="mt-2 small text-muted">Resolve these before generating.</div>
+                <div class="mt-2 small text-muted">
+                    Issues are checked per trimester when you click Run — only issues for the selected trimester will block generation.
+                </div>
             </div>
         </div>
         {% else %}
@@ -42,47 +47,202 @@
                 <i class="bi bi-cpu me-2 text-muted"></i>Generate Timetable
             </div>
             <div class="card-body">
-                <form method="POST">
-                    <input type="hidden" name="action" value="generate">
+
+                <!-- Mode toggle -->
+                <div class="btn-group w-100 mb-3" role="group">
+                    <input type="radio" class="btn-check" name="gen_mode" id="mode_full_ay"
+                           autocomplete="off" checked onchange="setGenMode('full_ay')">
+                    <label class="btn btn-outline-secondary btn-sm" for="mode_full_ay">
+                        <i class="bi bi-calendar3 me-1"></i>Full Academic Year
+                    </label>
+                    <input type="radio" class="btn-check" name="gen_mode" id="mode_single"
+                           autocomplete="off" onchange="setGenMode('single')">
+                    <label class="btn btn-outline-secondary btn-sm" for="mode_single">
+                        <i class="bi bi-arrow-repeat me-1"></i>Re-generate Single Trimester
+                    </label>
+                </div>
+
+                <!-- ======================================================= -->
+                <!-- FULL AY FORM                                             -->
+                <!-- ======================================================= -->
+                <form method="POST" id="form-full-ay">
+                    <input type="hidden" name="action" value="generate_ay">
 
                     <div class="mb-3">
-                        <label for="trimester" class="form-label fw-medium">
-                            Trimester Code <span class="text-danger">*</span>
+                        <label class="form-label fw-medium">
+                            Academic Year <span class="text-danger">*</span>
                         </label>
-                        <input type="text" class="form-control" id="trimester" name="trimester"
-                               placeholder="e.g. 2025-T3"
-                               value="{{ active_trimester }}" required>
+                        <input type="text" class="form-control" name="academic_year"
+                               placeholder="e.g. AY2526" value="{{ ay_default }}" required>
+                        <div class="form-text">Aug YYYY – Jul YYYY+1</div>
+                    </div>
+
+                    <div class="mb-2 small fw-medium text-muted">Week 1 Start Dates (must be Mondays)</div>
+
+                    <div class="mb-2">
+                        <label class="form-label small mb-1">
+                            <span class="badge bg-primary me-1">Tri 1</span> Week 1 Start
+                        </label>
+                        <input type="date" class="form-control form-control-sm"
+                               name="start_date_t1" placeholder="Mon of Week 1">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small mb-1">
+                            <span class="badge bg-success me-1">Tri 2</span> Week 1 Start
+                        </label>
+                        <input type="date" class="form-control form-control-sm"
+                               name="start_date_t2" placeholder="Mon of Week 1">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small mb-1">
+                            <span class="badge bg-warning text-dark me-1">Tri 3</span> Week 1 Start
+                        </label>
+                        <input type="date" class="form-control form-control-sm"
+                               name="start_date_t3" placeholder="Mon of Week 1">
+                        <div class="form-text">Leave empty to skip that trimester.</div>
                     </div>
 
                     <div class="mb-3">
-                        <label for="start_date" class="form-label fw-medium">
+                        <label class="form-label fw-medium">Term Break Week(s)</label>
+                        <input type="text" class="form-control" name="term_break_weeks"
+                               value="7" placeholder="e.g. 7 or 6,7">
+                        <div class="form-text">Applies to all 3 trimesters. Comma-separated.</div>
+                    </div>
+
+                    <div class="mb-3 p-3 bg-light rounded border">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   name="preserve_existing" id="preserve_ay" checked>
+                            <label class="form-check-label fw-medium" for="preserve_ay">
+                                Preserve existing assignments (Option A)
+                            </label>
+                        </div>
+                        <div class="form-text mt-1">
+                            <i class="bi bi-info-circle me-1"></i>
+                            Already-scheduled sessions keep their slot. Only displaced ones move.
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn w-100 text-white"
+                            style="background-color:#c0272d;">
+                        <i class="bi bi-play-fill me-1"></i>Generate Full Academic Year
+                    </button>
+                </form>
+
+                <!-- ======================================================= -->
+                <!-- SINGLE TRIMESTER FORM                                    -->
+                <!-- ======================================================= -->
+                <form method="POST" id="form-single" style="display:none;">
+                    <input type="hidden" name="action" value="generate">
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-7">
+                            <label class="form-label fw-medium">
+                                Academic Year <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" name="academic_year"
+                                   placeholder="e.g. AY2526"
+                                   value="{{ ay_default }}" required
+                                   oninput="updateTrimKey()">
+                        </div>
+                        <div class="col-5">
+                            <label class="form-label fw-medium">
+                                Trimester <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-select" name="trimester_num" required
+                                    onchange="updateTrimKey()">
+                                <option value="">—</option>
+                                <option value="1" {% if selected_tri == 1 %}selected{% endif %}>Tri 1</option>
+                                <option value="2" {% if selected_tri == 2 %}selected{% endif %}>Tri 2</option>
+                                <option value="3" {% if selected_tri == 3 %}selected{% endif %}>Tri 3</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-text text-muted">
+                            <i class="bi bi-tag me-1"></i>
+                            Key: <strong id="trim-key-preview">{{ ay_default }}-T?</strong>
+                            &nbsp;·&nbsp; Only sessions tagged for this trimester will be scheduled.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">
                             Week 1 Start Date <span class="text-danger">*</span>
                         </label>
-                        <input type="date" class="form-control" id="start_date" name="start_date" required>
+                        <input type="date" class="form-control" name="start_date" required>
                         <div class="form-text">Must be a Monday.</div>
                     </div>
 
                     <div class="mb-3">
-                        <label for="term_break_weeks" class="form-label fw-medium">
-                            Term Break Week(s)
-                        </label>
-                        <input type="text" class="form-control" id="term_break_weeks"
-                               name="term_break_weeks" value="7" placeholder="e.g. 7 or 6,7">
-                        <div class="form-text">
-                            Week numbers to mark as term break, comma-separated.
-                            These weeks are skipped by the solver.
+                        <label class="form-label fw-medium">Term Break Week(s)</label>
+                        <input type="text" class="form-control" name="term_break_weeks"
+                               value="7" placeholder="e.g. 7 or 6,7">
+                        <div class="form-text">Comma-separated week numbers to skip.</div>
+                    </div>
+
+                    <div class="mb-3 p-3 bg-light rounded border">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   name="preserve_existing" id="preserve_single" checked>
+                            <label class="form-check-label fw-medium" for="preserve_single">
+                                Preserve existing assignments (Option A)
+                            </label>
+                        </div>
+                        <div class="form-text mt-1">
+                            <i class="bi bi-info-circle me-1"></i>
+                            Unaffected sessions keep their current slot. Uncheck for full fresh run.
                         </div>
                     </div>
 
-                    <button type="submit"
-                            class="btn w-100 text-white {% if issues %}disabled{% endif %}"
-                            style="background-color:#c0272d;"
-                            {% if issues %}disabled{% endif %}>
-                        <i class="bi bi-play-fill me-1"></i>Run CP-SAT Solver
+                    <button type="submit" class="btn w-100 text-white"
+                            style="background-color:#c0272d;">
+                        <i class="bi bi-arrow-repeat me-1"></i>Re-generate Trimester
                     </button>
                 </form>
+
             </div>
         </div>
+
+        <!-- Full AY stats -->
+        {% if ay_stats %}
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header bg-white border-bottom fw-semibold">
+                <i class="bi bi-bar-chart me-2 text-muted"></i>Last Full AY Run
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0 small">
+                    <thead class="table-light">
+                        <tr><th class="ps-3">Trimester</th><th>Status</th><th>Sessions</th><th>Entries</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for tri_num in [1, 2, 3] %}
+                        {% if tri_num in ay_stats %}
+                        {% set r = ay_stats[tri_num] %}
+                        <tr>
+                            <td class="ps-3 fw-medium">Tri {{ tri_num }}</td>
+                            <td>
+                                {% if r.success %}
+                                    <span class="badge bg-success">OK</span>
+                                {% else %}
+                                    <span class="badge bg-danger">Failed</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ r.stats.sessions_scheduled if r.stats.sessions_scheduled is defined else '—' }}</td>
+                            <td>{{ r.stats.entries_created if r.stats.entries_created is defined else '—' }}</td>
+                        </tr>
+                        {% if not r.success %}
+                        <tr>
+                            <td colspan="4" class="ps-3 text-danger small">{{ r.message }}</td>
+                        </tr>
+                        {% endif %}
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- Publish form -->
         {% if active_trimester and entries %}
@@ -150,6 +310,28 @@
                     <dd class="col-5">{{ stats.teaching_weeks }}</dd>
                     <dt class="col-7 text-muted">Entries created</dt>
                     <dd class="col-5">{{ stats.entries_created }}</dd>
+                    <dt class="col-7 text-muted">Historical slots kept</dt>
+                    <dd class="col-5">
+                        {% if stats.historical_honoured is defined %}
+                            <span class="text-success">{{ stats.historical_honoured }}</span>
+                            {% if stats.historical_changed > 0 %}
+                                / <span class="text-warning">{{ stats.historical_changed }} changed</span>
+                            {% endif %}
+                        {% else %}—{% endif %}
+                    </dd>
+                    <dt class="col-7 text-muted">Slots preserved (Option A)</dt>
+                    <dd class="col-5">
+                        {% if stats.pins_applied is defined %}
+                            {{ stats.pins_applied }}
+                            {% if stats.pins_dropped > 0 %}
+                                <span class="text-warning small">({{ stats.pins_dropped }} dropped — conflicts)</span>
+                            {% endif %}
+                        {% else %}—{% endif %}
+                    </dd>
+                    <dt class="col-7 text-muted">Skipped (public holidays)</dt>
+                    <dd class="col-5">{{ stats.entries_skipped_ph }}</dd>
+                    <dt class="col-7 text-muted">Skipped (events)</dt>
+                    <dd class="col-5">{{ stats.entries_skipped_events }}</dd>
                     <dt class="col-7 text-muted">Strict constraints applied</dt>
                     <dd class="col-5">{{ stats.strict_constraints_applied }}</dd>
                     <dt class="col-7 text-muted">Preferred violations</dt>
@@ -222,14 +404,26 @@
 
     <!-- Right: Timetable view -->
     <div class="col-lg-8">
+        <div class="d-flex justify-content-end mb-2">
+            <a href="{{ url_for('admin.timetable_similarity', ay=active_trimester[:6] if active_trimester and active_trimester[:2]=='AY' else '') }}"
+               class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-bar-chart me-1"></i>Similarity Report
+            </a>
+        </div>
 
         <!-- Trimester tabs -->
         {% if trimesters %}
-        <div class="mb-2 d-flex flex-wrap gap-2">
+        <div class="mb-2 d-flex flex-wrap gap-2 align-items-center">
+            <span class="text-muted small">Timetables:</span>
             {% for t in trimesters %}
             <a href="{{ url_for('admin.timetable', trimester=t, view=view_mode) }}"
                class="btn btn-sm {% if active_trimester == t %}btn-dark{% else %}btn-outline-secondary{% endif %}">
-                {{ t }}
+                {# Pretty-print AY2526-T1 → AY25/26 Tri 1 #}
+                {% if t | length >= 9 and t[2:6].isdigit() and '-T' in t %}
+                    {{ t[:2] ~ t[2:4] ~ '/' ~ t[4:6] ~ ' — Tri ' ~ t[-1] }}
+                {% else %}
+                    {{ t }}
+                {% endif %}
             </a>
             {% endfor %}
         </div>
@@ -479,7 +673,7 @@
                                 </span>
                             </td>
                             <td>
-                                {% if e.class_session.professor %}{{ e.class_session.professor.user.name }}
+                                {% if e.class_session.primary_professor %}{{ e.class_session.primary_professor.user.name }}
                                 {% else %}<span class="text-muted">—</span>{% endif %}
                             </td>
                             <td>
@@ -522,7 +716,8 @@
             </div>
         </div>
         {% endif %}
-    </div>
+
+    </div>{# close col-lg-8 #}
 
 </div>
 
@@ -574,7 +769,28 @@
 </style>
 
 <script>
+function setGenMode(mode) {
+    var formFull   = document.getElementById('form-full-ay');
+    var formSingle = document.getElementById('form-single');
+    if (mode === 'full_ay') {
+        formFull.style.display   = '';
+        formSingle.style.display = 'none';
+    } else {
+        formFull.style.display   = 'none';
+        formSingle.style.display = '';
+    }
+}
+
+function updateTrimKey() {
+    var ay  = (document.querySelector('#form-single [name=academic_year]').value || '').trim().toUpperCase();
+    var tri = document.querySelector('#form-single [name=trimester_num]').value;
+    var preview = document.getElementById('trim-key-preview');
+    if (preview) {
+        preview.textContent = ay && tri ? (ay + '-T' + tri) : (ay ? ay + '-T?' : '?');
+    }
+}
 document.addEventListener('DOMContentLoaded', function () {
+    updateTrimKey();
     var modal = document.getElementById('sessionDetailModal');
     modal.addEventListener('show.bs.modal', function (event) {
         var el = event.relatedTarget;

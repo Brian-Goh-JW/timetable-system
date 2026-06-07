@@ -51,17 +51,8 @@
                         </label>
                         <select class="form-select" id="department" name="department" required>
                             <option value="" disabled {% if not form.get('department') %}selected{% endif %}>Select department</option>
-                            {% set departments = [
-                                'Business, Communication and Design',
-                                'Engineering',
-                                'Food, Chemical and Biotechnology',
-                                'Health and Social Sciences',
-                                'Infocomm Technology'
-                            ] %}
                             {% for dept in departments %}
-                            <option value="{{ dept }}" {% if form.get('department') == dept %}selected{% endif %}>
-                                {{ dept }}
-                            </option>
+                            <option value="{{ dept }}" {% if form.get('department') == dept %}selected{% endif %}>{{ dept }}</option>
                             {% endfor %}
                         </select>
                     </div>
