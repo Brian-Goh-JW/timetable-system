@@ -2229,8 +2229,8 @@ def timetable_export():
         cs  = e.class_session
         crs = cs.course
         profs = ', '.join(
-            p.name for p in (e.override_professor,) if p
-        ) or ', '.join(p.name for p in cs.all_professors)
+            p.user.name for p in (e.override_professor,) if p
+        ) or ', '.join(p.user.name for p in cs.all_professors)
         ws.append([
             e.academic_year or e.trimester[:6],
             e.trimester,
