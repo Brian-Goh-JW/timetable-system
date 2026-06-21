@@ -74,7 +74,7 @@
                         </label>
                         <select class="form-select" name="academic_year" required>
                             {% for ay in ay_options %}
-                            <option value="{{ ay }}" {% if ay == ay_default %}selected{% endif %}>{{ ay }}</option>
+                            <option value="{{ ay }}" {% if ay == ay_default %}selected{% endif %}>AY20{{ ay[2:4] }}/{{ ay[4:6] }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -145,7 +145,7 @@
                             <select class="form-select" name="academic_year" required
                                     onchange="updateTrimKey()">
                                 {% for ay in ay_options %}
-                                <option value="{{ ay }}" {% if ay == ay_default %}selected{% endif %}>{{ ay }}</option>
+                                <option value="{{ ay }}" {% if ay == ay_default %}selected{% endif %}>AY20{{ ay[2:4] }}/{{ ay[4:6] }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -293,7 +293,13 @@
                 </form>
 
                 <!-- Clear full AY -->
-                {% set cur_ay = active_trimester.split('-T')[0] if '-T' in active_trimester else '' %}
+                {% if '-T' in active_trimester %}
+                    {% set cur_ay = active_trimester.split('-T')[0] %}
+                {% elif active_trimester and active_trimester[-4:] == '-all' %}
+                    {% set cur_ay = active_trimester[:-4] %}
+                {% else %}
+                    {% set cur_ay = '' %}
+                {% endif %}
                 {% if cur_ay %}
                 <form method="POST">
                     <input type="hidden" name="action" value="reset_ay">
@@ -421,7 +427,7 @@
     <!-- Right: Timetable view -->
     <div class="col-lg-8">
         <div class="d-flex justify-content-end gap-2 mb-2">
-            {% if active_trimester %}
+            {% if active_trimester and active_trimester[-4:] != '-all' %}
             <a href="{{ url_for('admin.timetable_export', trimester=active_trimester) }}"
                class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-download me-1"></i>Export Excel
@@ -440,7 +446,7 @@
           {% if t[:6] not in distinct_ays.vals %}{% set distinct_ays.vals = distinct_ays.vals + [t[:6]] %}{% endif %}
         {% endfor %}
         {% set active_ay = active_trimester[:6] if active_trimester else distinct_ays.vals[-1] %}
-        {% set active_tri_num = active_trimester[-1] if active_trimester else '1' %}
+        {% set active_tri_num = 'all' if (active_trimester and active_trimester[-4:] == '-all') else (active_trimester[-1] if active_trimester else 'all') %}
 
         <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
             <span class="text-muted small">AY:</span>
@@ -451,6 +457,7 @@
             </select>
             <span class="text-muted small ms-1">Tri:</span>
             <select class="form-select form-select-sm w-auto" id="tri-select" onchange="triChanged(this)">
+                <option value="all" {% if active_tri_num == 'all' %}selected{% endif %}>All</option>
                 {% for tri_num in ['1', '2', '3'] %}
                 {% set tri_key = active_ay ~ '-T' ~ tri_num %}
                 <option value="{{ tri_num }}"
@@ -462,12 +469,10 @@
             </select>
             {% if year_levels %}
             <span class="text-muted small ms-1">Year:</span>
-            <select class="form-select form-select-sm w-auto" id="year-filter-select" onchange="filterYear(this.value)">
-                <option value="all">All</option>
-                {% for yr in year_levels %}
-                <option value="{{ yr }}">Year {{ yr }}</option>
-                {% endfor %}
-            </select>
+            <button class="filter-chip active" id="chip-yr-all" onclick="filterYear('all')">All</button>
+            {% for yr in year_levels %}
+            <button class="filter-chip" id="chip-yr-{{ yr }}" onclick="filterYear('{{ yr }}')">Y{{ yr }}</button>
+            {% endfor %}
             {% endif %}
         </div>
         <script>
@@ -476,12 +481,17 @@
             window.ayChanged = function(sel) {
                 const ay = sel.value;
                 const tri = '{{ active_tri_num }}';
-                const target = ay + '-T' + tri;
-                const avail = _tris.filter(t => t.startsWith(ay));
-                const dest = avail.includes(target) ? target : avail[0];
-                if (!dest) return;
                 const url = new URL(window.location.href);
-                url.searchParams.set('trimester', dest);
+                if (tri === 'all') {
+                    url.searchParams.set('trimester', ay + '-all');
+                } else {
+                    const target = ay + '-T' + tri;
+                    const avail = _tris.filter(t => t.startsWith(ay));
+                    const dest = avail.includes(target) ? target : avail[0];
+                    if (!dest) return;
+                    url.searchParams.set('trimester', dest);
+                }
+                url.searchParams.delete('view');
                 {% if prog_filter %}url.searchParams.set('prog', '{{ prog_filter }}');{% else %}url.searchParams.delete('prog');{% endif %}
                 window.location.href = url.toString();
             };
@@ -489,7 +499,8 @@
                 const tri = sel.value;
                 const ay = '{{ active_ay }}';
                 const url = new URL(window.location.href);
-                url.searchParams.set('trimester', ay + '-T' + tri);
+                url.searchParams.set('trimester', tri === 'all' ? ay + '-all' : ay + '-T' + tri);
+                url.searchParams.delete('view');
                 {% if prog_filter %}url.searchParams.set('prog', '{{ prog_filter }}');{% else %}url.searchParams.delete('prog');{% endif %}
                 window.location.href = url.toString();
             };
@@ -512,10 +523,12 @@
                    class="btn btn-outline-secondary {% if view_mode == 'list' %}active{% endif %}">
                     <i class="bi bi-list-ul me-1"></i>List
                 </a>
+                {% if active_trimester[-4:] != '-all' %}
                 <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=week_number, prog=prog_filter or None) }}"
                    class="btn btn-outline-secondary {% if view_mode == 'weekly' %}active{% endif %}">
                     <i class="bi bi-calendar-week me-1"></i>Weekly
                 </a>
+                {% endif %}
             </div>
         </div>
 
@@ -524,12 +537,12 @@
         <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
             <span class="text-muted small fw-medium">Programme:</span>
             <a href="{{ url_for('admin.timetable', trimester=active_trimester, view=view_mode) }}"
-               class="btn btn-sm {% if not prog_filter %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+               class="filter-chip {% if not prog_filter %}active{% endif %}">
                 All
             </a>
             {% for code, name in programmes %}
             <a href="{{ url_for('admin.timetable', trimester=active_trimester, view=view_mode, prog=code) }}"
-               class="btn btn-sm {% if prog_filter == code %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+               class="filter-chip chip-info {% if prog_filter == code %}active{% endif %}"
                title="{{ name }}">
                 {{ code }}
             </a>
@@ -709,13 +722,18 @@
         {% elif active_trimester and entries %}
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white border-bottom fw-semibold">
-                {{ active_trimester }} — Weekly Schedule
+                {% if active_trimester and active_trimester[-4:] == '-all' %}
+                    AY20{{ active_trimester[2:4] }}/{{ active_trimester[4:6] }} — All Trimesters
+                {% else %}
+                    {{ active_trimester }} — Schedule
+                {% endif %}
             </div>
             <div class="card-body p-0">
                 <table class="table table-hover align-middle mb-0 small">
                     <thead class="table-light">
                         <tr>
-                            <th class="ps-3">Day</th>
+                            {% if active_trimester and active_trimester[-4:] == '-all' %}<th class="ps-3">Tri</th>{% endif %}
+                            <th {% if not (active_trimester and active_trimester[-4:] == '-all') %}class="ps-3"{% endif %}>Day</th>
                             <th>Period</th>
                             <th>Time</th>
                             <th>Module</th>
@@ -731,7 +749,13 @@
                     <tbody>
                         {% for e in entries %}
                         <tr data-year="{{ e.class_session.course.year_level }}">
-                            <td class="ps-3 fw-medium">{{ e.timeslot.day_of_week }}</td>
+                            {% if active_trimester and active_trimester[-4:] == '-all' %}
+                            <td class="ps-3">
+                                {% set tnum = e.trimester[-1] %}
+                                <span class="badge {% if tnum=='1' %}bg-primary{% elif tnum=='2' %}bg-success{% else %}bg-warning text-dark{% endif %}">T{{ tnum }}</span>
+                            </td>
+                            {% endif %}
+                            <td class="fw-medium {% if not (active_trimester and active_trimester[-4:] == '-all') %}ps-3{% endif %}">{{ e.timeslot.day_of_week }}</td>
                             <td>{{ e.timeslot.period_label }}</td>
                             <td class="text-muted">
                                 {{ e.timeslot.start_time.strftime('%H:%M') }}–{{ e.timeslot.end_time.strftime('%H:%M') }}
@@ -887,8 +911,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
 function filterYear(year) {
     localStorage.setItem('adminTimetableYearFilter', year);
+    document.querySelectorAll('[id^="chip-yr-"]').forEach(function(c) { c.classList.remove('active'); });
+    var chip = document.getElementById('chip-yr-' + year);
+    if (chip) chip.classList.add('active');
 
-    // Filter weekly view blocks
     document.querySelectorAll('.session-block').forEach(function(block) {
         if (year === 'all' || String(block.dataset.year) === String(year)) {
             block.classList.remove('filtered-out');
@@ -896,8 +922,6 @@ function filterYear(year) {
             block.classList.add('filtered-out');
         }
     });
-
-    // Filter list view rows
     document.querySelectorAll('tbody tr[data-year]').forEach(function(row) {
         if (year === 'all' || String(row.dataset.year) === String(year)) {
             row.style.display = '';
@@ -907,14 +931,10 @@ function filterYear(year) {
     });
 }
 
-// Restore saved filter on every page load
+// Restore saved year filter on every page load
 document.addEventListener('DOMContentLoaded', function () {
     var saved = localStorage.getItem('adminTimetableYearFilter');
-    var sel = document.getElementById('year-filter-select');
-    if (sel && saved) {
-        sel.value = saved;
-        filterYear(saved);
-    }
+    if (saved && saved !== 'all') { filterYear(saved); }
 });
 </script>
 

@@ -342,7 +342,61 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                 model.Add(slot_vars[s.id] != blocked_idx)
                 strict_constraints_added += 1
 
-    # Soft constraint F — preferred availability declarations
+    # Hard constraint F — lunch window
+    # Every student group must have ≥ 1 free hour in [11:00, 14:00) on each day.
+    # The three 1-hour "chunks" are 11→12, 12→13, 13→14; at most 2 may be occupied.
+    LUNCH_HOURS = [11, 12, 13]
+
+    # (day, chunk_hour) → list of timeslot indices whose time range covers that hour
+    day_chunk_ts = defaultdict(list)
+    for i, ts in enumerate(timeslots):
+        for h in LUNCH_HOURS:
+            if ts.start_time.hour <= h < ts.end_time.hour:
+                day_chunk_ts[(ts.day_of_week, h)].append(i)
+
+    # BoolVar cache: (session_id, ts_idx) → BoolVar for "session placed at that slot"
+    _slot_at_vars = {}
+
+    grp_to_sessions = defaultdict(list)
+    for s in sessions:
+        if s.student_group_id:
+            grp_to_sessions[s.student_group_id].append(s)
+
+    for grp_id, grp_sess in grp_to_sessions.items():
+        for day in ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'):
+            chunk_occ_vars = []
+            for h in LUNCH_HOURS:
+                ts_indices = day_chunk_ts.get((day, h), [])
+                if not ts_indices:
+                    continue
+                # sessions in this group that can land on any slot covering (day, h)
+                rel = [s for s in grp_sess
+                       if any(idx in compat_slots[s.id] for idx in ts_indices)]
+                if not rel:
+                    continue
+                occ = model.NewBoolVar(f'lunch_{grp_id}_{day}_{h}')
+                indicators = []
+                for s in rel:
+                    for idx in ts_indices:
+                        if idx not in compat_slots[s.id]:
+                            continue
+                        key = (s.id, idx)
+                        if key not in _slot_at_vars:
+                            b = model.NewBoolVar(f'lat_{s.id}_{idx}')
+                            model.Add(slot_vars[s.id] == idx).OnlyEnforceIf(b)
+                            model.Add(slot_vars[s.id] != idx).OnlyEnforceIf(b.Not())
+                            _slot_at_vars[key] = b
+                        indicators.append(_slot_at_vars[key])
+                if not indicators:
+                    continue
+                model.AddBoolOr(indicators).OnlyEnforceIf(occ)
+                model.AddBoolAnd([v.Not() for v in indicators]).OnlyEnforceIf(occ.Not())
+                chunk_occ_vars.append(occ)
+            # Only add constraint when all 3 chunks are reachable — otherwise trivially OK
+            if len(chunk_occ_vars) == 3:
+                model.Add(sum(chunk_occ_vars) <= 2)
+
+    # Soft constraint G — preferred availability declarations
     # Create a boolean penalty variable for each (session, avoided_slot) pair.
     # penalty_var = 1 means the solver placed the session in an avoided slot.
     # Objective: minimise total penalties.
@@ -365,7 +419,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                 decl  = pref_decl_map.get((s.primary_professor_id, ts_id))
                 penalty_vars.append((is_violated, s, avoid_idx, decl))
 
-    # Soft constraint G — day spread
+    # Soft constraint H — day spread
     # Penalise pairs of sessions that land on the same day to prevent
     # Mon–Wed clustering when no availability declarations exist.
     # Weight (1) is far lower than preferred violation weight (100), so
@@ -388,7 +442,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             model.Add(day_var_map[si.id] != day_var_map[sj.id]).OnlyEnforceIf(same_day_b.Not())
             spread_cost_vars.append(same_day_b)
 
-    # Soft constraint H — historical slot preference
+    # Soft constraint I — historical slot preference
     # When generating a new AY, prefer the same timeslot that was used in the previous year's
     # equivalent trimester (e.g. AY2627-T1 prefers AY2526-T1 slots).
     # Weight = 10: stronger than day-spread (1) but weaker than availability declarations (100).

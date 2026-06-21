@@ -1877,11 +1877,19 @@ def timetable():
     prog_filter = request.args.get('prog', '')
 
     if trimester:
-        entries = (TimetableEntry.query
-                   .filter_by(trimester=trimester)
-                   .join(TimetableEntry.timeslot)
-                   .order_by(TimeSlot.day_of_week, TimeSlot.period_label)
-                   .all())
+        if trimester.endswith('-all'):
+            ay_prefix = trimester[:-4]  # 'AY2627'
+            entries = (TimetableEntry.query
+                       .filter(TimetableEntry.trimester.startswith(ay_prefix))
+                       .join(TimetableEntry.timeslot)
+                       .order_by(TimetableEntry.trimester, TimeSlot.day_of_week, TimeSlot.period_label)
+                       .all())
+        else:
+            entries = (TimetableEntry.query
+                       .filter_by(trimester=trimester)
+                       .join(TimetableEntry.timeslot)
+                       .order_by(TimeSlot.day_of_week, TimeSlot.period_label)
+                       .all())
 
     # Collect programmes present in this trimester (before filtering, for filter UI)
     programmes = sorted(set(
@@ -1905,10 +1913,17 @@ def timetable():
             unique_entries.append(e)
 
     day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-    unique_entries.sort(key=lambda e: (
-        day_order.index(e.timeslot.day_of_week),
-        e.timeslot.start_time
-    ))
+    if trimester.endswith('-all'):
+        unique_entries.sort(key=lambda e: (
+            e.trimester,
+            day_order.index(e.timeslot.day_of_week),
+            e.timeslot.start_time
+        ))
+    else:
+        unique_entries.sort(key=lambda e: (
+            day_order.index(e.timeslot.day_of_week),
+            e.timeslot.start_time
+        ))
 
     # ---------------------------------------------------------------------------
     # Weekly view support
@@ -1916,7 +1931,7 @@ def timetable():
     from app.models.academic_calendar import AcademicCalendar
 
     DAYS_ALL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-    view_mode       = request.args.get('view', 'list')
+    view_mode = 'list' if trimester.endswith('-all') else request.args.get('view', 'list')
     week_number     = request.args.get('week', 1, type=int)
     calendar_weeks  = []
     period_slots    = []

@@ -158,25 +158,34 @@
 </div>
 
 <!-- Filter + Export -->
-<div class="d-flex gap-2 mb-3 align-items-center flex-wrap justify-content-between">
-    <div class="d-flex gap-2 align-items-center flex-wrap">
-        <span class="text-muted small fw-medium">Filter:</span>
-        <button class="btn btn-sm btn-dark" onclick="filterCross('all')">All</button>
-        <button class="btn btn-sm btn-outline-success" onclick="filterCross('same')">
-            <i class="bi bi-check-circle me-1"></i>Kept same slot
-        </button>
-        <button class="btn btn-sm btn-outline-warning" onclick="filterCross('different')">
-            <i class="bi bi-exclamation-circle me-1"></i>Slot changed
-        </button>
-        <button class="btn btn-sm btn-outline-info" onclick="filterCross('compare_only')">
-            <i class="bi bi-plus-circle me-1"></i>New in {{ compare_ay }}
-        </button>
-        <button class="btn btn-sm btn-outline-secondary" onclick="filterCross('base_only')">
-            <i class="bi bi-dash-circle me-1"></i>Only in {{ base_ay }}
-        </button>
+<div class="d-flex align-items-start justify-content-between gap-3 mb-3 flex-wrap">
+    <div>
+        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+            <span class="text-muted small fw-medium" style="min-width:44px;">Status</span>
+            <button class="filter-chip active" id="chip-status-all" onclick="setStatus('all')">All</button>
+            <button class="filter-chip chip-success" id="chip-status-same" onclick="setStatus('same')">
+                <i class="bi bi-check-circle"></i>Kept
+            </button>
+            <button class="filter-chip chip-warning" id="chip-status-different" onclick="setStatus('different')">
+                <i class="bi bi-arrow-left-right"></i>Changed
+            </button>
+            <button class="filter-chip chip-info" id="chip-status-compare_only" onclick="setStatus('compare_only')">
+                <i class="bi bi-plus-circle"></i>New in {{ compare_ay }}
+            </button>
+            <button class="filter-chip" id="chip-status-base_only" onclick="setStatus('base_only')">
+                <i class="bi bi-dash-circle"></i>Only in {{ base_ay }}
+            </button>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="text-muted small fw-medium" style="min-width:44px;">Tri</span>
+            <button class="filter-chip active" id="chip-tri-all" onclick="setTri('all')">All</button>
+            <button class="filter-chip chip-info" id="chip-tri-1" onclick="setTri('1')">T1</button>
+            <button class="filter-chip chip-success" id="chip-tri-2" onclick="setTri('2')">T2</button>
+            <button class="filter-chip chip-warning" id="chip-tri-3" onclick="setTri('3')">T3</button>
+        </div>
     </div>
     <a href="{{ url_for('admin.timetable_export', trimester=compare_ay ~ '-T1') }}"
-       class="btn btn-sm btn-outline-dark">
+       class="btn btn-sm btn-outline-dark align-self-start">
         <i class="bi bi-download me-1"></i>Export {{ compare_ay }} T1
     </a>
 </div>
@@ -202,7 +211,7 @@
             </thead>
             <tbody>
                 {% for row in cross_rows %}
-                <tr data-cross="{{ row.consistency }}">
+                <tr data-cross="{{ row.consistency }}" data-tri="{{ row.tri_num }}">
                     <td class="ps-3">
                         <span class="badge {% if row.tri_num==1 %}bg-primary{% elif row.tri_num==2 %}bg-success{% else %}bg-warning text-dark{% endif %}">
                             T{{ row.tri_num }}
@@ -259,11 +268,29 @@
 
 {% block extra_scripts %}
 <script>
-function filterCross(type) {
+var _statusFilter = 'all';
+var _triFilter    = 'all';
+
+function applyFilters() {
     document.querySelectorAll('tbody tr[data-cross]').forEach(function(row) {
-        var c = row.dataset.cross;
-        row.style.display = (type === 'all' || c === type) ? '' : 'none';
+        var statusOk = (_statusFilter === 'all' || row.dataset.cross === _statusFilter);
+        var triOk    = (_triFilter    === 'all' || row.dataset.tri   === _triFilter);
+        row.style.display = (statusOk && triOk) ? '' : 'none';
     });
+}
+
+function setStatus(val) {
+    _statusFilter = val;
+    document.querySelectorAll('[id^="chip-status-"]').forEach(function(c) { c.classList.remove('active'); });
+    document.getElementById('chip-status-' + val).classList.add('active');
+    applyFilters();
+}
+
+function setTri(val) {
+    _triFilter = val;
+    document.querySelectorAll('[id^="chip-tri-"]').forEach(function(c) { c.classList.remove('active'); });
+    document.getElementById('chip-tri-' + val).classList.add('active');
+    applyFilters();
 }
 
 function generateSummary(trimester) {

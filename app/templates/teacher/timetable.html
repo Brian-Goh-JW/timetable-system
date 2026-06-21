@@ -15,8 +15,8 @@
 <div class="mb-2 d-flex flex-wrap gap-2">
     {% for t in trimesters %}
     <a href="{{ url_for('teacher.timetable', trimester=t, view=view_mode) }}"
-       class="btn btn-sm {% if active_trimester == t %}btn-dark{% else %}btn-outline-secondary{% endif %}">
-        {% if t | length >= 9 and t[2:6].isdigit() and '-T' in t %}
+       class="filter-chip {% if active_trimester == t %}active{% endif %}">
+        {% if t | length >= 9 and '-T' in t %}
             {{ t[:2] ~ t[2:4] ~ '/' ~ t[4:6] ~ ' Tri ' ~ t[-1] }}
         {% else %}
             {{ t }}
