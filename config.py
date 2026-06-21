@@ -16,3 +16,6 @@ class Config:
 
     # Admin inbox — receives "cannot proceed" notifications from professors
     ADMIN_EMAIL = 'braingohjw@gmail.com'
+
+    # Anthropic API — for timetable summary generation
+    ANTHROPIC_API_KEY = ''  # fill in from console.anthropic.com

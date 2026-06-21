@@ -72,9 +72,11 @@
                         <label class="form-label fw-medium">
                             Academic Year <span class="text-danger">*</span>
                         </label>
-                        <input type="text" class="form-control" name="academic_year"
-                               placeholder="e.g. AY2526" value="{{ ay_default }}" required>
-                        <div class="form-text">Aug YYYY – Jul YYYY+1</div>
+                        <select class="form-select" name="academic_year" required>
+                            {% for ay in ay_options %}
+                            <option value="{{ ay }}" {% if ay == ay_default %}selected{% endif %}>{{ ay }}</option>
+                            {% endfor %}
+                        </select>
                     </div>
 
                     <div class="mb-2 small fw-medium text-muted">Week 1 Start Dates (must be Mondays)</div>
@@ -140,10 +142,12 @@
                             <label class="form-label fw-medium">
                                 Academic Year <span class="text-danger">*</span>
                             </label>
-                            <input type="text" class="form-control" name="academic_year"
-                                   placeholder="e.g. AY2526"
-                                   value="{{ ay_default }}" required
-                                   oninput="updateTrimKey()">
+                            <select class="form-select" name="academic_year" required
+                                    onchange="updateTrimKey()">
+                                {% for ay in ay_options %}
+                                <option value="{{ ay }}" {% if ay == ay_default %}selected{% endif %}>{{ ay }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
                         <div class="col-5">
                             <label class="form-label fw-medium">
@@ -276,18 +280,30 @@
                 <i class="bi bi-trash me-2 text-muted"></i>Reset Timetable
             </div>
             <div class="card-body">
-                <p class="small text-muted mb-3">
+                <p class="small text-muted mb-2">
                     Deletes all entries for <strong>{{ active_trimester }}</strong> including published ones.
-                    Use this to re-run the solver from scratch.
                 </p>
-                <form method="POST">
+                <form method="POST" class="mb-2">
                     <input type="hidden" name="action" value="reset">
                     <input type="hidden" name="trimester" value="{{ active_trimester }}">
                     <button type="submit" class="btn btn-outline-danger w-100"
                             onclick="return confirm('Delete all timetable entries for {{ active_trimester }}? This cannot be undone.')">
-                        <i class="bi bi-trash me-1"></i>Reset / Clear Timetable
+                        <i class="bi bi-trash me-1"></i>Clear This Trimester
                     </button>
                 </form>
+
+                <!-- Clear full AY -->
+                {% set cur_ay = active_trimester.split('-T')[0] if '-T' in active_trimester else '' %}
+                {% if cur_ay %}
+                <form method="POST">
+                    <input type="hidden" name="action" value="reset_ay">
+                    <input type="hidden" name="clear_ay" value="{{ cur_ay }}">
+                    <button type="submit" class="btn btn-danger w-100"
+                            onclick="return confirm('Delete ALL timetable entries for {{ cur_ay }} (T1 + T2 + T3)? This cannot be undone.')">
+                        <i class="bi bi-trash-fill me-1"></i>Clear Full {{ cur_ay }}
+                    </button>
+                </form>
+                {% endif %}
             </div>
         </div>
         {% endif %}
@@ -404,29 +420,81 @@
 
     <!-- Right: Timetable view -->
     <div class="col-lg-8">
-        <div class="d-flex justify-content-end mb-2">
+        <div class="d-flex justify-content-end gap-2 mb-2">
+            {% if active_trimester %}
+            <a href="{{ url_for('admin.timetable_export', trimester=active_trimester) }}"
+               class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-download me-1"></i>Export Excel
+            </a>
+            {% endif %}
             <a href="{{ url_for('admin.timetable_similarity', ay=active_trimester[:6] if active_trimester and active_trimester[:2]=='AY' else '') }}"
                class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-bar-chart me-1"></i>Similarity Report
             </a>
         </div>
 
-        <!-- Trimester tabs -->
+        <!-- Trimester tabs: AY dropdown + Tri 1/2/3 buttons -->
         {% if trimesters %}
-        <div class="mb-2 d-flex flex-wrap gap-2 align-items-center">
-            <span class="text-muted small">Timetables:</span>
-            {% for t in trimesters %}
-            <a href="{{ url_for('admin.timetable', trimester=t, view=view_mode) }}"
-               class="btn btn-sm {% if active_trimester == t %}btn-dark{% else %}btn-outline-secondary{% endif %}">
-                {# Pretty-print AY2526-T1 → AY25/26 Tri 1 #}
-                {% if t | length >= 9 and t[2:6].isdigit() and '-T' in t %}
-                    {{ t[:2] ~ t[2:4] ~ '/' ~ t[4:6] ~ ' — Tri ' ~ t[-1] }}
-                {% else %}
-                    {{ t }}
-                {% endif %}
-            </a>
-            {% endfor %}
+        {% set distinct_ays = namespace(vals=[]) %}
+        {% for t in trimesters %}
+          {% if t[:6] not in distinct_ays.vals %}{% set distinct_ays.vals = distinct_ays.vals + [t[:6]] %}{% endif %}
+        {% endfor %}
+        {% set active_ay = active_trimester[:6] if active_trimester else distinct_ays.vals[-1] %}
+        {% set active_tri_num = active_trimester[-1] if active_trimester else '1' %}
+
+        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+            <span class="text-muted small">AY:</span>
+            <select class="form-select form-select-sm w-auto" id="ay-select" onchange="ayChanged(this)">
+                {% for ay in distinct_ays.vals %}
+                <option value="{{ ay }}" {% if ay == active_ay %}selected{% endif %}>AY20{{ ay[2:4] }}/{{ ay[4:6] }}</option>
+                {% endfor %}
+            </select>
+            <span class="text-muted small ms-1">Tri:</span>
+            <select class="form-select form-select-sm w-auto" id="tri-select" onchange="triChanged(this)">
+                {% for tri_num in ['1', '2', '3'] %}
+                {% set tri_key = active_ay ~ '-T' ~ tri_num %}
+                <option value="{{ tri_num }}"
+                        {% if active_tri_num == tri_num %}selected{% endif %}
+                        {% if tri_key not in trimesters %}disabled{% endif %}>
+                    Tri {{ tri_num }}
+                </option>
+                {% endfor %}
+            </select>
+            {% if year_levels %}
+            <span class="text-muted small ms-1">Year:</span>
+            <select class="form-select form-select-sm w-auto" id="year-filter-select" onchange="filterYear(this.value)">
+                <option value="all">All</option>
+                {% for yr in year_levels %}
+                <option value="{{ yr }}">Year {{ yr }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
         </div>
+        <script>
+        (function() {
+            const _tris = {{ trimesters | tojson }};
+            window.ayChanged = function(sel) {
+                const ay = sel.value;
+                const tri = '{{ active_tri_num }}';
+                const target = ay + '-T' + tri;
+                const avail = _tris.filter(t => t.startsWith(ay));
+                const dest = avail.includes(target) ? target : avail[0];
+                if (!dest) return;
+                const url = new URL(window.location.href);
+                url.searchParams.set('trimester', dest);
+                {% if prog_filter %}url.searchParams.set('prog', '{{ prog_filter }}');{% else %}url.searchParams.delete('prog');{% endif %}
+                window.location.href = url.toString();
+            };
+            window.triChanged = function(sel) {
+                const tri = sel.value;
+                const ay = '{{ active_ay }}';
+                const url = new URL(window.location.href);
+                url.searchParams.set('trimester', ay + '-T' + tri);
+                {% if prog_filter %}url.searchParams.set('prog', '{{ prog_filter }}');{% else %}url.searchParams.delete('prog');{% endif %}
+                window.location.href = url.toString();
+            };
+        })();
+        </script>
         {% endif %}
 
         <!-- View toggle + year filter -->
@@ -440,27 +508,35 @@
                 {% endif %}
             </small>
             <div class="btn-group btn-group-sm">
-                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='list') }}"
+                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='list', prog=prog_filter or None) }}"
                    class="btn btn-outline-secondary {% if view_mode == 'list' %}active{% endif %}">
                     <i class="bi bi-list-ul me-1"></i>List
                 </a>
-                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=week_number) }}"
+                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=week_number, prog=prog_filter or None) }}"
                    class="btn btn-outline-secondary {% if view_mode == 'weekly' %}active{% endif %}">
                     <i class="bi bi-calendar-week me-1"></i>Weekly
                 </a>
             </div>
         </div>
 
-        <!-- Year level filter (client-side, no reload) -->
-        {% if year_levels %}
-        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap" id="year-filter">
-            <span class="text-muted small fw-medium">Filter:</span>
-            <button class="btn btn-sm btn-dark" onclick="filterYear('all', this)">All Years</button>
-            {% for yr in year_levels %}
-            <button class="btn btn-sm btn-outline-secondary" onclick="filterYear('{{ yr }}', this)">Year {{ yr }}</button>
+        <!-- Programme filter (server-side) -->
+        {% if programmes and programmes | length > 1 %}
+        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+            <span class="text-muted small fw-medium">Programme:</span>
+            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view=view_mode) }}"
+               class="btn btn-sm {% if not prog_filter %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+                All
+            </a>
+            {% for code, name in programmes %}
+            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view=view_mode, prog=code) }}"
+               class="btn btn-sm {% if prog_filter == code %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+               title="{{ name }}">
+                {{ code }}
+            </a>
             {% endfor %}
         </div>
         {% endif %}
+
         {% endif %}
 
         {# ------------------------------------------------------------------ #}
@@ -471,7 +547,7 @@
         <!-- Week navigator -->
         <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
             {% if prev_week_num %}
-            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=prev_week_num) }}"
+            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=prev_week_num, prog=prog_filter or None) }}"
                class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-chevron-left"></i> Wk {{ prev_week_num }}
             </a>
@@ -493,7 +569,7 @@
             </span>
 
             {% if next_week_num %}
-            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=next_week_num) }}"
+            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=next_week_num, prog=prog_filter or None) }}"
                class="btn btn-sm btn-outline-secondary">
                 Wk {{ next_week_num }} <i class="bi bi-chevron-right"></i>
             </a>
@@ -506,7 +582,7 @@
                 <select class="form-select form-select-sm" style="width:auto;"
                         onchange="window.location=this.value">
                     {% for cw in calendar_weeks %}
-                    <option value="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=cw.week_number) }}"
+                    <option value="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=cw.week_number, prog=prog_filter or None) }}"
                             {% if cw.week_number == week_number %}selected{% endif %}>
                         Week {{ cw.week_number }}{% if cw.start_date %} ({{ cw.start_date.strftime('%d %b') }}){% endif %}{% if cw.is_term_break %} — Break{% endif %}
                     </option>
@@ -809,17 +885,8 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 
-function filterYear(year, btn) {
-    // Persist selection so it survives week navigation / view toggle
+function filterYear(year) {
     localStorage.setItem('adminTimetableYearFilter', year);
-
-    // Update active button styles
-    document.querySelectorAll('#year-filter button').forEach(function(b) {
-        b.classList.remove('btn-dark', 'active');
-        b.classList.add('btn-outline-secondary');
-    });
-    btn.classList.remove('btn-outline-secondary');
-    btn.classList.add('btn-dark', 'active');
 
     // Filter weekly view blocks
     document.querySelectorAll('.session-block').forEach(function(block) {
@@ -843,9 +910,10 @@ function filterYear(year, btn) {
 // Restore saved filter on every page load
 document.addEventListener('DOMContentLoaded', function () {
     var saved = localStorage.getItem('adminTimetableYearFilter');
-    if (saved && saved !== 'all') {
-        var btn = document.querySelector('#year-filter button[onclick*="' + saved + '"]');
-        if (btn) filterYear(saved, btn);
+    var sel = document.getElementById('year-filter-select');
+    if (sel && saved) {
+        sel.value = saved;
+        filterYear(saved);
     }
 });
 </script>

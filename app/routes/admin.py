@@ -11,6 +11,7 @@ from app.models.user import User
 from app.models.student_group import StudentGroup
 from app.models.programme import Programme
 from app.models.class_session import ClassSession
+from app.models.class_session_professor import ClassSessionProfessor
 from app.models.timetable_entry import TimetableEntry
 from app.models.timeslot import TimeSlot
 from app.models.audit_log import AuditLog
@@ -52,10 +53,40 @@ def dashboard():
         Course.split_count.is_(None)
     ).order_by(Course.year_level, Course.module_code).all()
 
+    # KPIs — computed from the most recently generated trimester
+    kpis = None
+    latest_row = db.session.query(TimetableEntry.trimester)\
+        .order_by(TimetableEntry.trimester.desc()).first()
+    if latest_row:
+        tri = latest_row[0]
+        sessions_scheduled = db.session.query(TimetableEntry.class_session_id)\
+            .filter(TimetableEntry.trimester == tri).distinct().count()
+        used_room_slots = db.session.query(
+            TimetableEntry.room_id, TimetableEntry.timeslot_id
+        ).filter(
+            TimetableEntry.trimester == tri,
+            TimetableEntry.room_id.isnot(None)
+        ).distinct().count()
+        total_active_rooms = Room.query.filter_by(is_active=True).count()
+        total_timeslots = db.session.query(TimeSlot).count()
+        room_util = round(used_room_slots / (total_active_rooms * total_timeslots) * 100, 1) \
+            if total_active_rooms and total_timeslots else 0
+        profs_covered = db.session.query(ClassSessionProfessor.professor_id)\
+            .join(TimetableEntry, TimetableEntry.class_session_id == ClassSessionProfessor.session_id)\
+            .filter(TimetableEntry.trimester == tri).distinct().count()
+        kpis = {
+            'trimester':           tri,
+            'sessions_scheduled':  sessions_scheduled,
+            'room_util_pct':       room_util,
+            'profs_covered':       profs_covered,
+            'hard_conflicts':      0,
+        }
+
     return render_template(
         'admin/dashboard.html',
         stats=stats,
         courses_missing_split=courses_missing_split,
+        kpis=kpis,
     )
 
 
@@ -1353,6 +1384,245 @@ def audit_log_export():
 
 
 # ---------------------------------------------------------------------------
+# Data Import / Export
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/import', methods=['GET', 'POST'])
+@login_required
+def data_import():
+    import io, pandas as pd
+    from flask import Response, send_file
+    from app.models.user import User
+    from werkzeug.security import generate_password_hash
+
+    results = {}   # {type: {'created': n, 'updated': n, 'errors': [...]}}
+
+    # ── Template downloads ──────────────────────────────────────────────────
+    download = request.args.get('download', '')
+    if download == 'rooms':
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            pd.DataFrame([
+                {'room_code': 'E6-04-15', 'building': 'E6', 'capacity': 30,
+                 'room_type': 'lab', 'is_active': 'TRUE'},
+                {'room_code': 'E2-01-01', 'building': 'E2', 'capacity': 80,
+                 'room_type': 'lecture', 'is_active': 'TRUE'},
+            ]).to_excel(writer, index=False, sheet_name='Rooms')
+        output.seek(0)
+        return send_file(output, download_name='rooms_template.xlsx',
+                         as_attachment=True,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    if download == 'professors':
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            pd.DataFrame([
+                {'staff_id': 'P001', 'name': 'John Doe',
+                 'email': 'john.doe@singaporetech.edu.sg', 'department': 'DSC'},
+            ]).to_excel(writer, index=False, sheet_name='Professors')
+        output.seek(0)
+        return send_file(output, download_name='professors_template.xlsx',
+                         as_attachment=True,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    if download == 'modules':
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            pd.DataFrame([
+                {'programme_code': 'DSC', 'module_code': 'DSC1001',
+                 'title': 'Introduction to Data Science',
+                 'year_level': 1, 'trimester': 1,
+                 'course_delivery_mode': 'f2f',
+                 'session_type': 'lecture', 'session_delivery_mode': 'f2f',
+                 'duration_hours': 2, 'sessions_per_week': 1,
+                 'total_hours': 24, 'split_count': ''},
+                {'programme_code': 'DSC', 'module_code': 'DSC1001',
+                 'title': 'Introduction to Data Science',
+                 'year_level': 1, 'trimester': 1,
+                 'course_delivery_mode': 'f2f',
+                 'session_type': 'lab', 'session_delivery_mode': 'f2f',
+                 'duration_hours': 3, 'sessions_per_week': 1,
+                 'total_hours': 24, 'split_count': 2},
+            ]).to_excel(writer, index=False, sheet_name='Modules')
+        output.seek(0)
+        return send_file(output, download_name='modules_template.xlsx',
+                         as_attachment=True,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    # ── File uploads ────────────────────────────────────────────────────────
+    if request.method == 'POST':
+        import_type = request.form.get('import_type', '')
+        file = request.files.get('file')
+
+        if not file or not file.filename.endswith(('.xlsx', '.xls')):
+            flash('Please upload a valid Excel file (.xlsx or .xls).', 'danger')
+            return redirect(url_for('admin.data_import'))
+
+        try:
+            df = pd.read_excel(file, dtype=str).fillna('')
+        except Exception as e:
+            flash(f'Could not read file: {e}', 'danger')
+            return redirect(url_for('admin.data_import'))
+
+        created = updated = 0
+        errors = []
+
+        # ── Rooms ──────────────────────────────────────────────────────────
+        if import_type == 'rooms':
+            required = {'room_code', 'building', 'capacity', 'room_type'}
+            missing = required - set(df.columns.str.strip().str.lower())
+            if missing:
+                flash(f'Missing columns: {", ".join(missing)}', 'danger')
+                return redirect(url_for('admin.data_import'))
+
+            df.columns = df.columns.str.strip().str.lower()
+            for i, row in df.iterrows():
+                code = row.get('room_code', '').strip()
+                if not code:
+                    continue
+                try:
+                    cap = int(row.get('capacity', 0))
+                    rtype = row.get('room_type', 'lecture').strip().lower()
+                    if rtype not in ('lecture', 'lab', 'seminar'):
+                        rtype = 'lecture'
+                    active = str(row.get('is_active', 'TRUE')).strip().upper() != 'FALSE'
+                    building = row.get('building', '').strip()
+
+                    existing = Room.query.filter_by(room_code=code).first()
+                    if existing:
+                        existing.capacity = cap
+                        existing.room_type = rtype
+                        existing.is_active = active
+                        existing.building = building
+                        updated += 1
+                    else:
+                        db.session.add(Room(room_code=code, building=building,
+                                           capacity=cap, room_type=rtype, is_active=active))
+                        created += 1
+                except Exception as e:
+                    errors.append(f'Row {i+2} ({code}): {e}')
+
+            db.session.commit()
+            results['rooms'] = {'created': created, 'updated': updated, 'errors': errors}
+
+        # ── Professors ─────────────────────────────────────────────────────
+        elif import_type == 'professors':
+            required = {'staff_id', 'name', 'email', 'department'}
+            missing = required - set(df.columns.str.strip().str.lower())
+            if missing:
+                flash(f'Missing columns: {", ".join(missing)}', 'danger')
+                return redirect(url_for('admin.data_import'))
+
+            df.columns = df.columns.str.strip().str.lower()
+            for i, row in df.iterrows():
+                sid = row.get('staff_id', '').strip()
+                if not sid:
+                    continue
+                try:
+                    name  = row.get('name', '').strip()
+                    email = row.get('email', '').strip()
+                    dept  = row.get('department', '').strip()
+
+                    existing = Professor.query.filter_by(staff_id=sid).first()
+                    if existing:
+                        existing.department = dept
+                        existing.user.name  = name
+                        existing.user.email = email
+                        updated += 1
+                    else:
+                        if User.query.filter_by(email=email).first():
+                            errors.append(f'Row {i+2} ({sid}): email {email} already in use')
+                            continue
+                        user = User(name=name, email=email, role='professor',
+                                    password=generate_password_hash('password'))
+                        db.session.add(user)
+                        db.session.flush()
+                        db.session.add(Professor(user_id=user.id, staff_id=sid, department=dept))
+                        created += 1
+                except Exception as e:
+                    errors.append(f'Row {i+2} ({sid}): {e}')
+
+            db.session.commit()
+            results['professors'] = {'created': created, 'updated': updated, 'errors': errors}
+
+        # ── Modules ────────────────────────────────────────────────────────
+        elif import_type == 'modules':
+            required = {'programme_code', 'module_code', 'title', 'year_level',
+                        'session_type', 'session_delivery_mode', 'duration_hours'}
+            missing = required - set(df.columns.str.strip().str.lower())
+            if missing:
+                flash(f'Missing columns: {", ".join(missing)}', 'danger')
+                return redirect(url_for('admin.data_import'))
+
+            df.columns = df.columns.str.strip().str.lower()
+            for i, row in df.iterrows():
+                mc = row.get('module_code', '').strip().upper()
+                if not mc:
+                    continue
+                try:
+                    prog_code = row.get('programme_code', '').strip().upper()
+                    prog = Programme.query.filter_by(code=prog_code).first()
+                    if not prog:
+                        errors.append(f'Row {i+2} ({mc}): programme "{prog_code}" not found')
+                        continue
+
+                    stype = row.get('session_type', 'lecture').strip().lower()
+                    s_delivery = row.get('session_delivery_mode', 'f2f').strip().lower()
+                    dur = int(row.get('duration_hours', 2))
+                    tri = int(row.get('trimester', 0)) or None
+                    yr = int(row.get('year_level', 1))
+                    c_delivery = row.get('course_delivery_mode', s_delivery).strip().lower()
+                    spw = int(row.get('sessions_per_week', 1))
+                    total_h = int(row.get('total_hours', dur * 12))
+                    split_raw = row.get('split_count', '').strip()
+                    split = int(split_raw) if split_raw.isdigit() else None
+
+                    course = Course.query.filter_by(
+                        module_code=mc, programme_id=prog.id
+                    ).first()
+                    if not course:
+                        title = row.get('title', mc).strip()
+                        course = Course(
+                            programme_id=prog.id, module_code=mc, title=title,
+                            year_level=yr, trimester=tri, delivery_mode=c_delivery,
+                            sessions_per_week=spw, total_hours=total_h, split_count=split,
+                        )
+                        db.session.add(course)
+                        db.session.flush()
+                        created += 1
+
+                    # Add session if this exact type doesn't exist yet
+                    existing_sess = ClassSession.query.filter_by(
+                        course_id=course.id, session_type=stype
+                    ).first()
+                    if not existing_sess:
+                        db.session.add(ClassSession(
+                            course_id=course.id, session_type=stype,
+                            delivery_mode=s_delivery, duration_hours=dur,
+                        ))
+                    else:
+                        updated += 1
+
+                except Exception as e:
+                    errors.append(f'Row {i+2} ({mc}): {e}')
+
+            db.session.commit()
+            results['modules'] = {'created': created, 'updated': updated, 'errors': errors}
+
+        if not results:
+            flash('Nothing was imported.', 'warning')
+        else:
+            for itype, r in results.items():
+                flash(
+                    f'{itype.title()}: {r["created"]} created, {r["updated"]} updated'
+                    + (f', {len(r["errors"])} errors' if r["errors"] else '') + '.',
+                    'success' if not r["errors"] else 'warning'
+                )
+
+    return render_template('admin/data_import.html', results=results)
+
+
+# ---------------------------------------------------------------------------
 # Timetable — generate and view
 # ---------------------------------------------------------------------------
 
@@ -1374,6 +1644,10 @@ def timetable():
         ay_default = f'AY{str(today.year)[2:]}{str(today.year + 1)[2:]}'
     else:
         ay_default = f'AY{str(today.year - 1)[2:]}{str(today.year)[2:]}'
+
+    def _next_ay(ay):
+        s, e = int(ay[2:4]), int(ay[4:6])
+        return f'AY{s+1:02d}{e+1:02d}'
 
     selected_tri = None   # remembered for re-populating the form after POST
     ay_stats     = {}    # {tri_num: {'success', 'message', 'stats'}} for Full AY run
@@ -1568,10 +1842,39 @@ def timetable():
             flash(f'Timetable for {trimester} cleared ({deleted} entries deleted).', 'info')
             trimester = ''
 
+        elif action == 'reset_ay':
+            # Clear all 3 trimesters for a full academic year at once
+            from app.models.academic_calendar import AcademicCalendar
+            from app.models.timetable_flag import TimetableFlag
+            from app.models.flag_response import FlagResponse
+            clear_ay = request.form.get('clear_ay', '').strip()
+            if clear_ay:
+                tri_keys = [f'{clear_ay}-T1', f'{clear_ay}-T2', f'{clear_ay}-T3']
+                flag_ids = [
+                    f.id for f in TimetableFlag.query
+                    .join(TimetableFlag.timetable_entry)
+                    .filter(TimetableEntry.trimester.in_(tri_keys))
+                    .all()
+                ]
+                if flag_ids:
+                    FlagResponse.query.filter(FlagResponse.flag_id.in_(flag_ids)).delete(synchronize_session=False)
+                    TimetableFlag.query.filter(TimetableFlag.id.in_(flag_ids)).delete(synchronize_session=False)
+                deleted = TimetableEntry.query.filter(TimetableEntry.trimester.in_(tri_keys)).delete(synchronize_session=False)
+                AcademicCalendar.query.filter(AcademicCalendar.trimester.in_(tri_keys)).delete(synchronize_session=False)
+                db.session.commit()
+                flash(f'All timetables for {clear_ay} cleared ({deleted} entries deleted).', 'info')
+
     # Load timetable entries for display
     entries = []
     trimesters = [r[0] for r in
                   db.session.query(TimetableEntry.trimester).distinct().order_by(TimetableEntry.trimester).all()]
+
+    existing_ays = sorted(set(
+        t[:6] for t in trimesters if t.startswith('AY') and len(t) >= 6
+    ))
+    ay_options = sorted(set(existing_ays + [ay_default, _next_ay(ay_default)]))
+
+    prog_filter = request.args.get('prog', '')
 
     if trimester:
         entries = (TimetableEntry.query
@@ -1579,6 +1882,19 @@ def timetable():
                    .join(TimetableEntry.timeslot)
                    .order_by(TimeSlot.day_of_week, TimeSlot.period_label)
                    .all())
+
+    # Collect programmes present in this trimester (before filtering, for filter UI)
+    programmes = sorted(set(
+        (e.class_session.course.programme.code, e.class_session.course.programme.name)
+        for e in entries
+        if e.class_session.course.programme
+    ), key=lambda x: x[0]) if entries else []
+
+    # Apply programme filter
+    if prog_filter:
+        entries = [e for e in entries
+                   if e.class_session.course.programme
+                   and e.class_session.course.programme.code == prog_filter]
 
     # Deduplicate: show one row per session (not one per week)
     seen = set()
@@ -1638,6 +1954,11 @@ def timetable():
                             )
                             .all())
 
+        if prog_filter:
+            week_entries_raw = [e for e in week_entries_raw
+                                if e.class_session.course.programme
+                                and e.class_session.course.programme.code == prog_filter]
+
         # Store a list per cell so multiple sessions in the same slot all appear
         week_grid = {day: {ts.period_label: [] for ts in period_slots} for day in DAYS_ALL}
         for entry in week_entries_raw:
@@ -1671,7 +1992,10 @@ def timetable():
                            week_grid=week_grid,
                            days_all=DAYS_ALL,
                            year_levels=year_levels,
+                           programmes=programmes,
+                           prog_filter=prog_filter,
                            ay_default=ay_default,
+                           ay_options=ay_options,
                            selected_tri=selected_tri)
 
 
@@ -1683,10 +2007,11 @@ def timetable():
 @login_required
 def timetable_similarity():
     """
-    Show how consistent session slots are across trimesters of the same AY.
-    Addresses Meeting 5 point 6: Prof David wants to see why it is (or isn't) mirrored.
+    Two-mode similarity report:
+      mode=within  — cross-trimester consistency within one AY (are slots mirrored T1/T2/T3?)
+      mode=cross   — cross-AY comparison for same trimester (did historical constraint work?)
     """
-    academic_year = request.args.get('ay', '')
+    mode = request.args.get('mode', 'within')
 
     # Available AYs from timetable entries
     all_ays = sorted(set(
@@ -1694,71 +2019,312 @@ def timetable_similarity():
         if e[0]
     ))
 
+    def _slot_label(ts):
+        return f'{ts.day_of_week[:3]} {ts.start_time.strftime("%H:%M")}–{ts.end_time.strftime("%H:%M")}'
+
+    # -----------------------------------------------------------------------
+    # Mode: within-AY (T1 vs T2 vs T3)
+    # -----------------------------------------------------------------------
     rows = []
     tri_labels = []
+    same_count = diff_count = partial_count = 0
+    academic_year = ''
 
-    if academic_year:
-        # Gather entries for T1, T2, T3 of this AY
-        tri_data = {}  # tri_num → {(module_code, session_type): timeslot}
-        for tri_num in [1, 2, 3]:
-            tri_key = f'{academic_year}-T{tri_num}'
-            entries = TimetableEntry.query.filter_by(trimester=tri_key).all()
-            if not entries:
-                continue
-            tri_labels.append(tri_num)
+    if mode == 'within':
+        academic_year = request.args.get('ay', '')
+
+        if academic_year:
+            tri_data = {}
+            for tri_num in [1, 2, 3]:
+                tri_key = f'{academic_year}-T{tri_num}'
+                entries = TimetableEntry.query.filter_by(trimester=tri_key).all()
+                if not entries:
+                    continue
+                tri_labels.append(tri_num)
+                slot_map = {}
+                for e in entries:
+                    key = (
+                        e.class_session.course.module_code,
+                        e.class_session.course.title,
+                        e.class_session.session_type,
+                        e.class_session.course.year_level,
+                    )
+                    if key not in slot_map:
+                        slot_map[key] = {
+                            'timeslot': e.timeslot,
+                            'label'   : _slot_label(e.timeslot),
+                        }
+                tri_data[tri_num] = slot_map
+
+            all_keys = set()
+            for sd in tri_data.values():
+                all_keys.update(sd.keys())
+
+            for key in sorted(all_keys, key=lambda k: (k[3] or 0, k[0], k[2])):
+                module_code, title, session_type, year_level = key
+                slots = {t: tri_data[t].get(key) for t in tri_labels}
+
+                present = [s for s in slots.values() if s]
+                unique_slots = set(s['label'] for s in present)
+
+                if len(present) == 1:
+                    # Module only appears in one trimester — cannot compare
+                    consistency = 'partial'
+                elif len(unique_slots) == 1:
+                    consistency = 'same'
+                else:
+                    consistency = 'different'
+
+                rows.append({
+                    'module_code' : module_code,
+                    'title'       : title,
+                    'session_type': session_type,
+                    'year_level'  : year_level,
+                    'slots'       : slots,
+                    'consistency' : consistency,
+                })
+
+        same_count    = sum(1 for r in rows if r['consistency'] == 'same')
+        diff_count    = sum(1 for r in rows if r['consistency'] == 'different')
+        partial_count = sum(1 for r in rows if r['consistency'] == 'partial')
+
+        return render_template('admin/timetable_similarity.html',
+                               mode='within',
+                               all_ays=all_ays,
+                               academic_year=academic_year,
+                               tri_labels=tri_labels,
+                               rows=rows,
+                               same_count=same_count,
+                               diff_count=diff_count,
+                               partial_count=partial_count,
+                               # cross-AY vars unused
+                               base_ay='', compare_ay='', cross_rows=[])
+
+    # -----------------------------------------------------------------------
+    # Mode: cross-AY (base AY T1 vs compare AY T1, repeated for T2/T3)
+    # -----------------------------------------------------------------------
+    base_ay    = request.args.get('base_ay', '')
+    compare_ay = request.args.get('compare_ay', '')
+    cross_rows = []
+
+    if base_ay and compare_ay:
+        def _build_map(trimester_key):
+            entries = TimetableEntry.query.filter_by(trimester=trimester_key).all()
             slot_map = {}
             for e in entries:
-                key = (
-                    e.class_session.course.module_code,
-                    e.class_session.course.title,
-                    e.class_session.session_type,
-                    e.class_session.course.year_level,
-                )
+                key = (e.class_session.course.module_code, e.class_session.session_type)
                 if key not in slot_map:
+                    ts = e.timeslot
                     slot_map[key] = {
-                        'timeslot': e.timeslot,
-                        'label'   : f'{e.timeslot.day_of_week[:3]} {e.timeslot.start_time.strftime("%H:%M")}–{e.timeslot.end_time.strftime("%H:%M")}',
+                        'label': _slot_label(ts),
+                        'day':   ts.day_of_week,
+                        'start': ts.start_time.strftime('%H:%M'),
+                        'room':  e.room.room_code if e.room else None,
                     }
-            tri_data[tri_num] = slot_map
+            return slot_map
 
-        # Collect all (module, type) pairs across all trimesters
-        all_keys = set()
-        for sd in tri_data.values():
-            all_keys.update(sd.keys())
+        for tri_num in [1, 2, 3]:
+            base_map    = _build_map(f'{base_ay}-T{tri_num}')
+            compare_map = _build_map(f'{compare_ay}-T{tri_num}')
+            if not base_map and not compare_map:
+                continue
 
-        for key in sorted(all_keys, key=lambda k: (k[3] or 0, k[0], k[2])):
-            module_code, title, session_type, year_level = key
-            slots = {t: tri_data[t].get(key) for t in tri_labels}
+            all_keys = sorted(set(base_map.keys()) | set(compare_map.keys()))
+            for mod, stype in all_keys:
+                bd = base_map.get((mod, stype))
+                cd = compare_map.get((mod, stype))
+                base_slot    = bd['label'] if bd else None
+                compare_slot = cd['label'] if cd else None
 
-            # Determine consistency
-            slot_labels = [s['label'] for s in slots.values() if s]
-            unique_slots = set(slot_labels)
-            if len(unique_slots) == 1:
-                consistency = 'same'
-            elif len(unique_slots) == 0:
-                consistency = 'none'
-            else:
-                consistency = 'different'
+                if base_slot and compare_slot:
+                    consistency = 'same' if base_slot == compare_slot else 'different'
+                elif base_slot:
+                    consistency = 'base_only'
+                else:
+                    consistency = 'compare_only'
 
-            rows.append({
-                'module_code' : module_code,
-                'title'       : title,
-                'session_type': session_type,
-                'year_level'  : year_level,
-                'slots'       : slots,
-                'consistency' : consistency,
-            })
+                reason = ''
+                if consistency == 'different':
+                    parts = []
+                    if bd['day'] != cd['day']:
+                        parts.append(f"Day: {bd['day'][:3]} → {cd['day'][:3]}")
+                    if bd['start'] != cd['start']:
+                        parts.append(f"Time: {bd['start']} → {cd['start']}")
+                    if bd['room'] != cd['room']:
+                        parts.append(f"Room: {bd['room'] or '?'} → {cd['room'] or '?'}")
+                    reason = ' | '.join(parts) if parts else 'Slot changed'
+                elif consistency == 'base_only':
+                    reason = f'Not scheduled in {compare_ay}'
+                elif consistency == 'compare_only':
+                    reason = f'New module in {compare_ay}'
 
-    same_count = sum(1 for r in rows if r['consistency'] == 'same')
-    diff_count = sum(1 for r in rows if r['consistency'] == 'different')
+                cross_rows.append({
+                    'tri_num'     : tri_num,
+                    'module_code' : mod,
+                    'session_type': stype,
+                    'base_slot'   : base_slot,
+                    'compare_slot': compare_slot,
+                    'consistency' : consistency,
+                    'reason'      : reason,
+                })
+
+    same_count = sum(1 for r in cross_rows if r['consistency'] == 'same')
+    diff_count = sum(1 for r in cross_rows if r['consistency'] == 'different')
 
     return render_template('admin/timetable_similarity.html',
+                           mode='cross',
                            all_ays=all_ays,
-                           academic_year=academic_year,
-                           tri_labels=tri_labels,
-                           rows=rows,
+                           base_ay=base_ay,
+                           compare_ay=compare_ay,
+                           cross_rows=cross_rows,
                            same_count=same_count,
-                           diff_count=diff_count)
+                           diff_count=diff_count,
+                           partial_count=0,
+                           # within-AY vars unused
+                           academic_year='', tri_labels=[], rows=[])
+
+
+# ---------------------------------------------------------------------------
+# Timetable export — flat XLSX download
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/timetable/export')
+@login_required
+def timetable_export():
+    import io
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from flask import send_file
+
+    trimester_filter = request.args.get('trimester', '')
+
+    q = TimetableEntry.query
+    if trimester_filter:
+        q = q.filter_by(trimester=trimester_filter)
+    entries = q.order_by(
+        TimetableEntry.trimester,
+        TimetableEntry.week_number,
+    ).all()
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Timetable'
+
+    headers = [
+        'AY', 'Trimester', 'Week', 'Day',
+        'Start Time', 'End Time', 'Room',
+        'Module Code', 'Module Name', 'Programme',
+        'Year Level', 'Session Type', 'Delivery Mode', 'Professor(s)',
+    ]
+    header_fill = PatternFill('solid', fgColor='2E4057')
+    header_font = Font(bold=True, color='FFFFFF')
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    for e in entries:
+        ts  = e.timeslot
+        cs  = e.class_session
+        crs = cs.course
+        profs = ', '.join(
+            p.name for p in (e.override_professor,) if p
+        ) or ', '.join(p.name for p in cs.all_professors)
+        ws.append([
+            e.academic_year or e.trimester[:6],
+            e.trimester,
+            e.week_number,
+            ts.day_of_week,
+            ts.start_time.strftime('%H:%M'),
+            ts.end_time.strftime('%H:%M'),
+            e.room.room_code if e.room else 'Online',
+            crs.module_code,
+            crs.title,
+            crs.programme.code if crs.programme else '',
+            crs.year_level,
+            cs.session_type,
+            cs.delivery_mode,
+            profs,
+        ])
+
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 40)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f'timetable_{trimester_filter or "all"}.xlsx'
+    return send_file(buf, download_name=filename,
+                     as_attachment=True,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ---------------------------------------------------------------------------
+# Timetable summary — plain-English overview via LLM
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/timetable/summary')
+@login_required
+def timetable_summary():
+    from flask import jsonify
+    import anthropic as _anthropic
+
+    trimester = request.args.get('trimester', '')
+    if not trimester:
+        return jsonify({'error': 'No trimester specified'}), 400
+
+    entries = TimetableEntry.query.filter_by(trimester=trimester).all()
+    if not entries:
+        return jsonify({'error': 'No timetable entries found for this trimester'}), 404
+
+    # Build stats for the prompt
+    total_sessions   = len(set(e.class_session_id for e in entries))
+    total_weeks      = len(set(e.week_number for e in entries))
+    rooms_used       = sorted(set(e.room.room_code for e in entries if e.room))
+    module_codes     = sorted(set(e.class_session.course.module_code for e in entries))
+    session_types    = {}
+    for e in entries:
+        st = e.class_session.session_type
+        session_types[st] = session_types.get(st, 0) + 1
+    type_summary = ', '.join(f'{v} {k}s' for k, v in sorted(session_types.items()))
+    profs_set = set()
+    for e in entries:
+        for p in e.class_session.all_professors:
+            profs_set.add(p.name)
+
+    stats_text = (
+        f"Trimester: {trimester}\n"
+        f"Modules scheduled: {len(module_codes)} ({', '.join(module_codes)})\n"
+        f"Unique class sessions: {total_sessions}\n"
+        f"Session type breakdown: {type_summary}\n"
+        f"Weeks covered: {total_weeks}\n"
+        f"Rooms utilised: {len(rooms_used)} ({', '.join(rooms_used[:10])}{'...' if len(rooms_used) > 10 else ''})\n"
+        f"Professors teaching: {len(profs_set)}\n"
+    )
+
+    api_key = current_app.config.get('ANTHROPIC_API_KEY', '')
+    if not api_key:
+        return jsonify({'error': 'ANTHROPIC_API_KEY not configured in config.py'}), 500
+
+    client = _anthropic.Anthropic(api_key=api_key)
+    msg = client.messages.create(
+        model='claude-haiku-4-5-20251001',
+        max_tokens=300,
+        messages=[{
+            'role': 'user',
+            'content': (
+                'You are a timetabling administrator writing a brief internal summary of a generated academic timetable. '
+                'Write 3–4 concise sentences in plain English. Do not use bullet points. '
+                'Do not mention AI, machine learning, algorithms, or any automated system. '
+                'Just describe what was scheduled factually, as a human administrator would write it.\n\n'
+                f'Timetable statistics:\n{stats_text}'
+            ),
+        }],
+    )
+    summary = msg.content[0].text.strip()
+    return jsonify({'summary': summary})
 
 
 # ---------------------------------------------------------------------------

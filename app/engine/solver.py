@@ -416,13 +416,13 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
 
     # Combined objective:
     #   availability violations  → weight 100 (highest priority)
-    #   historical slot changes  → weight 10  (strong preference for continuity)
+    #   historical slot changes  → weight 30  (strong preference for continuity)
     #   day spread penalty       → weight 1   (tiebreaker)
     obj_terms = []
     for pv, *_ in penalty_vars:
         obj_terms.append(100 * pv)
     for not_hist, *_ in hist_penalty_vars:
-        obj_terms.append(10 * not_hist)
+        obj_terms.append(30 * not_hist)
     for sv in spread_cost_vars:
         obj_terms.append(sv)
 

@@ -7,3 +7,4 @@ ortools
 pandas
 openpyxl
 holidays
+anthropic

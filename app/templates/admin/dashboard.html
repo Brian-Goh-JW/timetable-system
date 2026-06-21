@@ -71,6 +71,73 @@
 
 </div>
 
+<!-- Timetable KPIs -->
+{% if kpis %}
+<div class="d-flex align-items-center mb-2">
+    <h6 class="mb-0 fw-semibold text-muted small text-uppercase">Timetable KPIs</h6>
+    <span class="ms-2 badge bg-light text-secondary border">{{ kpis.trimester }}</span>
+</div>
+<div class="row g-3 mb-4">
+
+    <div class="col-sm-6 col-lg-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="rounded-3 p-3" style="background-color:#f0f7ff;">
+                    <i class="bi bi-calendar-check fs-4" style="color:#2563eb;"></i>
+                </div>
+                <div>
+                    <div class="fs-3 fw-bold">{{ kpis.sessions_scheduled }}</div>
+                    <div class="text-muted small">Sessions Scheduled</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="rounded-3 p-3" style="background-color:#f0fdf4;">
+                    <i class="bi bi-building fs-4" style="color:#16a34a;"></i>
+                </div>
+                <div>
+                    <div class="fs-3 fw-bold">{{ kpis.room_util_pct }}%</div>
+                    <div class="text-muted small">Room Utilisation</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="rounded-3 p-3" style="background-color:#fdf4ff;">
+                    <i class="bi bi-person-check fs-4" style="color:#9333ea;"></i>
+                </div>
+                <div>
+                    <div class="fs-3 fw-bold">{{ kpis.profs_covered }}</div>
+                    <div class="text-muted small">Professors Covered</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body d-flex align-items-center gap-3">
+                <div class="rounded-3 p-3" style="background-color:#f0fdf4;">
+                    <i class="bi bi-shield-check fs-4" style="color:#16a34a;"></i>
+                </div>
+                <div>
+                    <div class="fs-3 fw-bold text-success">{{ kpis.hard_conflicts }}</div>
+                    <div class="text-muted small">Hard Conflicts</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endif %}
+
 <!-- Action items / attention required -->
 <div class="row g-3">
 

@@ -3,20 +3,45 @@
 
 {% block content %}
 
-<div class="mb-4 d-flex justify-content-between align-items-start">
-    <div>
-        <a href="{{ url_for('admin.timetable') }}" class="text-decoration-none text-muted small">
-            <i class="bi bi-arrow-left me-1"></i>Back to Timetable
-        </a>
-        <h4 class="fw-semibold mt-2 mb-0">Timetable Similarity Report</h4>
-        <small class="text-muted">
-            Are session slots consistent across trimesters? Shows why the timetable is (or isn't) mirrored.
-        </small>
-    </div>
+<div class="mb-3">
+    <a href="{{ url_for('admin.timetable') }}" class="text-decoration-none text-muted small">
+        <i class="bi bi-arrow-left me-1"></i>Back to Timetable
+    </a>
+    <h4 class="fw-semibold mt-2 mb-0">Timetable Similarity Report</h4>
+    <small class="text-muted">
+        Check how consistent session slots are — within an academic year, or across years.
+    </small>
+</div>
 
-    <!-- AY selector -->
+<!-- Mode tabs -->
+<ul class="nav nav-tabs mb-4">
+    <li class="nav-item">
+        <a class="nav-link {% if mode == 'within' %}active{% endif %}"
+           href="{{ url_for('admin.timetable_similarity', mode='within') }}">
+            <i class="bi bi-calendar3 me-1"></i>Within AY (T1 vs T2 vs T3)
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if mode == 'cross' %}active{% endif %}"
+           href="{{ url_for('admin.timetable_similarity', mode='cross') }}">
+            <i class="bi bi-arrow-left-right me-1"></i>Cross-AY Comparison
+        </a>
+    </li>
+</ul>
+
+{# ============================================================
+   MODE: within-AY
+   ============================================================ #}
+{% if mode == 'within' %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <p class="text-muted small mb-0">
+        Are session slots consistent across Tri 1, 2, 3 of the same academic year?
+        Modules that only appear in one trimester are shown as <strong>Partial</strong>.
+    </p>
     <form method="GET" class="d-flex align-items-center gap-2">
-        <label class="form-label mb-0 fw-medium small">Academic Year:</label>
+        <input type="hidden" name="mode" value="within">
+        <label class="form-label mb-0 fw-medium small">AY:</label>
         <select name="ay" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
             <option value="">— Select AY —</option>
             {% for ay in all_ays %}
@@ -30,14 +55,14 @@
 <div class="card border-0 shadow-sm">
     <div class="card-body text-center text-muted py-5">
         <i class="bi bi-bar-chart fs-2 d-block mb-2"></i>
-        Select an Academic Year above to see the similarity report.
+        Select an Academic Year above to see the within-AY similarity report.
     </div>
 </div>
 
 {% elif not rows %}
 <div class="alert alert-info">
     No timetable entries found for <strong>{{ academic_year }}</strong>.
-    Generate timetables for Tri 1/2/3 first.
+    Import historical data or generate a timetable first.
 </div>
 
 {% else %}
@@ -48,7 +73,7 @@
         <div class="card border-0 shadow-sm text-center">
             <div class="card-body py-3">
                 <div class="fs-3 fw-bold">{{ rows | length }}</div>
-                <div class="text-muted small">Total sessions tracked</div>
+                <div class="text-muted small">Total session types tracked</div>
             </div>
         </div>
     </div>
@@ -56,7 +81,7 @@
         <div class="card border-0 shadow-sm text-center border-start border-success border-3">
             <div class="card-body py-3">
                 <div class="fs-3 fw-bold text-success">{{ same_count }}</div>
-                <div class="text-muted small">Same slot across all trimesters</div>
+                <div class="text-muted small">Same slot across trimesters</div>
             </div>
         </div>
     </div>
@@ -69,20 +94,30 @@
         </div>
     </div>
     <div class="col-md-3">
-        <div class="card border-0 shadow-sm text-center">
+        <div class="card border-0 shadow-sm text-center border-start border-secondary border-3">
             <div class="card-body py-3">
-                {% set pct = ((same_count / rows|length) * 100) | round(0) | int if rows else 0 %}
-                <div class="fs-3 fw-bold">{{ pct }}%</div>
-                <div class="text-muted small">Mirrored (same slot)</div>
+                <div class="fs-3 fw-bold text-secondary">{{ partial_count }}</div>
+                <div class="text-muted small">Only in one trimester</div>
             </div>
         </div>
     </div>
 </div>
 
+{% set comparable = same_count + diff_count %}
+{% if comparable > 0 %}
+<div class="alert alert-light border mb-3 small">
+    <i class="bi bi-info-circle me-1"></i>
+    Of <strong>{{ comparable }}</strong> modules that appear in multiple trimesters,
+    <strong class="text-success">{{ same_count }} ({{ ((same_count / comparable) * 100) | round(0) | int }}%)</strong> kept the same slot
+    and <strong class="text-warning">{{ diff_count }}</strong> moved.
+    <strong>{{ partial_count }}</strong> modules run in only one trimester (not comparable).
+</div>
+{% endif %}
+
 <!-- Filter buttons -->
 <div class="d-flex gap-2 mb-3 align-items-center">
     <span class="text-muted small fw-medium">Filter:</span>
-    <button class="btn btn-sm btn-dark" onclick="filterRows('all', this)">All</button>
+    <button class="btn btn-sm btn-dark" onclick="filterRows('all', this)" id="filter-all">All</button>
     <button class="btn btn-sm btn-outline-success" onclick="filterRows('same', this)">
         <i class="bi bi-check-circle me-1"></i>Same slot
     </button>
@@ -90,11 +125,11 @@
         <i class="bi bi-exclamation-circle me-1"></i>Changed
     </button>
     <button class="btn btn-sm btn-outline-secondary" onclick="filterRows('partial', this)">
-        <i class="bi bi-dash-circle me-1"></i>Only in some trimesters
+        <i class="bi bi-dash-circle me-1"></i>Only in one trimester
     </button>
 </div>
 
-<!-- Similarity table -->
+<!-- Table -->
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
         <table class="table table-hover align-middle mb-0 small">
@@ -144,7 +179,9 @@
                                 <i class="bi bi-arrow-left-right me-1"></i>Changed
                             </span>
                         {% else %}
-                            <span class="badge bg-secondary">Partial</span>
+                            <span class="badge bg-secondary">
+                                <i class="bi bi-dash-circle me-1"></i>Single-tri
+                            </span>
                         {% endif %}
                     </td>
                 </tr>
@@ -154,13 +191,210 @@
     </div>
 </div>
 
-<div class="mt-3 small text-muted">
-    <i class="bi bi-info-circle me-1"></i>
-    <strong>Mirrored</strong> = session runs in the same day/time slot across all trimesters it appears in.
-    <strong>Changed</strong> = the solver placed it in a different slot — usually due to a professor availability constraint or room conflict.
-    Historical soft constraints (weight 10) encourage the solver to keep sessions in the same slot as the previous academic year.
+{% endif %}
+{# end within mode #}
+
+
+{# ============================================================
+   MODE: cross-AY
+   ============================================================ #}
+{% elif mode == 'cross' %}
+
+<div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-3">
+    <p class="text-muted small mb-0" style="max-width:480px;">
+        Compare the same module's slot between two academic years, trimester by trimester.
+        Use this to verify that the <strong>historical soft constraint</strong> worked —
+        how many sessions kept the same timeslot as the previous year?
+    </p>
+    <form method="GET" class="d-flex align-items-center gap-2 flex-wrap">
+        <input type="hidden" name="mode" value="cross">
+        <label class="form-label mb-0 fw-medium small">Base AY (older):</label>
+        <select name="base_ay" class="form-select form-select-sm" style="width:auto;">
+            <option value="">— Select —</option>
+            {% for ay in all_ays %}
+            <option value="{{ ay }}" {% if ay == base_ay %}selected{% endif %}>{{ ay }}</option>
+            {% endfor %}
+        </select>
+        <label class="form-label mb-0 fw-medium small">Compare AY (newer):</label>
+        <select name="compare_ay" class="form-select form-select-sm" style="width:auto;">
+            <option value="">— Select —</option>
+            {% for ay in all_ays %}
+            <option value="{{ ay }}" {% if ay == compare_ay %}selected{% endif %}>{{ ay }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm btn-primary">Compare</button>
+    </form>
 </div>
 
+{% if not base_ay or not compare_ay %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body text-center text-muted py-5">
+        <i class="bi bi-arrow-left-right fs-2 d-block mb-2"></i>
+        Select a Base AY and a Compare AY above, then click <strong>Compare</strong>.
+        <div class="mt-2 small">
+            Example: Base = <code>AY2526</code> (historical), Compare = <code>AY2627</code> (newly generated).
+        </div>
+    </div>
+</div>
+
+{% elif not cross_rows %}
+<div class="alert alert-info">
+    No matching timetable entries found for <strong>{{ base_ay }}</strong> or <strong>{{ compare_ay }}</strong>.
+    Make sure both AYs have entries (import historical / generate timetable).
+</div>
+
+{% else %}
+
+<!-- Summary cards -->
+{% set total_comparable = same_count + diff_count %}
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm text-center">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold">{{ cross_rows | length }}</div>
+                <div class="text-muted small">Total sessions compared</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm text-center border-start border-success border-3">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-success">{{ same_count }}</div>
+                <div class="text-muted small">Same slot (historical kept)</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm text-center border-start border-warning border-3">
+            <div class="card-body py-3">
+                <div class="fs-3 fw-bold text-warning">{{ diff_count }}</div>
+                <div class="text-muted small">Slot changed</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card border-0 shadow-sm text-center border-start border-primary border-3">
+            <div class="card-body py-3">
+                {% set pct = ((same_count / total_comparable) * 100) | round(0) | int if total_comparable > 0 else 0 %}
+                <div class="fs-3 fw-bold text-primary">{{ pct }}%</div>
+                <div class="text-muted small">Historical constraint effectiveness</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="alert alert-light border mb-3 small">
+    <i class="bi bi-info-circle me-1"></i>
+    Comparing <strong>{{ base_ay }}</strong> (baseline) → <strong>{{ compare_ay }}</strong> (generated).
+    <span class="text-success fw-medium">{{ same_count }} sessions</span> kept their historical slot.
+    <span class="text-warning fw-medium">{{ diff_count }} sessions</span> were moved (availability conflict or room clash).
+    Entries only in one AY are shown as <span class="badge bg-info text-dark">New</span> or <span class="badge bg-secondary">Removed</span>.
+</div>
+
+<!-- Timetable summary -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body d-flex align-items-start gap-3">
+        <div class="flex-grow-1">
+            <div class="fw-medium small mb-1">Timetable Summary — {{ compare_ay }}</div>
+            <div id="summary-text" class="text-muted small" style="min-height:2.5rem;">
+                Click "Generate Summary" to produce an overview of the {{ compare_ay }} timetable.
+            </div>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary flex-shrink-0" id="summary-btn"
+                onclick="generateSummary('{{ compare_ay }}-T1')">
+            <i class="bi bi-file-text me-1"></i>Generate Summary
+        </button>
+    </div>
+</div>
+
+<!-- Filter + Export -->
+<div class="d-flex gap-2 mb-3 align-items-center flex-wrap justify-content-between">
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+        <span class="text-muted small fw-medium">Filter:</span>
+        <button class="btn btn-sm btn-dark" onclick="filterCross('all')">All</button>
+        <button class="btn btn-sm btn-outline-success" onclick="filterCross('same')">
+            <i class="bi bi-check-circle me-1"></i>Kept same slot
+        </button>
+        <button class="btn btn-sm btn-outline-warning" onclick="filterCross('different')">
+            <i class="bi bi-exclamation-circle me-1"></i>Slot changed
+        </button>
+        <button class="btn btn-sm btn-outline-info" onclick="filterCross('compare_only')">
+            <i class="bi bi-plus-circle me-1"></i>New in {{ compare_ay }}
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" onclick="filterCross('base_only')">
+            <i class="bi bi-dash-circle me-1"></i>Only in {{ base_ay }}
+        </button>
+    </div>
+    <a href="{{ url_for('admin.timetable_export', trimester=compare_ay ~ '-T1') }}"
+       class="btn btn-sm btn-outline-dark">
+        <i class="bi bi-download me-1"></i>Export {{ compare_ay }} T1
+    </a>
+</div>
+
+<!-- Cross-AY table -->
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Tri</th>
+                    <th>Module</th>
+                    <th>Type</th>
+                    <th class="text-center">
+                        <span class="badge bg-secondary">{{ base_ay }}</span> slot
+                    </th>
+                    <th class="text-center">
+                        <span class="badge bg-primary">{{ compare_ay }}</span> slot
+                    </th>
+                    <th class="text-center">Result</th>
+                    <th>Change Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in cross_rows %}
+                <tr data-cross="{{ row.consistency }}">
+                    <td class="ps-3">
+                        <span class="badge {% if row.tri_num==1 %}bg-primary{% elif row.tri_num==2 %}bg-success{% else %}bg-warning text-dark{% endif %}">
+                            T{{ row.tri_num }}
+                        </span>
+                    </td>
+                    <td class="fw-medium">{{ row.module_code }}</td>
+                    <td class="text-capitalize">{{ row.session_type }}</td>
+                    <td class="text-center">
+                        {% if row.base_slot %}
+                            <span class="badge bg-light text-dark border" style="font-size:0.72rem;">{{ row.base_slot }}</span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if row.compare_slot %}
+                            <span class="badge bg-light text-dark border {% if row.consistency == 'same' %}border-success{% elif row.consistency == 'different' %}border-warning{% endif %}"
+                                  style="font-size:0.72rem;">{{ row.compare_slot }}</span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if row.consistency == 'same' %}
+                            <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Kept</span>
+                        {% elif row.consistency == 'different' %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-arrow-left-right me-1"></i>Changed</span>
+                        {% elif row.consistency == 'compare_only' %}
+                            <span class="badge bg-info text-dark"><i class="bi bi-plus-circle me-1"></i>New</span>
+                        {% else %}
+                            <span class="badge bg-secondary"><i class="bi bi-dash-circle me-1"></i>Removed</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-muted small">{{ row.reason }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endif %}
 {% endif %}
 
 {% endblock %}
@@ -168,18 +402,41 @@
 {% block extra_scripts %}
 <script>
 function filterRows(type, btn) {
-    document.querySelectorAll('#year-filter-btns button, .btn-group-filter button').forEach(function(b) {
-        b.classList.remove('btn-dark', 'btn-success', 'btn-warning', 'btn-secondary');
-    });
-
     document.querySelectorAll('tbody tr[data-consistency]').forEach(function(row) {
         var c = row.dataset.consistency;
-        var show = (type === 'all') ||
-                   (type === 'same' && c === 'same') ||
-                   (type === 'different' && c === 'different') ||
-                   (type === 'partial' && c === 'none');
-        row.style.display = show ? '' : 'none';
+        row.style.display = (type === 'all' || c === type) ? '' : 'none';
     });
+}
+
+function filterCross(type) {
+    document.querySelectorAll('tbody tr[data-cross]').forEach(function(row) {
+        var c = row.dataset.cross;
+        row.style.display = (type === 'all' || c === type) ? '' : 'none';
+    });
+}
+
+function generateSummary(trimester) {
+    var btn  = document.getElementById('summary-btn');
+    var text = document.getElementById('summary-text');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Generating…';
+    text.textContent = '';
+    fetch('/admin/timetable/summary?trimester=' + encodeURIComponent(trimester))
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.summary) {
+                text.textContent = d.summary;
+            } else {
+                text.textContent = d.error || 'Unable to generate summary.';
+            }
+        })
+        .catch(function() {
+            text.textContent = 'Request failed. Check that the app is running and try again.';
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-file-text me-1"></i>Generate Summary';
+        });
 }
 </script>
 {% endblock %}

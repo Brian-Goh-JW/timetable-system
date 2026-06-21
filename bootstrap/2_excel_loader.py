@@ -197,7 +197,7 @@ def load_courses_and_sessions(programme):
 
         for _, row in unique_sessions.iterrows():
             stype = _session_type(row['Activity'])
-            dmode = _delivery_mode(row['Delivery Mode'])
+            dmode = 'f2f' if stype == 'tutorial' else _delivery_mode(row['Delivery Mode'])
             db.session.add(ClassSession(
                 course_id        = course.id,
                 session_type     = stype,
