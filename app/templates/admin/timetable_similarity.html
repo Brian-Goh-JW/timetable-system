@@ -9,196 +9,9 @@
     </a>
     <h4 class="fw-semibold mt-2 mb-0">Timetable Similarity Report</h4>
     <small class="text-muted">
-        Check how consistent session slots are — within an academic year, or across years.
+        Compare session slots across academic years — how well did the historical soft constraint work?
     </small>
 </div>
-
-<!-- Mode tabs -->
-<ul class="nav nav-tabs mb-4">
-    <li class="nav-item">
-        <a class="nav-link {% if mode == 'within' %}active{% endif %}"
-           href="{{ url_for('admin.timetable_similarity', mode='within') }}">
-            <i class="bi bi-calendar3 me-1"></i>Within AY (T1 vs T2 vs T3)
-        </a>
-    </li>
-    <li class="nav-item">
-        <a class="nav-link {% if mode == 'cross' %}active{% endif %}"
-           href="{{ url_for('admin.timetable_similarity', mode='cross') }}">
-            <i class="bi bi-arrow-left-right me-1"></i>Cross-AY Comparison
-        </a>
-    </li>
-</ul>
-
-{# ============================================================
-   MODE: within-AY
-   ============================================================ #}
-{% if mode == 'within' %}
-
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <p class="text-muted small mb-0">
-        Are session slots consistent across Tri 1, 2, 3 of the same academic year?
-        Modules that only appear in one trimester are shown as <strong>Partial</strong>.
-    </p>
-    <form method="GET" class="d-flex align-items-center gap-2">
-        <input type="hidden" name="mode" value="within">
-        <label class="form-label mb-0 fw-medium small">AY:</label>
-        <select name="ay" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
-            <option value="">— Select AY —</option>
-            {% for ay in all_ays %}
-            <option value="{{ ay }}" {% if ay == academic_year %}selected{% endif %}>{{ ay }}</option>
-            {% endfor %}
-        </select>
-    </form>
-</div>
-
-{% if not academic_year %}
-<div class="card border-0 shadow-sm">
-    <div class="card-body text-center text-muted py-5">
-        <i class="bi bi-bar-chart fs-2 d-block mb-2"></i>
-        Select an Academic Year above to see the within-AY similarity report.
-    </div>
-</div>
-
-{% elif not rows %}
-<div class="alert alert-info">
-    No timetable entries found for <strong>{{ academic_year }}</strong>.
-    Import historical data or generate a timetable first.
-</div>
-
-{% else %}
-
-<!-- Summary cards -->
-<div class="row g-3 mb-4">
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm text-center">
-            <div class="card-body py-3">
-                <div class="fs-3 fw-bold">{{ rows | length }}</div>
-                <div class="text-muted small">Total session types tracked</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm text-center border-start border-success border-3">
-            <div class="card-body py-3">
-                <div class="fs-3 fw-bold text-success">{{ same_count }}</div>
-                <div class="text-muted small">Same slot across trimesters</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm text-center border-start border-warning border-3">
-            <div class="card-body py-3">
-                <div class="fs-3 fw-bold text-warning">{{ diff_count }}</div>
-                <div class="text-muted small">Slot changed between trimesters</div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm text-center border-start border-secondary border-3">
-            <div class="card-body py-3">
-                <div class="fs-3 fw-bold text-secondary">{{ partial_count }}</div>
-                <div class="text-muted small">Only in one trimester</div>
-            </div>
-        </div>
-    </div>
-</div>
-
-{% set comparable = same_count + diff_count %}
-{% if comparable > 0 %}
-<div class="alert alert-light border mb-3 small">
-    <i class="bi bi-info-circle me-1"></i>
-    Of <strong>{{ comparable }}</strong> modules that appear in multiple trimesters,
-    <strong class="text-success">{{ same_count }} ({{ ((same_count / comparable) * 100) | round(0) | int }}%)</strong> kept the same slot
-    and <strong class="text-warning">{{ diff_count }}</strong> moved.
-    <strong>{{ partial_count }}</strong> modules run in only one trimester (not comparable).
-</div>
-{% endif %}
-
-<!-- Filter buttons -->
-<div class="d-flex gap-2 mb-3 align-items-center">
-    <span class="text-muted small fw-medium">Filter:</span>
-    <button class="btn btn-sm btn-dark" onclick="filterRows('all', this)" id="filter-all">All</button>
-    <button class="btn btn-sm btn-outline-success" onclick="filterRows('same', this)">
-        <i class="bi bi-check-circle me-1"></i>Same slot
-    </button>
-    <button class="btn btn-sm btn-outline-warning" onclick="filterRows('different', this)">
-        <i class="bi bi-exclamation-circle me-1"></i>Changed
-    </button>
-    <button class="btn btn-sm btn-outline-secondary" onclick="filterRows('partial', this)">
-        <i class="bi bi-dash-circle me-1"></i>Only in one trimester
-    </button>
-</div>
-
-<!-- Table -->
-<div class="card border-0 shadow-sm">
-    <div class="card-body p-0">
-        <table class="table table-hover align-middle mb-0 small">
-            <thead class="table-light">
-                <tr>
-                    <th class="ps-3">Year</th>
-                    <th>Module</th>
-                    <th>Type</th>
-                    {% for t in tri_labels %}
-                    <th class="text-center">
-                        <span class="badge {% if t==1 %}bg-primary{% elif t==2 %}bg-success{% else %}bg-warning text-dark{% endif %}">
-                            Tri {{ t }}
-                        </span>
-                    </th>
-                    {% endfor %}
-                    <th class="text-center">Consistency</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in rows %}
-                <tr data-consistency="{{ row.consistency }}">
-                    <td class="ps-3 text-muted">Y{{ row.year_level }}</td>
-                    <td>
-                        <div class="fw-medium">{{ row.module_code }}</div>
-                        <div class="text-muted" style="font-size:0.75rem;">{{ row.title }}</div>
-                    </td>
-                    <td class="text-capitalize">{{ row.session_type }}</td>
-                    {% for t in tri_labels %}
-                    {% set slot = row.slots.get(t) %}
-                    <td class="text-center">
-                        {% if slot %}
-                            <span class="badge bg-light text-dark border" style="font-size:0.72rem;">
-                                {{ slot.label }}
-                            </span>
-                        {% else %}
-                            <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                    {% endfor %}
-                    <td class="text-center">
-                        {% if row.consistency == 'same' %}
-                            <span class="badge bg-success">
-                                <i class="bi bi-check-circle me-1"></i>Mirrored
-                            </span>
-                        {% elif row.consistency == 'different' %}
-                            <span class="badge bg-warning text-dark">
-                                <i class="bi bi-arrow-left-right me-1"></i>Changed
-                            </span>
-                        {% else %}
-                            <span class="badge bg-secondary">
-                                <i class="bi bi-dash-circle me-1"></i>Single-tri
-                            </span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-{% endif %}
-{# end within mode #}
-
-
-{# ============================================================
-   MODE: cross-AY
-   ============================================================ #}
-{% elif mode == 'cross' %}
 
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-3">
     <p class="text-muted small mb-0" style="max-width:480px;">
@@ -207,7 +20,6 @@
         how many sessions kept the same timeslot as the previous year?
     </p>
     <form method="GET" class="d-flex align-items-center gap-2 flex-wrap">
-        <input type="hidden" name="mode" value="cross">
         <label class="form-label mb-0 fw-medium small">Base AY (older):</label>
         <select name="base_ay" class="form-select form-select-sm" style="width:auto;">
             <option value="">— Select —</option>
@@ -395,19 +207,11 @@
 </div>
 
 {% endif %}
-{% endif %}
 
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-function filterRows(type, btn) {
-    document.querySelectorAll('tbody tr[data-consistency]').forEach(function(row) {
-        var c = row.dataset.consistency;
-        row.style.display = (type === 'all' || c === type) ? '' : 'none';
-    });
-}
-
 function filterCross(type) {
     document.querySelectorAll('tbody tr[data-cross]').forEach(function(row) {
         var c = row.dataset.cross;

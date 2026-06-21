@@ -2006,13 +2006,7 @@ def timetable():
 @admin_bp.route('/timetable/similarity')
 @login_required
 def timetable_similarity():
-    """
-    Two-mode similarity report:
-      mode=within  — cross-trimester consistency within one AY (are slots mirrored T1/T2/T3?)
-      mode=cross   — cross-AY comparison for same trimester (did historical constraint work?)
-    """
-    mode = request.args.get('mode', 'within')
-
+    """Cross-AY comparison: did the historical soft constraint keep slots consistent?"""
     # Available AYs from timetable entries
     all_ays = sorted(set(
         e[0] for e in db.session.query(TimetableEntry.academic_year).distinct().all()
@@ -2022,89 +2016,9 @@ def timetable_similarity():
     def _slot_label(ts):
         return f'{ts.day_of_week[:3]} {ts.start_time.strftime("%H:%M")}–{ts.end_time.strftime("%H:%M")}'
 
-    # -----------------------------------------------------------------------
-    # Mode: within-AY (T1 vs T2 vs T3)
-    # -----------------------------------------------------------------------
-    rows = []
-    tri_labels = []
-    same_count = diff_count = partial_count = 0
-    academic_year = ''
-
-    if mode == 'within':
-        academic_year = request.args.get('ay', '')
-
-        if academic_year:
-            tri_data = {}
-            for tri_num in [1, 2, 3]:
-                tri_key = f'{academic_year}-T{tri_num}'
-                entries = TimetableEntry.query.filter_by(trimester=tri_key).all()
-                if not entries:
-                    continue
-                tri_labels.append(tri_num)
-                slot_map = {}
-                for e in entries:
-                    key = (
-                        e.class_session.course.module_code,
-                        e.class_session.course.title,
-                        e.class_session.session_type,
-                        e.class_session.course.year_level,
-                    )
-                    if key not in slot_map:
-                        slot_map[key] = {
-                            'timeslot': e.timeslot,
-                            'label'   : _slot_label(e.timeslot),
-                        }
-                tri_data[tri_num] = slot_map
-
-            all_keys = set()
-            for sd in tri_data.values():
-                all_keys.update(sd.keys())
-
-            for key in sorted(all_keys, key=lambda k: (k[3] or 0, k[0], k[2])):
-                module_code, title, session_type, year_level = key
-                slots = {t: tri_data[t].get(key) for t in tri_labels}
-
-                present = [s for s in slots.values() if s]
-                unique_slots = set(s['label'] for s in present)
-
-                if len(present) == 1:
-                    # Module only appears in one trimester — cannot compare
-                    consistency = 'partial'
-                elif len(unique_slots) == 1:
-                    consistency = 'same'
-                else:
-                    consistency = 'different'
-
-                rows.append({
-                    'module_code' : module_code,
-                    'title'       : title,
-                    'session_type': session_type,
-                    'year_level'  : year_level,
-                    'slots'       : slots,
-                    'consistency' : consistency,
-                })
-
-        same_count    = sum(1 for r in rows if r['consistency'] == 'same')
-        diff_count    = sum(1 for r in rows if r['consistency'] == 'different')
-        partial_count = sum(1 for r in rows if r['consistency'] == 'partial')
-
-        return render_template('admin/timetable_similarity.html',
-                               mode='within',
-                               all_ays=all_ays,
-                               academic_year=academic_year,
-                               tri_labels=tri_labels,
-                               rows=rows,
-                               same_count=same_count,
-                               diff_count=diff_count,
-                               partial_count=partial_count,
-                               # cross-AY vars unused
-                               base_ay='', compare_ay='', cross_rows=[])
-
-    # -----------------------------------------------------------------------
-    # Mode: cross-AY (base AY T1 vs compare AY T1, repeated for T2/T3)
-    # -----------------------------------------------------------------------
-    base_ay    = request.args.get('base_ay', '')
-    compare_ay = request.args.get('compare_ay', '')
+    # Auto-select base/compare when exactly two AYs exist
+    base_ay    = request.args.get('base_ay',    all_ays[0] if len(all_ays) >= 2 else '')
+    compare_ay = request.args.get('compare_ay', all_ays[1] if len(all_ays) >= 2 else '')
     cross_rows = []
 
     if base_ay and compare_ay:
@@ -2172,16 +2086,12 @@ def timetable_similarity():
     diff_count = sum(1 for r in cross_rows if r['consistency'] == 'different')
 
     return render_template('admin/timetable_similarity.html',
-                           mode='cross',
                            all_ays=all_ays,
                            base_ay=base_ay,
                            compare_ay=compare_ay,
                            cross_rows=cross_rows,
                            same_count=same_count,
-                           diff_count=diff_count,
-                           partial_count=0,
-                           # within-AY vars unused
-                           academic_year='', tri_labels=[], rows=[])
+                           diff_count=diff_count)
 
 
 # ---------------------------------------------------------------------------
