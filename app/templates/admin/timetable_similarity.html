@@ -103,6 +103,44 @@
     Entries only in one AY are shown as <span class="badge bg-info text-dark">New</span> or <span class="badge bg-secondary">Removed</span>.
 </div>
 
+<!-- Formula explanation -->
+<div class="card border-0 shadow-sm mb-3 border-start border-primary border-3">
+    <div class="card-body py-2 small">
+        <span class="fw-semibold text-primary me-2"><i class="bi bi-calculator me-1"></i>How % is calculated</span>
+        <span class="text-muted">
+            Historical constraint effectiveness = <strong>Sessions kept ÷ (Sessions kept + Sessions moved)</strong> × 100.
+            Only sessions present in <em>both</em> AYs for the <em>same trimester</em> are counted.
+            New modules and removed modules are excluded from the denominator.
+        </span>
+    </div>
+</div>
+
+<!-- Per-trimester breakdown -->
+{% if tri_stats %}
+<div class="row g-2 mb-3">
+    {% for tri_num in [1, 2, 3] %}
+    {% set ts = tri_stats[tri_num] %}
+    <div class="col-md-4">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
+                <span class="badge {% if tri_num==1 %}bg-primary{% elif tri_num==2 %}bg-success{% else %}bg-warning text-dark{% endif %} fs-6">T{{ tri_num }}</span>
+                <div class="flex-grow-1">
+                    {% if ts.total == 0 %}
+                    <span class="text-muted small">Not generated for {{ compare_ay }}</span>
+                    {% else %}
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="fw-bold {% if ts.pct >= 85 %}text-success{% elif ts.pct >= 70 %}text-warning{% else %}text-danger{% endif %}">{{ ts.pct }}%</span>
+                        <span class="text-muted small">{{ ts.same }} kept / {{ ts.diff }} moved ({{ ts.total }} comparable)</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
 <!-- Timetable summary -->
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body d-flex align-items-start gap-3">
@@ -198,7 +236,16 @@
                             <span class="badge bg-secondary"><i class="bi bi-dash-circle me-1"></i>Removed</span>
                         {% endif %}
                     </td>
-                    <td class="text-muted small">{{ row.reason }}</td>
+                    <td class="small">
+                        {% if row.reason_tag == 'availability' %}
+                        <span class="badge bg-danger me-1" title="A professor declared unavailability at the original slot">Availability conflict</span>
+                        {% elif row.reason_tag == 'room_taken' %}
+                        <span class="badge bg-warning text-dark me-1" title="The original room is occupied at that slot in the new AY">Room taken</span>
+                        {% elif row.reason_tag == 'shifted' %}
+                        <span class="badge bg-secondary me-1" title="Moved due to constraint interaction — no specific conflict detected">Slot shifted</span>
+                        {% endif %}
+                        <span class="text-muted">{{ row.reason }}</span>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

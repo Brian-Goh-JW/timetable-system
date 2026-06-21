@@ -2030,12 +2030,34 @@ def timetable_similarity():
                 if key not in slot_map:
                     ts = e.timeslot
                     slot_map[key] = {
-                        'label': _slot_label(ts),
-                        'day':   ts.day_of_week,
-                        'start': ts.start_time.strftime('%H:%M'),
-                        'room':  e.room.room_code if e.room else None,
+                        'label':            _slot_label(ts),
+                        'day':              ts.day_of_week,
+                        'start':            ts.start_time.strftime('%H:%M'),
+                        'room':             e.room.room_code if e.room else None,
+                        'timeslot_id':      ts.id,
+                        'room_id':          e.room_id,
+                        'class_session_id': e.class_session_id,
                     }
             return slot_map
+
+        def _reason_tag(class_session_id, base_timeslot_id, base_room_id, compare_tri_key):
+            """Infer why the solver moved a session off its historical slot."""
+            cs = ClassSession.query.get(class_session_id)
+            if cs:
+                for prof in cs.all_professors:
+                    if AvailabilityDeclaration.query.filter_by(
+                        professor_id=prof.id,
+                        timeslot_id=base_timeslot_id,
+                    ).first():
+                        return 'availability'
+            if base_room_id:
+                if TimetableEntry.query.filter_by(
+                    trimester=compare_tri_key,
+                    room_id=base_room_id,
+                    timeslot_id=base_timeslot_id,
+                ).first():
+                    return 'room_taken'
+            return 'shifted'
 
         for tri_num in [1, 2, 3]:
             base_map    = _build_map(f'{base_ay}-T{tri_num}')
@@ -2057,7 +2079,8 @@ def timetable_similarity():
                 else:
                     consistency = 'compare_only'
 
-                reason = ''
+                reason     = ''
+                reason_tag = ''
                 if consistency == 'different':
                     parts = []
                     if bd['day'] != cd['day']:
@@ -2067,6 +2090,12 @@ def timetable_similarity():
                     if bd['room'] != cd['room']:
                         parts.append(f"Room: {bd['room'] or '?'} → {cd['room'] or '?'}")
                     reason = ' | '.join(parts) if parts else 'Slot changed'
+                    reason_tag = _reason_tag(
+                        bd['class_session_id'],
+                        bd['timeslot_id'],
+                        bd['room_id'],
+                        f'{compare_ay}-T{tri_num}',
+                    )
                 elif consistency == 'base_only':
                     reason = f'Not scheduled in {compare_ay}'
                 elif consistency == 'compare_only':
@@ -2080,10 +2109,24 @@ def timetable_similarity():
                     'compare_slot': compare_slot,
                     'consistency' : consistency,
                     'reason'      : reason,
+                    'reason_tag'  : reason_tag,
                 })
 
     same_count = sum(1 for r in cross_rows if r['consistency'] == 'same')
     diff_count = sum(1 for r in cross_rows if r['consistency'] == 'different')
+
+    # Per-trimester breakdown
+    tri_stats = {}
+    for tri_num in [1, 2, 3]:
+        s = sum(1 for r in cross_rows if r['tri_num'] == tri_num and r['consistency'] == 'same')
+        d = sum(1 for r in cross_rows if r['tri_num'] == tri_num and r['consistency'] == 'different')
+        total = s + d
+        tri_stats[tri_num] = {
+            'same':  s,
+            'diff':  d,
+            'total': total,
+            'pct':   round(s / total * 100) if total > 0 else None,
+        }
 
     return render_template('admin/timetable_similarity.html',
                            all_ays=all_ays,
@@ -2091,7 +2134,8 @@ def timetable_similarity():
                            compare_ay=compare_ay,
                            cross_rows=cross_rows,
                            same_count=same_count,
-                           diff_count=diff_count)
+                           diff_count=diff_count,
+                           tri_stats=tri_stats)
 
 
 # ---------------------------------------------------------------------------
