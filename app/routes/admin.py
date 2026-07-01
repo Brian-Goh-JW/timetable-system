@@ -1876,7 +1876,18 @@ def import_template1():
         return render_template('admin/import_template1.html', trimester=trimester)
 
     preview = []
+    warn_count = 0
     for rec in recs:
+        staff_clean = _clean_staff(rec['staff'])
+        row_warnings = []
+        if not staff_clean:
+            row_warnings.append('No staff assigned')
+        if rec['prog_code'] not in PROG_NAMES:
+            row_warnings.append(f'Unknown programme code: {rec["prog_code"]}')
+        if not rec['teaching_weeks']:
+            row_warnings.append('Teaching weeks not specified')
+        if row_warnings:
+            warn_count += 1
         preview.append({
             'module_code':    rec['module_code'],
             'module_title':   rec['module_title'],
@@ -1888,12 +1899,14 @@ def import_template1():
             'delivery_mode':  rec['delivery_mode'],
             'prog_code':      rec['prog_code'],
             'year_level':     rec['year_level'],
-            'staff':          _clean_staff(rec['staff']),
+            'staff':          staff_clean,
             'pref_slot_id':   rec['pref_slot_id'],
+            'warnings':       row_warnings,
         })
 
     return render_template('admin/import_template1.html',
                            preview=preview,
+                           warn_count=warn_count,
                            token=token,
                            orig_filename=file.filename,
                            trimester=trimester)

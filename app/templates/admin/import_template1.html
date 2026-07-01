@@ -22,7 +22,7 @@
 {% endwith %}
 
 {% if not preview %}
-{# ── Upload Form ────────────────────────────────────────────────────────── #}
+{# ── Upload Form ──────────────────────────────────────────────────────── #}
 <div class="card border-0 shadow-sm" style="max-width:540px">
     <div class="card-header bg-white fw-semibold border-bottom">
         <i class="bi bi-file-earmark-excel me-2 text-muted"></i>Upload File
@@ -61,11 +61,20 @@
 </div>
 
 {% else %}
-{# ── Preview ────────────────────────────────────────────────────────────── #}
+{# ── Preview ──────────────────────────────────────────────────────────── #}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div>
         <span class="fw-semibold">{{ preview|length }} sessions parsed</span>
         <span class="text-muted small ms-2">from <code>{{ orig_filename }}</code> · Trimester {{ trimester }}</span>
+        {% if warn_count %}
+        <span class="badge bg-warning text-dark ms-2">
+            <i class="bi bi-exclamation-triangle me-1"></i>{{ warn_count }} with warnings
+        </span>
+        {% else %}
+        <span class="badge bg-success ms-2">
+            <i class="bi bi-check2 me-1"></i>No issues
+        </span>
+        {% endif %}
     </div>
     <div class="d-flex gap-2">
         <a href="{{ url_for('admin.import_template1') }}" class="btn btn-sm btn-outline-secondary">
@@ -83,6 +92,15 @@
     </div>
 </div>
 
+{% if warn_count %}
+<div class="alert alert-warning py-2 small mb-3">
+    <i class="bi bi-exclamation-triangle me-1"></i>
+    <strong>{{ warn_count }} session{{ 's' if warn_count != 1 else '' }}</strong> have data issues highlighted below.
+    You can still import — warnings do not block import. Rows with no staff will be imported but
+    will need staff assigned manually afterwards.
+</div>
+{% endif %}
+
 <div class="card border-0 shadow-sm">
     <div class="table-responsive">
         <table class="table table-sm table-hover align-middle mb-0" style="font-size:0.8rem">
@@ -97,11 +115,12 @@
                     <th>Delivery</th>
                     <th>Staff</th>
                     <th class="text-center">Pref Slot</th>
+                    <th>Status</th>
                 </tr>
             </thead>
             <tbody>
             {% for s in preview %}
-            <tr>
+            <tr{% if s.warnings %} class="table-warning"{% endif %}>
                 <td>
                     <div class="fw-medium">{{ s.module_code }}</div>
                     {% if s.module_title and s.module_title != s.module_code %}
@@ -126,6 +145,17 @@
                     {% if s.pref_slot_id %}
                     <i class="bi bi-check-circle-fill text-success"></i>
                     {% else %}—{% endif %}
+                </td>
+                <td>
+                    {% if s.warnings %}
+                        {% for w in s.warnings %}
+                        <div class="text-warning-emphasis" style="font-size:0.75rem; white-space:nowrap">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ w }}
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                    <span class="text-success"><i class="bi bi-check2"></i></span>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
