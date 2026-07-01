@@ -1646,6 +1646,260 @@ def data_import():
 
 
 # ---------------------------------------------------------------------------
+# Template 1 import — upload → preview → confirm
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/import/template1', methods=['GET', 'POST'])
+@login_required
+def import_template1():
+    import os, uuid, re, tempfile
+    import pandas as pd
+    from app.engine.template1_parser import (
+        load_module_sheet, PROG_NAMES, SKIP_NAMES, SKIP_SHEETS,
+    )
+
+    UPLOAD_DIR = os.path.join(tempfile.gettempdir(), 'sit_template1_uploads')
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+    def _clean_staff(staff_list):
+        out = []
+        for name, sid in staff_list:
+            n = '' if (name is None or (isinstance(name, float) and math.isnan(name))) else str(name).strip()
+            s = '' if (sid is None or (isinstance(sid, float) and math.isnan(sid))) else str(sid).strip()
+            if n and n.lower() not in SKIP_NAMES:
+                out.append({'name': n, 'sid': s})
+        return out
+
+    def _get_or_create_programme(code):
+        prog = Programme.query.filter_by(code=code).first()
+        if not prog:
+            prog = Programme(code=code, name=PROG_NAMES.get(code, code), cluster='ENG')
+            db.session.add(prog)
+            db.session.flush()
+        return prog
+
+    def _get_or_create_student_group(prog, year_level, intake_size):
+        label = f'{prog.code}-Y{year_level}'
+        sg = StudentGroup.query.filter_by(
+            programme_id=prog.id, year_level=year_level,
+            group_label=label, parent_id=None,
+        ).first()
+        if not sg:
+            sg = StudentGroup(
+                programme_id=prog.id, year_level=year_level,
+                group_label=label, intake_size=intake_size or 30, parent_id=None,
+            )
+            db.session.add(sg)
+            db.session.flush()
+        elif intake_size and intake_size > 0 and sg.intake_size != intake_size:
+            sg.intake_size = intake_size
+        return sg
+
+    def _get_or_create_professor(name_raw, sid_raw):
+        name = '' if (name_raw is None or (isinstance(name_raw, float) and math.isnan(name_raw))) else str(name_raw).strip()
+        sid  = '' if (sid_raw  is None or (isinstance(sid_raw,  float) and math.isnan(sid_raw)))  else str(sid_raw).strip()
+        if not name or name.lower() in SKIP_NAMES:
+            return None
+        if re.fullmatch(r't\d{1,2}', name.lower()):
+            return None
+        name = name.title()
+        sid  = re.sub(r'[^\w]', '', sid)
+        if re.fullmatch(r't\d{1,2}', sid, re.IGNORECASE):
+            sid = ''
+        if sid:
+            prof = Professor.query.filter_by(staff_id=sid).first()
+            if prof:
+                return prof
+        user = User.query.filter_by(name=name, role='professor').first()
+        if user:
+            prof = Professor.query.filter_by(user_id=user.id).first()
+            if prof:
+                if sid and not prof.staff_id:
+                    prof.staff_id = sid
+                return prof
+        if not sid:
+            base = abs(hash(name)) % 9999
+            sid = f'ENG{base:04d}'
+            attempt = 0
+            while Professor.query.filter_by(staff_id=sid).first():
+                attempt += 1
+                sid = f'ENG{(base + attempt) % 9999:04d}'
+        email_local = re.sub(r'[^a-z0-9]', '.', name.lower()).strip('.')
+        email_local = re.sub(r'\.+', '.', email_local)
+        email = f'{email_local}@sit.edu.sg'
+        attempt = 0
+        while User.query.filter_by(email=email).first():
+            attempt += 1
+            email = f'{email_local}.{attempt}@sit.edu.sg'
+        user = User(name=name, email=email, role='professor')
+        user.set_password('SIT@2526')
+        db.session.add(user)
+        db.session.flush()
+        prof = Professor(user_id=user.id, staff_id=sid, department='ENG')
+        db.session.add(prof)
+        db.session.flush()
+        return prof
+
+    def _get_or_create_course(module_code, title, prog, year_level, delivery_mode, tri):
+        course = Course.query.filter_by(
+            module_code=module_code, programme_id=prog.id, trimester=tri,
+        ).first()
+        if not course:
+            course = Course(
+                programme_id=prog.id, module_code=module_code,
+                title=title or module_code, year_level=year_level,
+                trimester=tri, delivery_mode=delivery_mode,
+                sessions_per_week=1, total_hours=0,
+            )
+            db.session.add(course)
+            db.session.flush()
+        return course
+
+    def _parse_file(fpath, fname, all_slots):
+        xl = pd.ExcelFile(fpath)
+        sessions = []
+        for sheet in xl.sheet_names:
+            if sheet.strip().lower() in SKIP_SHEETS:
+                continue
+            try:
+                df_raw = pd.read_excel(fpath, sheet_name=sheet, header=None)
+            except Exception:
+                continue
+            for rec in load_module_sheet(df_raw, all_slots, fname_hint=fname):
+                sessions.append(rec)
+        return sessions
+
+    if request.method == 'GET':
+        return render_template('admin/import_template1.html')
+
+    trimester    = int(request.form.get('trimester', 1))
+    confirm      = request.form.get('confirm') == '1'
+    token        = request.form.get('token', '').strip()
+    orig_filename = request.form.get('orig_filename', '')
+
+    if confirm and token:
+        fpath = os.path.join(UPLOAD_DIR, f'{token}.xlsx')
+        if not os.path.exists(fpath):
+            flash('Upload session expired — please re-upload.', 'danger')
+            return redirect(url_for('admin.import_template1'))
+
+        all_slots = TimeSlot.query.all()
+        recs = _parse_file(fpath, orig_filename, all_slots)
+
+        seen = set()
+        for cs in ClassSession.query.join(Course).all():
+            seen.add((cs.course.module_code, cs.course.programme_id,
+                      cs.session_type, cs.group_label or 'All', cs.teaching_weeks or ''))
+
+        created = 0
+        skipped = 0
+        try:
+            for rec in recs:
+                if not rec['prog_code'] or not rec['year_level']:
+                    skipped += 1
+                    continue
+                prog   = _get_or_create_programme(rec['prog_code'])
+                sg     = _get_or_create_student_group(prog, rec['year_level'], rec['class_size'])
+                course = _get_or_create_course(
+                    rec['module_code'], rec['module_title'],
+                    prog, rec['year_level'], rec['delivery_mode'], trimester,
+                )
+                sig = (rec['module_code'], prog.id, rec['session_type'],
+                       rec['group_label'], rec['teaching_weeks'] or '')
+                if sig in seen:
+                    skipped += 1
+                    continue
+                seen.add(sig)
+                cs = ClassSession(
+                    course_id=course.id,
+                    session_type=rec['session_type'],
+                    delivery_mode=rec['delivery_mode'],
+                    is_async=rec['is_async'],
+                    duration_hours=rec['duration_hours'],
+                    student_group_id=sg.id,
+                    trimester=trimester,
+                    teaching_weeks=rec['teaching_weeks'],
+                    group_label=rec['group_label'],
+                    preferred_timeslot_id=rec['pref_slot_id'],
+                )
+                db.session.add(cs)
+                db.session.flush()
+                created += 1
+                is_first = True
+                for staff_name, staff_id in rec['staff']:
+                    prof = _get_or_create_professor(staff_name, staff_id)
+                    if not prof:
+                        continue
+                    already = ClassSessionProfessor.query.filter_by(
+                        session_id=cs.id, professor_id=prof.id).first()
+                    if not already:
+                        db.session.add(ClassSessionProfessor(
+                            session_id=cs.id, professor_id=prof.id,
+                            is_primary=is_first,
+                            display_order=0 if is_first else 1,
+                        ))
+                        if is_first:
+                            is_first = False
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Import failed: {e}', 'danger')
+            return redirect(url_for('admin.import_template1'))
+
+        try:
+            os.unlink(fpath)
+        except OSError:
+            pass
+
+        flash(f'Import complete: {created} sessions created, {skipped} skipped.', 'success')
+        return redirect(url_for('admin.import_template1'))
+
+    # Step 1: upload + parse for preview
+    file = request.files.get('file')
+    if not file or not file.filename:
+        flash('Please select a file.', 'danger')
+        return render_template('admin/import_template1.html', trimester=trimester)
+
+    token = str(uuid.uuid4())
+    fpath = os.path.join(UPLOAD_DIR, f'{token}.xlsx')
+    file.save(fpath)
+
+    all_slots = TimeSlot.query.all()
+    try:
+        recs = _parse_file(fpath, file.filename, all_slots)
+    except Exception as e:
+        try:
+            os.unlink(fpath)
+        except OSError:
+            pass
+        flash(f'Could not parse file: {e}', 'danger')
+        return render_template('admin/import_template1.html', trimester=trimester)
+
+    preview = []
+    for rec in recs:
+        preview.append({
+            'module_code':    rec['module_code'],
+            'module_title':   rec['module_title'],
+            'session_type':   rec['session_type'],
+            'group_label':    rec['group_label'],
+            'duration_hours': rec['duration_hours'],
+            'teaching_weeks': rec['teaching_weeks'] or '—',
+            'is_async':       rec['is_async'],
+            'delivery_mode':  rec['delivery_mode'],
+            'prog_code':      rec['prog_code'],
+            'year_level':     rec['year_level'],
+            'staff':          _clean_staff(rec['staff']),
+            'pref_slot_id':   rec['pref_slot_id'],
+        })
+
+    return render_template('admin/import_template1.html',
+                           preview=preview,
+                           token=token,
+                           orig_filename=file.filename,
+                           trimester=trimester)
+
+
+# ---------------------------------------------------------------------------
 # Timetable — generate and view
 # ---------------------------------------------------------------------------
 

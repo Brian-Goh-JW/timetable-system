@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% block title %}Import Template 1 — SIT Timetable{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0 fw-semibold">Import Template 1</h4>
+        <small class="text-muted">Upload an ENG cluster requirements Excel file to import sessions</small>
+    </div>
+    <a href="{{ url_for('admin.data_import') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left me-1"></i>Back to Import
+    </a>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% for cat, msg in messages %}
+<div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">
+    {{ msg }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endfor %}
+{% endwith %}
+
+{% if not preview %}
+{# ── Upload Form ────────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm" style="max-width:540px">
+    <div class="card-header bg-white fw-semibold border-bottom">
+        <i class="bi bi-file-earmark-excel me-2 text-muted"></i>Upload File
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">
+            Upload a single Template 1 requirements Excel file. All sheets will be scanned
+            for session data. Sessions already in the database (matched by module + programme +
+            session type + group + weeks) are skipped automatically.
+        </p>
+        <div class="alert alert-light border small py-2 mb-3">
+            <div class="fw-medium mb-1">Expected columns (auto-detected, order-insensitive):</div>
+            <code>Prog/Yr &nbsp;|&nbsp; Class Size &nbsp;|&nbsp; Module Code &nbsp;|&nbsp; Module Name &nbsp;|&nbsp;
+            Activity &nbsp;|&nbsp; Delivery Mode &nbsp;|&nbsp; Teaching Weeks &nbsp;|&nbsp;
+            Staff 1 &nbsp;|&nbsp; Staff ID 1 &nbsp;|&nbsp; Remarks</code>
+        </div>
+        <form method="POST" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label class="form-label fw-medium small">Trimester</label>
+                <select name="trimester" class="form-select form-select-sm">
+                    <option value="1" {% if trimester == 1 %}selected{% endif %}>Trimester 1</option>
+                    <option value="2" {% if trimester == 2 %}selected{% endif %}>Trimester 2</option>
+                    <option value="3" {% if trimester == 3 %}selected{% endif %}>Trimester 3</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label fw-medium small">Excel File</label>
+                <input type="file" name="file" class="form-control form-control-sm"
+                       accept=".xlsx,.xls" required>
+            </div>
+            <button type="submit" class="btn btn-dark btn-sm w-100">
+                <i class="bi bi-search me-1"></i>Parse &amp; Preview
+            </button>
+        </form>
+    </div>
+</div>
+
+{% else %}
+{# ── Preview ────────────────────────────────────────────────────────────── #}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <span class="fw-semibold">{{ preview|length }} sessions parsed</span>
+        <span class="text-muted small ms-2">from <code>{{ orig_filename }}</code> · Trimester {{ trimester }}</span>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('admin.import_template1') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-x me-1"></i>Cancel
+        </a>
+        <form method="POST">
+            <input type="hidden" name="confirm" value="1">
+            <input type="hidden" name="token" value="{{ token }}">
+            <input type="hidden" name="orig_filename" value="{{ orig_filename }}">
+            <input type="hidden" name="trimester" value="{{ trimester }}">
+            <button type="submit" class="btn btn-sm btn-success">
+                <i class="bi bi-check2-circle me-1"></i>Confirm Import ({{ preview|length }} sessions)
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0" style="font-size:0.8rem">
+            <thead class="table-light">
+                <tr>
+                    <th>Module</th>
+                    <th>Type</th>
+                    <th>Group</th>
+                    <th>Prog / Yr</th>
+                    <th>Dur</th>
+                    <th>Weeks</th>
+                    <th>Delivery</th>
+                    <th>Staff</th>
+                    <th class="text-center">Pref Slot</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for s in preview %}
+            <tr>
+                <td>
+                    <div class="fw-medium">{{ s.module_code }}</div>
+                    {% if s.module_title and s.module_title != s.module_code %}
+                    <div class="text-muted" style="font-size:0.75rem">{{ s.module_title }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="badge bg-secondary">{{ s.session_type }}</span>
+                    {% if s.is_async %}<span class="badge bg-info text-dark ms-1">async</span>{% endif %}
+                </td>
+                <td>{{ s.group_label }}</td>
+                <td><code>{{ s.prog_code }}-Y{{ s.year_level }}</code></td>
+                <td>{{ s.duration_hours }}h</td>
+                <td class="text-muted">{{ s.teaching_weeks }}</td>
+                <td>{{ s.delivery_mode }}</td>
+                <td>
+                    {% for st in s.staff %}
+                    <div>{{ st.name }}{% if st.sid %} <span class="text-muted">({{ st.sid }})</span>{% endif %}</div>
+                    {% else %}<span class="text-muted">—</span>{% endfor %}
+                </td>
+                <td class="text-center">
+                    {% if s.pref_slot_id %}
+                    <i class="bi bi-check-circle-fill text-success"></i>
+                    {% else %}—{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="d-flex justify-content-end mt-3">
+    <form method="POST">
+        <input type="hidden" name="confirm" value="1">
+        <input type="hidden" name="token" value="{{ token }}">
+        <input type="hidden" name="orig_filename" value="{{ orig_filename }}">
+        <input type="hidden" name="trimester" value="{{ trimester }}">
+        <button type="submit" class="btn btn-success">
+            <i class="bi bi-check2-circle me-1"></i>Confirm Import ({{ preview|length }} sessions)
+        </button>
+    </form>
+</div>
+{% endif %}
+{% endblock %}
