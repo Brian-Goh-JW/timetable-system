@@ -80,15 +80,5 @@ def get_blocking_issues(trimester_num=None):
                 f'{ts.day_of_week} {ts.period_label} is {slot_hours}h '
                 f'but session requires {s.duration_hours}h.'
             )
-        is_lab_slot    = ts.period_label.startswith('Lab')
-        is_lab_session = (s.session_type == 'lab')
-        if is_lab_slot != is_lab_session:
-            slot_kind    = 'a lab slot' if is_lab_slot else 'a non-lab slot'
-            session_kind = 'a lab session' if is_lab_session else 'a non-lab session'
-            blockers.append(
-                f'{s.course.module_code} ({s.session_type}): fixed slot '
-                f'{ts.day_of_week} {ts.period_label} is {slot_kind} '
-                f'but the session is {session_kind}.'
-            )
 
     return blockers, warnings
