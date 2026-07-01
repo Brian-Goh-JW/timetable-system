@@ -1924,7 +1924,7 @@ def timetable():
     from app.engine.solver import solve
     from datetime import date
 
-    issues   = get_blocking_issues()
+    issues, issue_warnings = get_blocking_issues()
     result   = None
     stats    = {}
     trimester = request.args.get('trimester', '')
@@ -1991,12 +1991,12 @@ def timetable():
                         }
                         continue
 
-                    tri_issues = get_blocking_issues(trimester_num=tri_num)
-                    if tri_issues:
+                    tri_blockers, _tri_warns = get_blocking_issues(trimester_num=tri_num)
+                    if tri_blockers:
                         ay_stats[tri_num] = {
                             'success': False,
-                            'message': f'Tri {tri_num}: {len(tri_issues)} blocking issue(s) — skipped. '
-                                       f'({tri_issues[0]}...)',
+                            'message': f'Tri {tri_num}: {len(tri_blockers)} blocking issue(s) — skipped. '
+                                       f'({tri_blockers[0]}...)',
                             'stats'  : {},
                         }
                         continue
@@ -2078,15 +2078,18 @@ def timetable():
                 trimester = f'{academic_year}-T{trimester_num}'
 
             # Re-check issues scoped to the selected trimester only
-            tri_issues = get_blocking_issues(trimester_num=trimester_num) if trimester_num else issues
+            if trimester_num:
+                tri_blockers, tri_warns = get_blocking_issues(trimester_num=trimester_num)
+            else:
+                tri_blockers, tri_warns = issues, issue_warnings
 
             # Auto-populate start date from official SIT calendar if not provided
             if not start_raw and academic_year and trimester_num:
                 start_raw = SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(trimester_num, '')
 
-            if tri_issues:
+            if tri_blockers:
                 flash('Resolve all blocking issues for this trimester before generating.', 'danger')
-                for iss in tri_issues[:5]:
+                for iss in tri_blockers[:5]:
                     flash(iss, 'warning')
             elif not academic_year:
                 flash('Academic year is required (e.g. AY2526).', 'danger')
@@ -2381,6 +2384,7 @@ def timetable():
 
     return render_template('admin/timetable.html',
                            issues=issues,
+                           issue_warnings=issue_warnings,
                            trimesters=trimesters,
                            active_trimester=trimester,
                            entries=unique_entries,

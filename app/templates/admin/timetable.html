@@ -32,10 +32,10 @@
 
         <!-- Readiness summary -->
         {% if issues %}
-        <div class="card border-0 shadow-sm mb-3 border-start border-warning border-3">
+        <div class="card border-0 shadow-sm mb-3 border-start border-danger border-3">
             <div class="card-body">
-                <h6 class="fw-semibold text-warning mb-2">
-                    <i class="bi bi-exclamation-triangle me-2"></i>Unresolved Issues (All Trimesters)
+                <h6 class="fw-semibold text-danger mb-2">
+                    <i class="bi bi-x-circle me-2"></i>Blocking Issues (All Trimesters)
                 </h6>
                 <ul class="mb-0 small ps-3">
                     {% for issue in issues[:8] %}
@@ -46,13 +46,29 @@
                     {% endif %}
                 </ul>
                 <div class="mt-2 small text-muted">
-                    Issues are checked per trimester when you click Run — only issues for the selected trimester will block generation.
+                    These must be resolved before generation. Issues are re-checked per trimester when you click Run.
                 </div>
             </div>
         </div>
         {% else %}
         <div class="alert alert-success py-2 mb-3">
-            <i class="bi bi-check-circle me-2"></i>All sessions are ready. You can generate the timetable.
+            <i class="bi bi-check-circle me-2"></i>No blocking issues. You can generate the timetable.
+        </div>
+        {% endif %}
+
+        {% if issue_warnings %}
+        <div class="card border-0 shadow-sm mb-3 border-start border-warning border-3">
+            <div class="card-body py-2">
+                <h6 class="fw-semibold text-warning mb-1" style="font-size:0.85rem">
+                    <i class="bi bi-exclamation-triangle me-2"></i>Warnings (will not block generation)
+                </h6>
+                <ul class="mb-0 small ps-3">
+                    {% for w in issue_warnings %}
+                    <li class="text-muted">{{ w }}</li>
+                    {% endfor %}
+                </ul>
+                <div class="mt-1 small text-muted">Sessions with no professor or no group are skipped by the solver automatically.</div>
+            </div>
         </div>
         {% endif %}
 
