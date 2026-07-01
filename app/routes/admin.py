@@ -44,22 +44,23 @@ def require_admin():
 @admin_bp.route('/dashboard')
 @login_required
 def dashboard():
+    from sqlalchemy import exists as sa_exists
+    # Only flag courses that have NO sessions yet AND no split_count (mirrors checker.py logic)
+    _has_session = sa_exists().where(ClassSession.course_id == Course.id)
+    courses_missing_split = Course.query.filter(
+        Course.delivery_mode.in_(['f2f', 'hybrid']),
+        Course.split_count.is_(None),
+        ~_has_session,
+    ).order_by(Course.year_level, Course.module_code).all()
+
     stats = {
         'total_courses':         Course.query.count(),
-        'courses_missing_split': Course.query.filter(
-                                     Course.delivery_mode.in_(['f2f', 'hybrid']),
-                                     Course.split_count.is_(None)
-                                 ).count(),
+        'courses_missing_split': len(courses_missing_split),
         'total_professors':      Professor.query.count(),
         'total_rooms':           Room.query.filter_by(is_active=True).count(),
         'open_flags':            TimetableFlag.query.filter_by(status='open').count(),
         'pending_declarations':  AvailabilityDeclaration.query.filter_by(status='pending').count(),
     }
-
-    courses_missing_split = Course.query.filter(
-        Course.delivery_mode.in_(['f2f', 'hybrid']),
-        Course.split_count.is_(None)
-    ).order_by(Course.year_level, Course.module_code).all()
 
     # KPIs — computed from the most recently generated trimester
     kpis = None
