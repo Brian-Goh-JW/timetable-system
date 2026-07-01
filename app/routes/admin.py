@@ -2610,6 +2610,246 @@ def timetable_export():
 
 
 # ---------------------------------------------------------------------------
+# Template 2 export — SIT upload format (flat row-per-session-pattern)
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/timetable/export-template2')
+@login_required
+def timetable_export_template2():
+    import io, re
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    from flask import send_file
+    from collections import defaultdict
+    from datetime import time as dtime
+
+    trimester_filter = request.args.get('trimester', '')
+
+    CLASS_TYPE = {
+        'lecture': 'Lecture', 'lectorial': 'Lectorial', 'tutorial': 'Tutorial',
+        'lab': 'Lab', 'seminar': 'Seminar', 'workshop': 'Workshop', 'quiz': 'Quiz',
+    }
+    ACT_CODE = {
+        'lecture': 'LET', 'lectorial': 'LET', 'tutorial': 'TUT',
+        'lab': 'LAB', 'seminar': 'SEM', 'workshop': 'WRK', 'quiz': 'QUZ',
+    }
+    DAY_ABBR = {
+        'Monday': 'Mon', 'Tuesday': 'Tue', 'Wednesday': 'Wed',
+        'Thursday': 'Thu', 'Friday': 'Fri',
+    }
+    CLUSTER_ABBR = {
+        'ENG': 'ENG', 'Engineering': 'ENG', 'ICT': 'ICT',
+        'University-Wide': 'UWM', 'Business': 'BUS', 'Health': 'HLS',
+    }
+    PROG_SECTOR = {
+        'ASE': ('DOVER', 'DV'), 'CVE': ('DOVER', 'DV'), 'SDE': ('DOVER', 'DV'),
+        'NAME': ('DOVER', 'DV'), 'RSE': ('TP', 'TP'), 'EDE': ('SP', 'SP'),
+        'EEE': ('NYP', 'NY'), 'EPE': ('NYP', 'NY'), 'METS': ('NYP', 'NY'),
+        'MEC': ('NP', 'NP'), 'MDME': ('NP', 'NP'), 'SBE': ('PUNGGOL', 'PU'),
+        'ESE': ('PUNGGOL', 'PU'), 'DSC': ('DOVER', 'DV'), 'CPC': ('DOVER', 'DV'),
+        'ISE': ('NYP', 'NY'),
+    }
+    HEADERS = [
+        'Module', 'Class Type', 'Template', 'Group', 'Day', 'Start', 'End',
+        'Class Size', 'Sector', 'RoomGrouping', 'Room1', 'Room2', 'StaffGrouping',
+        'Staff1', 'Staff2', 'Tri Week', 'Recording Mode', 'Remark',
+        'FMTS Tri Start Week', 'Activity Hostkey', 'SIS Module Code', 'Term',
+        'Activity Type', 'Duration', 'Staff Suitability ID', 'SIS Staff ID',
+        'SIS Staff ID 2', 'Zone Hoskey', 'Location Suitability ID',
+        'Location Hostkey', 'Location Hostkey 2',
+    ]
+    COL_WIDTHS = {
+        'Module': 12, 'Class Type': 12, 'Template': 9, 'Group': 8, 'Day': 6,
+        'Start': 7, 'End': 7, 'Class Size': 10, 'Sector': 10, 'Staff1': 28,
+        'Staff2': 28, 'Tri Week': 22, 'Activity Hostkey': 42,
+        'SIS Module Code': 32, 'Term': 7, 'Activity Type': 13, 'Duration': 9,
+        'SIS Staff ID': 14, 'SIS Staff ID 2': 14, 'Zone Hoskey': 12,
+    }
+
+    def _term_code(tri_str):
+        m = re.match(r'AY(\d{2})\d{2}-T(\d)', tri_str or '')
+        return f'{m.group(1)}{m.group(2)}0' if m else '2510'
+
+    # Resolve trimester int from string 'AY2526-T1' → 1
+    tri_int = None
+    if trimester_filter:
+        m = re.match(r'AY\d{4}-T(\d)', trimester_filter)
+        if m:
+            tri_int = int(m.group(1))
+
+    # Load sessions with all relationships eager-loaded
+    q = (
+        ClassSession.query
+        .join(ClassSession.course)
+        .options(
+            db.joinedload(ClassSession.course).joinedload(Course.programme),
+            db.joinedload(ClassSession.professor_assignments)
+                .joinedload(ClassSessionProfessor.professor)
+                .joinedload(Professor.user),
+            db.joinedload(ClassSession.student_group),
+            db.joinedload(ClassSession.timetable_entries)
+                .joinedload(TimetableEntry.timeslot),
+        )
+    )
+    if tri_int is not None:
+        q = q.filter(ClassSession.trimester == tri_int)
+    all_sessions = q.order_by(Course.module_code, ClassSession.session_type).all()
+
+    # Build slot map: cs.id → (timeslot | None, sorted_weeks_list)
+    slot_map = {}
+    for cs in all_sessions:
+        te_list = [e for e in cs.timetable_entries
+                   if not trimester_filter or e.trimester == trimester_filter]
+        if te_list:
+            ts = te_list[0].timeslot
+            weeks = sorted(set(e.week_number for e in te_list if e.week_number != 7))
+            slot_map[cs.id] = (ts, weeks)
+        elif cs.fixed_timeslot_id and cs.fixed_timeslot:
+            weeks = ([int(w) for w in cs.teaching_weeks.split(',') if w.strip()]
+                     if cs.teaching_weeks else [])
+            slot_map[cs.id] = (cs.fixed_timeslot, weeks)
+        else:
+            slot_map[cs.id] = (None, [])
+
+    # Sort for stable Template numbering
+    DAYS_ORD = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
+
+    def _sort_key(cs):
+        ts, _ = slot_map[cs.id]
+        d = DAYS_ORD.get(ts.day_of_week, 9) if ts else 9
+        s = ts.start_time if ts else dtime(0, 0)
+        return (cs.course.module_code, cs.session_type,
+                cs.teaching_weeks or '', d, s, cs.group_label or 'All')
+
+    all_sessions.sort(key=_sort_key)
+
+    # Assign Template numbers and Activity Hostkey suffixes
+    tmpl_state = defaultdict(lambda: {'patterns': {}, 'counter': 0})
+    act_state   = {}   # (mod_key, group, weeks_str) → activity sequential number
+    act_counter = defaultdict(int)
+
+    term_code = _term_code(trimester_filter)
+    rows = []
+
+    for cs in all_sessions:
+        ts, weeks = slot_map[cs.id]
+        prog = cs.course.programme
+        sector, campus_abbr = PROG_SECTOR.get(prog.code, ('DOVER', 'DV'))
+        cluster_abbr = CLUSTER_ABBR.get(prog.cluster, prog.cluster[:3].upper())
+        mod_code = cs.course.module_code
+        group = cs.group_label or 'All'
+        weeks_str = cs.teaching_weeks or (','.join(str(w) for w in weeks) if weeks else '')
+
+        mod_key = (mod_code, cs.session_type)
+
+        # Template number: each unique (weeks_str, timeslot) within mod_key = new template.
+        # Unscheduled sessions use cs.id as tiebreaker so parallel unscheduled sessions
+        # (e.g. two lectures per week not yet solved) each get their own template number.
+        if ts:
+            slot_pat = (weeks_str, ts.day_of_week, ts.start_time)
+        else:
+            slot_pat = (weeks_str, None, cs.id)
+        tmpl_s = tmpl_state[mod_key]
+        if slot_pat not in tmpl_s['patterns']:
+            tmpl_s['counter'] += 1
+            tmpl_s['patterns'][slot_pat] = tmpl_s['counter']
+        tmpl_num = tmpl_s['patterns'][slot_pat]
+
+        # Activity number (for hostkey suffix): unique per (mod_key, group, weeks_str)
+        act_tuple = (mod_key, group, weeks_str)
+        if act_tuple not in act_state:
+            act_counter[mod_key] += 1
+            act_state[act_tuple] = act_counter[mod_key]
+        act_num = act_state[act_tuple]
+        act_code = ACT_CODE.get(cs.session_type, 'OTH')
+        act_sfx  = '' if act_num == 1 else str(act_num)
+
+        hostkey     = f'{mod_code}-{term_code}-{cluster_abbr}-UGRD-{campus_abbr}-{act_code}{act_sfx}/{group}'
+        sis_mod     = f'{mod_code}-{term_code}-{cluster_abbr}-UGRD-{campus_abbr}'
+
+        # Staff
+        profs = cs.all_professors
+        staff1_name = profs[0].user.name if profs else ''
+        staff1_id   = profs[0].staff_id  if profs else ''
+        staff2_name = profs[1].user.name if len(profs) > 1 else ''
+        staff2_id   = profs[1].staff_id  if len(profs) > 1 else ''
+
+        # Timeslot
+        if ts:
+            day_str   = DAY_ABBR.get(ts.day_of_week, ts.day_of_week[:3])
+            start_str = ts.start_time.strftime('%H%M')
+            end_str   = ts.end_time.strftime('%H%M')
+        else:
+            day_str = start_str = end_str = ''
+
+        rows.append({
+            'Module':                 mod_code,
+            'Class Type':             CLASS_TYPE.get(cs.session_type, cs.session_type.capitalize()),
+            'Template':               tmpl_num,
+            'Group':                  group,
+            'Day':                    day_str,
+            'Start':                  start_str,
+            'End':                    end_str,
+            'Class Size':             cs.student_group.intake_size if cs.student_group else '',
+            'Sector':                 sector,
+            'RoomGrouping':           '',
+            'Room1':                  '',
+            'Room2':                  '',
+            'StaffGrouping':          '',
+            'Staff1':                 staff1_name,
+            'Staff2':                 staff2_name,
+            'Tri Week':               weeks_str,
+            'Recording Mode':         'A0' if cs.session_type == 'lectorial' else '',
+            'Remark':                 '',
+            'FMTS Tri Start Week':    1,
+            'Activity Hostkey':       hostkey,
+            'SIS Module Code':        sis_mod,
+            'Term':                   term_code,
+            'Activity Type':          act_code,
+            'Duration':               cs.duration_hours * 3,
+            'Staff Suitability ID':   '',
+            'SIS Staff ID':           staff1_id,
+            'SIS Staff ID 2':         staff2_id,
+            'Zone Hoskey':            sector,
+            'Location Suitability ID': '',
+            'Location Hostkey':       '',
+            'Location Hostkey 2':     '',
+        })
+
+    # Build Excel workbook
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = 'Timetable'
+
+    HDR_FILL = PatternFill('solid', fgColor='2E4057')
+    HDR_FONT = Font(bold=True, color='FFFFFF', size=10)
+    DATA_FONT = Font(size=9)
+
+    for ci, h in enumerate(HEADERS, 1):
+        c = ws.cell(1, ci, h)
+        c.font = HDR_FONT
+        c.fill = HDR_FILL
+        ws.column_dimensions[get_column_letter(ci)].width = COL_WIDTHS.get(h, 14)
+
+    for ri, row in enumerate(rows, 2):
+        for ci, h in enumerate(HEADERS, 1):
+            c = ws.cell(ri, ci, row.get(h, ''))
+            c.font = DATA_FONT
+
+    ws.freeze_panes = 'A2'
+    if not rows:
+        ws.cell(2, 1, 'No sessions found for this trimester.')
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f'template2_{trimester_filter or "all"}.xlsx'
+    return send_file(buf, as_attachment=True, download_name=fname,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ---------------------------------------------------------------------------
 # Timetable summary — plain-English overview via LLM
 # ---------------------------------------------------------------------------
 

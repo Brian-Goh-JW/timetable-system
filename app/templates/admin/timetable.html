@@ -456,6 +456,10 @@
                class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-download me-1"></i>Export Excel
             </a>
+            <a href="{{ url_for('admin.timetable_export_template2', trimester=active_trimester) }}"
+               class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-file-earmark-spreadsheet me-1"></i>Export Template 2
+            </a>
             {% endif %}
             <a href="{{ url_for('admin.timetable_similarity', ay=active_trimester[:6] if active_trimester and active_trimester[:2]=='AY' else '') }}"
                class="btn btn-sm btn-outline-secondary">
