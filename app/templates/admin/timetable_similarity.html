@@ -20,18 +20,19 @@
         how many sessions kept the same timeslot as the previous year?
     </p>
     <form method="GET" class="d-flex align-items-center gap-2 flex-wrap">
-        <label class="form-label mb-0 fw-medium small">Base AY (older):</label>
-        <select name="base_ay" class="form-select form-select-sm" style="width:auto;">
+        <label class="form-label mb-0 fw-medium small">Base:</label>
+        <select name="base" class="form-select form-select-sm" style="width:auto;">
             <option value="">— Select —</option>
-            {% for ay in all_ays %}
-            <option value="{{ ay }}" {% if ay == base_ay %}selected{% endif %}>{{ ay }}</option>
+            {% for val, label in similarity_options %}
+            <option value="{{ val }}" {% if val == base_val %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
-        <label class="form-label mb-0 fw-medium small">Compare AY (newer):</label>
-        <select name="compare_ay" class="form-select form-select-sm" style="width:auto;">
+        <span class="text-muted">→</span>
+        <label class="form-label mb-0 fw-medium small">Compare:</label>
+        <select name="compare" class="form-select form-select-sm" style="width:auto;">
             <option value="">— Select —</option>
-            {% for ay in all_ays %}
-            <option value="{{ ay }}" {% if ay == compare_ay %}selected{% endif %}>{{ ay }}</option>
+            {% for val, label in similarity_options %}
+            <option value="{{ val }}" {% if val == compare_val %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
         <button type="submit" class="btn btn-sm btn-primary">Compare</button>
@@ -97,10 +98,10 @@
 
 <div class="alert alert-light border mb-3 small">
     <i class="bi bi-info-circle me-1"></i>
-    Comparing <strong>{{ base_ay }}</strong> (baseline) → <strong>{{ compare_ay }}</strong> (generated).
+    Comparing <strong>{{ base_label }}</strong> (baseline) → <strong>{{ compare_label }}</strong>.
     <span class="text-success fw-medium">{{ same_count }} sessions</span> kept their historical slot.
     <span class="text-warning fw-medium">{{ diff_count }} sessions</span> were moved (availability conflict or room clash).
-    Entries only in one AY are shown as <span class="badge bg-info text-dark">New</span> or <span class="badge bg-secondary">Removed</span>.
+    Entries only in one side are shown as <span class="badge bg-info text-dark">New</span> or <span class="badge bg-secondary">Removed</span>.
 </div>
 
 <!-- Formula explanation -->
@@ -200,13 +201,14 @@
                     <th>Module</th>
                     <th>Type</th>
                     <th class="text-center">
-                        <span class="badge bg-secondary">{{ base_ay }}</span> slot
+                        <span class="badge bg-secondary">{{ base_label }}</span> slot
                     </th>
                     <th class="text-center">
-                        <span class="badge bg-primary">{{ compare_ay }}</span> slot
+                        <span class="badge bg-primary">{{ compare_label }}</span> slot
                     </th>
                     <th class="text-center">Result</th>
                     <th>Change Details</th>
+                    <th>Explanation</th>
                 </tr>
             </thead>
             <tbody>
@@ -240,21 +242,32 @@
                         {% elif row.consistency == 'different' %}
                             <span class="badge bg-warning text-dark"><i class="bi bi-arrow-left-right me-1"></i>Changed</span>
                         {% elif row.consistency == 'compare_only' %}
-                            <span class="badge bg-info text-dark"><i class="bi bi-plus-circle me-1"></i>New</span>
+                            {% if row.is_truly_new %}
+                            <span class="badge bg-info text-dark"><i class="bi bi-plus-circle me-1"></i>New module</span>
+                            {% elif row.is_backbone_gap %}
+                            <span class="badge bg-warning text-dark" title="Module exists in curriculum but was not captured in the backbone import"><i class="bi bi-exclamation-circle me-1"></i>Not in BB</span>
+                            {% else %}
+                            <span class="badge bg-info text-dark" title="Session type added in the compare AY"><i class="bi bi-calendar-plus me-1"></i>Added</span>
+                            {% endif %}
                         {% else %}
                             <span class="badge bg-secondary"><i class="bi bi-dash-circle me-1"></i>Removed</span>
                         {% endif %}
                     </td>
                     <td class="small">
-                        {% if row.reason_tag == 'availability' %}
-                        <span class="badge bg-danger me-1" title="A professor declared unavailability at the original slot">Availability conflict</span>
-                        {% elif row.reason_tag == 'room_taken' %}
-                        <span class="badge bg-warning text-dark me-1" title="The original room is occupied at that slot in the new AY">Room taken</span>
-                        {% elif row.reason_tag == 'shifted' %}
-                        <span class="badge bg-secondary me-1" title="Moved due to constraint interaction — no specific conflict detected">Slot shifted</span>
+                        {% if row.reason_tag == 'prof_hard_conflict' %}
+                        <span class="badge bg-danger me-1" title="Professor declared a strict (hard) unavailability at this slot">Prof. hard conflict</span>
+                        {% elif row.reason_tag == 'prof_unavailable' %}
+                        <span class="badge bg-warning text-dark me-1" title="Professor declared unavailability at the original slot">Prof. unavailable</span>
+                        {% elif row.reason_tag == 'group_overlap' %}
+                        <span class="badge bg-danger me-1" title="Another session for the same student group occupies this slot">Group overlap</span>
+                        {% elif row.reason_tag == 'room_conflict' %}
+                        <span class="badge bg-warning text-dark me-1" title="The original room is already booked at this slot in the new AY">Room conflict</span>
+                        {% elif row.reason_tag == 'rescheduled' %}
+                        <span class="badge bg-secondary me-1" title="Solver rescheduled this session — no specific hard constraint identified">Rescheduled</span>
                         {% endif %}
                         <span class="text-muted">{{ row.reason }}</span>
                     </td>
+                    <td class="small text-muted" style="max-width:260px;">{{ row.explanation }}</td>
                 </tr>
                 {% endfor %}
             </tbody>

@@ -4,7 +4,7 @@ Assigns each ClassSession to a fixed (TimeSlot, Room) that repeats every teachin
 """
 
 from collections import defaultdict
-from datetime import timedelta, date
+from datetime import timedelta, date, time as dtime
 from ortools.sat.python import cp_model
 import holidays as holidays_lib
 
@@ -23,33 +23,44 @@ from app.models.availability_declaration import AvailabilityDeclaration
 # ---------------------------------------------------------------------------
 
 def _slot_compatible(timeslot, session):
-    """A timeslot is compatible if duration matches and lab/non-lab type aligns."""
+    """A timeslot is compatible if its duration matches the session's required duration."""
     start_mins = timeslot.start_time.hour * 60 + timeslot.start_time.minute
     end_mins   = timeslot.end_time.hour   * 60 + timeslot.end_time.minute
     slot_hours = (end_mins - start_mins) // 60
-
-    if slot_hours != session.duration_hours:
-        return False
-
-    is_lab_slot    = timeslot.period_label.startswith('Lab')
-    is_lab_session = (session.session_type == 'lab')
-    return is_lab_slot == is_lab_session
+    return slot_hours == session.duration_hours
 
 
 def _room_compatible(room, session):
     """Room type must match session type and capacity must fit the student group."""
+    LARGE_ROOM_TYPES = ('lecture', 'lectorial', 'quiz')
     if session.session_type == 'lab':
         if room.room_type != 'lab':
             return False
-    elif session.session_type == 'lecture':
+    elif session.session_type in LARGE_ROOM_TYPES:
         if room.room_type not in ('lecture', 'seminar'):
             return False
-    else:   # tutorial, seminar
+    else:   # tutorial, seminar, workshop
         if room.room_type not in ('seminar', 'lecture'):
             return False
 
     group_size = session.student_group.intake_size if session.student_group else 1
     return room.capacity >= group_size
+
+
+def _institutional_blocked_indices(timeslots):
+    """
+    Indices of timeslots blocked by SIT institutional policy:
+      - Wednesday: any slot ending after 14:00 (CCA afternoon policy)
+      - Friday:    any slot starting at or after 12:00 and before 14:00
+    Fixed sessions (fixed_timeslot_id) bypass this check.
+    """
+    blocked = set()
+    for i, ts in enumerate(timeslots):
+        if ts.day_of_week == 'Wednesday' and ts.end_time > dtime(14, 0):
+            blocked.add(i)
+        if ts.day_of_week == 'Friday' and dtime(12, 0) <= ts.start_time < dtime(14, 0):
+            blocked.add(i)
+    return blocked
 
 
 def _conflicting_group_ids(group_id):
@@ -141,7 +152,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         academic_year     : str|None       — e.g. 'AY2526' — tagged onto each TimetableEntry
         pinned_slots         : dict[int, int]          — {session_id: timeslot_id} to preserve from last run
                                                          (Option A partial re-generation — ignored if strictly blocked)
-        historical_preferred : dict[(str,str), int]    — {(module_code, session_type): timeslot_id}
+        historical_preferred : dict[int, int]           — {class_session_id: timeslot_id}
                                                          soft preference to follow previous year's slot pattern
 
     Returns:
@@ -168,7 +179,11 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     if trimester_num is not None:
         filters.append(ClassSession.trimester == trimester_num)
 
-    sessions = ClassSession.query.filter(*filters).all()
+    all_sessions = ClassSession.query.filter(*filters).all()
+
+    # Async sessions: no timeslot needed — excluded from solver, no TimetableEntry created
+    async_sessions = [s for s in all_sessions if s.is_async]
+    sessions = [s for s in all_sessions if not s.is_async]
 
     if not sessions:
         return False, 'No sessions are ready to schedule. Assign professors and student groups first.', {}
@@ -182,9 +197,15 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     ts_id_to_index = {ts.id: i for i, ts in enumerate(timeslots)}
 
     # 2. Build compatibility maps
+    # Institutional blocked slots (applied to all sessions without a fixed pin)
+    inst_blocked = _institutional_blocked_indices(timeslots)
+
     compat_slots = {}   # session.id → [timeslot indices]
     for s in sessions:
         compat = [i for i, ts in enumerate(timeslots) if _slot_compatible(ts, s)]
+        # Remove institutionally blocked slots unless the session has a fixed pin there
+        if not s.fixed_timeslot_id:
+            compat = [i for i in compat if i not in inst_blocked]
         if not compat:
             return False, (
                 f'No compatible time slots for {s.course.module_code} '
@@ -419,11 +440,10 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                 decl  = pref_decl_map.get((s.primary_professor_id, ts_id))
                 penalty_vars.append((is_violated, s, avoid_idx, decl))
 
-    # Soft constraint H — day spread
-    # Penalise pairs of sessions that land on the same day to prevent
-    # Mon–Wed clustering when no availability declarations exist.
-    # Weight (1) is far lower than preferred violation weight (100), so
-    # spreading never overrides availability preference satisfaction.
+    # Soft constraint H — day clustering per student group
+    # Minimise the number of campus days per group by penalising session pairs
+    # from the same group that fall on DIFFERENT days.
+    # Weight 1 — tiebreaker only, never overrides hard or stronger soft constraints.
     _day_num    = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
     slot_to_day = [_day_num.get(ts.day_of_week, 5) for ts in timeslots]
 
@@ -433,14 +453,56 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         model.AddElement(slot_vars[s.id], slot_to_day, dv)
         day_var_map[s.id] = dv
 
-    spread_cost_vars = []
+    cluster_cost_vars = []
     for i in range(len(sessions)):
         for j in range(i + 1, len(sessions)):
             si, sj = sessions[i], sessions[j]
-            same_day_b = model.NewBoolVar(f'sd_{si.id}_{sj.id}')
-            model.Add(day_var_map[si.id] == day_var_map[sj.id]).OnlyEnforceIf(same_day_b)
-            model.Add(day_var_map[si.id] != day_var_map[sj.id]).OnlyEnforceIf(same_day_b.Not())
-            spread_cost_vars.append(same_day_b)
+            # Only cluster within the same student group
+            if (not si.student_group_id or not sj.student_group_id
+                    or si.student_group_id != sj.student_group_id):
+                continue
+            diff_day_b = model.NewBoolVar(f'diff_{si.id}_{sj.id}')
+            model.Add(day_var_map[si.id] != day_var_map[sj.id]).OnlyEnforceIf(diff_day_b)
+            model.Add(day_var_map[si.id] == day_var_map[sj.id]).OnlyEnforceIf(diff_day_b.Not())
+            cluster_cost_vars.append(diff_day_b)
+
+    # Soft constraint I (new) — preferred timeslot from Remarks auto-parse
+    # When ClassSession.preferred_timeslot_id is set (from Remarks column), prefer that slot.
+    # Weight 50 — stronger than historical (30) but weaker than strict availability (100).
+    pref_ts_cost_vars = []
+    for s in sessions:
+        if not s.preferred_timeslot_id:
+            continue
+        pref_idx = ts_id_to_index.get(s.preferred_timeslot_id)
+        if pref_idx is None or pref_idx not in compat_slots[s.id]:
+            continue
+        not_pref = model.NewBoolVar(f'not_pref_ts_{s.id}')
+        model.Add(slot_vars[s.id] != pref_idx).OnlyEnforceIf(not_pref)
+        model.Add(slot_vars[s.id] == pref_idx).OnlyEnforceIf(not_pref.Not())
+        pref_ts_cost_vars.append(not_pref)
+
+    # Soft constraint J — lecture before tutorial (same course)
+    # If a course has both a lecture/lectorial and a tutorial, prefer the lecture
+    # to fall on an earlier weekday.  Weight 5.
+    lec_tut_cost_vars = []
+    from collections import defaultdict as _dd
+    course_type_map = _dd(dict)  # course_id → {session_type: session}
+    for s in sessions:
+        st = s.session_type
+        if st in ('lecture', 'lectorial'):
+            course_type_map[s.course_id]['lecture'] = s
+        elif st == 'tutorial':
+            course_type_map[s.course_id]['tutorial'] = s
+
+    for course_id, tmap in course_type_map.items():
+        lec = tmap.get('lecture')
+        tut = tmap.get('tutorial')
+        if not lec or not tut:
+            continue
+        wrong_order = model.NewBoolVar(f'lec_after_tut_{course_id}')
+        model.Add(day_var_map[lec.id] > day_var_map[tut.id]).OnlyEnforceIf(wrong_order)
+        model.Add(day_var_map[lec.id] <= day_var_map[tut.id]).OnlyEnforceIf(wrong_order.Not())
+        lec_tut_cost_vars.append(wrong_order)
 
     # Soft constraint I — historical slot preference
     # When generating a new AY, prefer the same timeslot that was used in the previous year's
@@ -449,8 +511,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     hist_penalty_vars = []   # BoolVar: 1 = session NOT in historical slot
     if historical_preferred:
         for s in sessions:
-            key = (s.course.module_code.upper(), s.session_type)
-            hist_ts_id = historical_preferred.get(key)
+            hist_ts_id = historical_preferred.get(s.id)
             if hist_ts_id is None:
                 continue
             hist_idx = ts_id_to_index.get(hist_ts_id)
@@ -468,24 +529,30 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             model.Add(slot_vars[s.id] == hist_idx).OnlyEnforceIf(not_hist.Not())
             hist_penalty_vars.append((not_hist, s, hist_idx))
 
-    # Combined objective:
-    #   availability violations  → weight 100 (highest priority)
-    #   historical slot changes  → weight 30  (strong preference for continuity)
-    #   day spread penalty       → weight 1   (tiebreaker)
+    # Combined objective (minimise):
+    #   availability violations  → weight 100  (highest — never violate if possible)
+    #   preferred timeslot miss  → weight 50   (Remarks auto-parsed requests)
+    #   historical slot changes  → weight 30   (continuity across AYs)
+    #   lec-before-tut violation → weight 5    (pedagogical ordering)
+    #   day clustering miss      → weight 1    (tiebreaker: fewer campus days per group)
     obj_terms = []
     for pv, *_ in penalty_vars:
         obj_terms.append(100 * pv)
+    for not_pref in pref_ts_cost_vars:
+        obj_terms.append(50 * not_pref)
     for not_hist, *_ in hist_penalty_vars:
         obj_terms.append(30 * not_hist)
-    for sv in spread_cost_vars:
-        obj_terms.append(sv)
+    for wrong in lec_tut_cost_vars:
+        obj_terms.append(5 * wrong)
+    for dv in cluster_cost_vars:
+        obj_terms.append(dv)
 
     if obj_terms:
         model.Minimize(sum(obj_terms))
 
     # 5. Solve
     cp_solver = cp_model.CpSolver()
-    cp_solver.parameters.max_time_in_seconds = 60
+    cp_solver.parameters.max_time_in_seconds = 120
     cp_solver.parameters.num_search_workers  = 4
 
     status = cp_solver.Solve(model)
@@ -520,7 +587,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             })
 
     # 7. Write TimetableEntry records
-    TimetableEntry.query.filter_by(trimester=trimester).delete()
+    TimetableEntry.query.filter_by(trimester=trimester, is_backbone=False).delete()
 
     cal_weeks = _get_or_create_calendar(trimester, start_date, term_break_weeks)
     # Only skip full term breaks — public holiday weeks are handled per-session-day below
@@ -571,7 +638,19 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
 
         day_offset = _day_offset.get(ts.day_of_week, 0)
 
+        # Parse teaching_weeks into a set for fast lookup (None = all weeks)
+        allowed_weeks = None
+        if s.teaching_weeks:
+            try:
+                allowed_weeks = {int(w) for w in s.teaching_weeks.split(',') if w.strip()}
+            except ValueError:
+                allowed_weeks = None
+
         for week in non_break_weeks:
+            # Skip weeks not in this session's teaching schedule
+            if allowed_weeks is not None and week.week_number not in allowed_weeks:
+                continue
+
             session_date = week.start_date + timedelta(days=day_offset)
 
             # Skip public holidays
@@ -602,6 +681,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
 
     return True, 'Timetable generated successfully.', {
         'sessions_scheduled'        : len(sessions),
+        'sessions_async_skipped'    : len(async_sessions),
         'teaching_weeks'            : len(non_break_weeks),
         'entries_created'           : entries,
         'entries_skipped_ph'        : skipped_ph,
@@ -613,4 +693,6 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         'pins_dropped'              : pins_dropped,
         'historical_honoured'       : sum(1 for nh, *_ in hist_penalty_vars if cp_solver.Value(nh) == 0),
         'historical_changed'        : sum(1 for nh, *_ in hist_penalty_vars if cp_solver.Value(nh) == 1),
+        'preferred_ts_honoured'     : sum(1 for v in pref_ts_cost_vars if cp_solver.Value(v) == 0),
+        'lec_tut_ordered'           : sum(1 for v in lec_tut_cost_vars if cp_solver.Value(v) == 0),
     }

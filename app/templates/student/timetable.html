@@ -133,7 +133,7 @@
                         <div class="fw-normal text-muted" style="font-size:0.7rem;" id="shdr-{{ day }}"></div>
                         <script>
                         (function(){
-                            var d = new Date('{{ current_cal_week.start_date.isoformat() }}');
+                            var d = new Date('{{ current_cal_week.start_date.isoformat() }}T12:00:00');
                             d.setDate(d.getDate() + {{ offset }});
                             document.getElementById('shdr-{{ day }}').textContent =
                                 d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});

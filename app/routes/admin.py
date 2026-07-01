@@ -18,6 +18,14 @@ from app.models.audit_log import AuditLog
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
+# Official SIT academic calendar — week 1 start dates (all Mondays).
+# Source: https://www.singaporetech.edu.sg/admissions/undergraduate/academic-calendar-sit-and-joint-programmes
+SIT_ACADEMIC_CALENDAR = {
+    'AY2425': {1: '2024-09-02', 2: '2025-01-06', 3: '2025-05-05'},
+    'AY2526': {1: '2025-09-01', 2: '2026-01-05', 3: '2026-05-04'},
+    'AY2627': {1: '2026-08-31', 2: '2027-01-04', 3: '2027-05-03'},
+}
+
 
 @admin_bp.before_request
 @login_required
@@ -1181,13 +1189,29 @@ def timetable_edit_all_weeks(trimester, session_id):
 
 def _build_historical_preferred(academic_year, trimester_num):
     """
-    Look up the previous AY's equivalent trimester entries and build a dict:
-      {(module_code, session_type): timeslot_id}
-    Used as soft constraint so the solver prefers to keep sessions in the
-    same slot as last year.
+    Build {class_session_id: timeslot_id} for soft-constraint guidance.
+
+    Priority:
+      1. Backbone entries for this AY+trimester (when regenerating an existing AY).
+      2. All entries from the previous AY's equivalent trimester (normal case).
     """
     if not academic_year or len(academic_year) < 6:
         return {}
+
+    tri_key = f'{academic_year}-T{trimester_num}'
+
+    # Priority 1: backbone entries in this AY tell us the "real" schedule to target
+    backbone = (TimetableEntry.query
+                .filter_by(trimester=tri_key, is_backbone=True)
+                .all())
+    if backbone:
+        preferred = {}
+        for e in backbone:
+            if e.class_session_id not in preferred:
+                preferred[e.class_session_id] = e.timeslot_id
+        return preferred
+
+    # Priority 2: previous AY's equivalent trimester
     try:
         y1 = int(academic_year[2:4])
         y2 = int(academic_year[4:6])
@@ -1201,9 +1225,8 @@ def _build_historical_preferred(academic_year, trimester_num):
                     .all())
     preferred = {}
     for e in prev_entries:
-        key = (e.class_session.course.module_code.upper(), e.class_session.session_type)
-        if key not in preferred:
-            preferred[key] = e.timeslot_id
+        if e.class_session_id not in preferred:
+            preferred[e.class_session_id] = e.timeslot_id
     return preferred
 
 
@@ -1637,6 +1660,16 @@ def timetable():
     result   = None
     stats    = {}
     trimester = request.args.get('trimester', '')
+    source    = request.args.get('source', '')   # 'bb' | 'generated' | ''
+
+    # On fresh GET with no trimester param, default to T1 of the most recent AY
+    if not trimester and request.method == 'GET':
+        _latest = (db.session.query(TimetableEntry.trimester)
+                   .distinct()
+                   .order_by(TimetableEntry.trimester.desc())
+                   .first())
+        if _latest:
+            trimester = f'{_latest[0][:6]}-all'
 
     # Compute default AY for the form (SIT AY starts August)
     today = date.today()
@@ -1680,9 +1713,12 @@ def timetable():
                     tri_key  = f'{academic_year}-T{tri_num}'
                     sd_raw   = request.form.get(f'start_date_t{tri_num}', '').strip()
                     if not sd_raw:
+                        # Fall back to official SIT calendar
+                        sd_raw = SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(tri_num, '')
+                    if not sd_raw:
                         ay_stats[tri_num] = {
                             'success': False,
-                            'message': f'Tri {tri_num}: no start date provided — skipped.',
+                            'message': f'Tri {tri_num}: no start date — skipped (not in known calendar).',
                             'stats'  : {},
                         }
                         continue
@@ -1699,18 +1735,34 @@ def timetable():
 
                     try:
                         start_date = date.fromisoformat(sd_raw)
-                        # Option A — pin existing entries for this trimester
                         pinned_slots = None
                         if preserve:
-                            existing = TimetableEntry.query.filter_by(trimester=tri_key).all()
+                            existing = TimetableEntry.query.filter_by(trimester=tri_key, is_backbone=False).all()
                             seen_sess = set()
                             pinned_slots = {}
                             for e in existing:
                                 if e.class_session_id not in seen_sess:
                                     seen_sess.add(e.class_session_id)
                                     pinned_slots[e.class_session_id] = e.timeslot_id
+                            if not pinned_slots:
+                                pinned_slots = None
 
                         historical_preferred = _build_historical_preferred(academic_year, tri_num)
+
+                        # Hard-pin backbone sessions so generated == backbone (1:1 similarity).
+                        # Pins are dropped silently if incompatible or professor-blocked.
+                        bb_entries = TimetableEntry.query.filter_by(
+                            trimester=tri_key, is_backbone=True).all()
+                        if bb_entries:
+                            backbone_pins = {}
+                            for e in bb_entries:
+                                if e.class_session_id not in backbone_pins:
+                                    backbone_pins[e.class_session_id] = e.timeslot_id
+                            # Backbone takes priority over preserve-mode carry-overs
+                            if pinned_slots:
+                                pinned_slots.update(backbone_pins)
+                            else:
+                                pinned_slots = backbone_pins
 
                         success, message, s = solve(
                             tri_key, start_date, term_break_weeks,
@@ -1760,6 +1812,10 @@ def timetable():
             # Re-check issues scoped to the selected trimester only
             tri_issues = get_blocking_issues(trimester_num=trimester_num) if trimester_num else issues
 
+            # Auto-populate start date from official SIT calendar if not provided
+            if not start_raw and academic_year and trimester_num:
+                start_raw = SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(trimester_num, '')
+
             if tri_issues:
                 flash('Resolve all blocking issues for this trimester before generating.', 'danger')
                 for iss in tri_issues[:5]:
@@ -1769,7 +1825,7 @@ def timetable():
             elif not trimester_num:
                 flash('Trimester number (1, 2, or 3) is required.', 'danger')
             elif not start_raw:
-                flash('Start date is required.', 'danger')
+                flash('Start date is required (AY not in known SIT calendar — enter manually).', 'danger')
             else:
                 try:
                     start_date = date.fromisoformat(start_raw)
@@ -1782,19 +1838,33 @@ def timetable():
                             term_break_weeks.add(int(part))
                     if not term_break_weeks:
                         term_break_weeks = {7}   # safe fallback
-                    # Option A — preserve existing slot assignments if requested
-                    pinned_slots = None
                     preserve = request.form.get('preserve_existing') == 'on'
+                    pinned_slots = None
                     if preserve:
-                        existing = TimetableEntry.query.filter_by(trimester=trimester).all()
+                        existing = TimetableEntry.query.filter_by(trimester=trimester, is_backbone=False).all()
                         seen_sess = set()
                         pinned_slots = {}
                         for e in existing:
                             if e.class_session_id not in seen_sess:
                                 seen_sess.add(e.class_session_id)
                                 pinned_slots[e.class_session_id] = e.timeslot_id
+                        if not pinned_slots:
+                            pinned_slots = None
 
                     historical_preferred = _build_historical_preferred(academic_year, trimester_num)
+
+                    # Hard-pin backbone sessions so generated == backbone (1:1 similarity).
+                    bb_entries = TimetableEntry.query.filter_by(
+                        trimester=trimester, is_backbone=True).all()
+                    if bb_entries:
+                        backbone_pins = {}
+                        for e in bb_entries:
+                            if e.class_session_id not in backbone_pins:
+                                backbone_pins[e.class_session_id] = e.timeslot_id
+                        if pinned_slots:
+                            pinned_slots.update(backbone_pins)
+                        else:
+                            pinned_slots = backbone_pins
 
                     success, message, stats = solve(
                         trimester, start_date, term_break_weeks,
@@ -1825,42 +1895,59 @@ def timetable():
             from app.models.timetable_flag import TimetableFlag
             from app.models.flag_response import FlagResponse
 
-            # Delete flag responses and flags first (FK references timetable_entries)
-            flag_ids = [
-                f.id for f in TimetableFlag.query
-                .join(TimetableFlag.timetable_entry)
-                .filter(TimetableEntry.trimester == trimester)
-                .all()
+            # Only delete solver-generated (non-backbone) entries
+            non_backbone_ids = [
+                e.id for e in TimetableEntry.query.filter_by(trimester=trimester, is_backbone=False).all()
             ]
-            if flag_ids:
-                FlagResponse.query.filter(FlagResponse.flag_id.in_(flag_ids)).delete(synchronize_session=False)
-                TimetableFlag.query.filter(TimetableFlag.id.in_(flag_ids)).delete(synchronize_session=False)
+            if non_backbone_ids:
+                flag_ids = [
+                    f.id for f in TimetableFlag.query
+                    .filter(TimetableFlag.timetable_entry_id.in_(non_backbone_ids))
+                    .all()
+                ]
+                if flag_ids:
+                    FlagResponse.query.filter(FlagResponse.flag_id.in_(flag_ids)).delete(synchronize_session=False)
+                    TimetableFlag.query.filter(TimetableFlag.id.in_(flag_ids)).delete(synchronize_session=False)
+                TimetableEntry.query.filter(TimetableEntry.id.in_(non_backbone_ids)).delete(synchronize_session=False)
 
-            deleted = TimetableEntry.query.filter_by(trimester=trimester).delete()
-            AcademicCalendar.query.filter_by(trimester=trimester).delete()
+            backbone_count = TimetableEntry.query.filter_by(trimester=trimester, is_backbone=True).count()
+            if backbone_count == 0:
+                AcademicCalendar.query.filter_by(trimester=trimester).delete()
+
             db.session.commit()
-            flash(f'Timetable for {trimester} cleared ({deleted} entries deleted).', 'info')
+            note = f' ({backbone_count} backbone entries preserved)' if backbone_count else ''
+            flash(f'Solver entries for {trimester} cleared ({len(non_backbone_ids)} deleted{note}).', 'info')
             trimester = ''
 
         elif action == 'reset_ay':
-            # Clear all 3 trimesters for a full academic year at once
+            # Clear solver-generated entries for all 3 trimesters (backbone preserved)
             from app.models.academic_calendar import AcademicCalendar
             from app.models.timetable_flag import TimetableFlag
             from app.models.flag_response import FlagResponse
             clear_ay = request.form.get('clear_ay', '').strip()
             if clear_ay:
                 tri_keys = [f'{clear_ay}-T1', f'{clear_ay}-T2', f'{clear_ay}-T3']
-                flag_ids = [
-                    f.id for f in TimetableFlag.query
-                    .join(TimetableFlag.timetable_entry)
-                    .filter(TimetableEntry.trimester.in_(tri_keys))
-                    .all()
+                non_backbone_ids = [
+                    e.id for e in TimetableEntry.query.filter(
+                        TimetableEntry.trimester.in_(tri_keys),
+                        TimetableEntry.is_backbone == False
+                    ).all()
                 ]
-                if flag_ids:
-                    FlagResponse.query.filter(FlagResponse.flag_id.in_(flag_ids)).delete(synchronize_session=False)
-                    TimetableFlag.query.filter(TimetableFlag.id.in_(flag_ids)).delete(synchronize_session=False)
-                deleted = TimetableEntry.query.filter(TimetableEntry.trimester.in_(tri_keys)).delete(synchronize_session=False)
-                AcademicCalendar.query.filter(AcademicCalendar.trimester.in_(tri_keys)).delete(synchronize_session=False)
+                if non_backbone_ids:
+                    flag_ids = [
+                        f.id for f in TimetableFlag.query
+                        .filter(TimetableFlag.timetable_entry_id.in_(non_backbone_ids))
+                        .all()
+                    ]
+                    if flag_ids:
+                        FlagResponse.query.filter(FlagResponse.flag_id.in_(flag_ids)).delete(synchronize_session=False)
+                        TimetableFlag.query.filter(TimetableFlag.id.in_(flag_ids)).delete(synchronize_session=False)
+                    TimetableEntry.query.filter(TimetableEntry.id.in_(non_backbone_ids)).delete(synchronize_session=False)
+                deleted = len(non_backbone_ids)
+                # Only clear calendar if no backbone entries remain for that trimester
+                for tk in tri_keys:
+                    if TimetableEntry.query.filter_by(trimester=tk, is_backbone=True).count() == 0:
+                        AcademicCalendar.query.filter_by(trimester=tk).delete()
                 db.session.commit()
                 flash(f'All timetables for {clear_ay} cleared ({deleted} entries deleted).', 'info')
 
@@ -1876,27 +1963,58 @@ def timetable():
 
     prog_filter = request.args.get('prog', '')
 
+    # Check whether the active AY has backbone entries (for source toggle)
+    _active_ay_pfx = trimester[:6] if trimester and trimester.startswith('AY') and len(trimester) >= 6 else ''
+    has_backbone_ay = bool(_active_ay_pfx and db.session.query(TimetableEntry.id).filter(
+        TimetableEntry.trimester.startswith(_active_ay_pfx),
+        TimetableEntry.is_backbone == True
+    ).limit(1).scalar())
+    # Default to 'generated' when backbone exists and no explicit source chosen
+    if has_backbone_ay and not source:
+        source = 'generated'
+
     if trimester:
         if trimester.endswith('-all'):
             ay_prefix = trimester[:-4]  # 'AY2627'
-            entries = (TimetableEntry.query
-                       .filter(TimetableEntry.trimester.startswith(ay_prefix))
-                       .join(TimetableEntry.timeslot)
+            q = TimetableEntry.query.filter(TimetableEntry.trimester.startswith(ay_prefix))
+            if source == 'bb':
+                q = q.filter(TimetableEntry.is_backbone == True)
+            elif source == 'generated':
+                q = q.filter(TimetableEntry.is_backbone == False)
+            entries = (q.join(TimetableEntry.timeslot)
                        .order_by(TimetableEntry.trimester, TimeSlot.day_of_week, TimeSlot.period_label)
                        .all())
         else:
-            entries = (TimetableEntry.query
-                       .filter_by(trimester=trimester)
-                       .join(TimetableEntry.timeslot)
+            q = TimetableEntry.query.filter_by(trimester=trimester)
+            if source == 'bb':
+                q = q.filter(TimetableEntry.is_backbone == True)
+            elif source == 'generated':
+                q = q.filter(TimetableEntry.is_backbone == False)
+            entries = (q.join(TimetableEntry.timeslot)
                        .order_by(TimeSlot.day_of_week, TimeSlot.period_label)
                        .all())
 
-    # Collect programmes present in this trimester (before filtering, for filter UI)
-    programmes = sorted(set(
-        (e.class_session.course.programme.code, e.class_session.course.programme.name)
+    # Programmes present in current view (for active highlighting)
+    active_prog_codes = set(
+        e.class_session.course.programme.code
         for e in entries
         if e.class_session.course.programme
-    ), key=lambda x: x[0]) if entries else []
+    )
+    # All programmes that have any timetable entry ever (always shown in filter)
+    from app.models.programme import Programme
+    all_programmes = sorted(
+        set(
+            (e[0], e[1]) for e in
+            db.session.query(Programme.code, Programme.name)
+            .join(Programme.courses)
+            .join(Course.class_sessions)
+            .join(ClassSession.timetable_entries)
+            .distinct()
+            .all()
+        ),
+        key=lambda x: x[0]
+    )
+    programmes = all_programmes  # kept for template compatibility
 
     # Apply programme filter
     if prog_filter:
@@ -1960,14 +2078,18 @@ def timetable():
                         .order_by(TimeSlot.start_time, TimeSlot.end_time, TimeSlot.period_label)
                         .all())
 
-        week_entries_raw = (TimetableEntry.query
-                            .join(TimetableEntry.class_session)
-                            .join(TimetableEntry.timeslot)
-                            .filter(
-                                TimetableEntry.trimester == trimester,
-                                TimetableEntry.week_number == week_number,
-                            )
-                            .all())
+        wq = (TimetableEntry.query
+              .join(TimetableEntry.class_session)
+              .join(TimetableEntry.timeslot)
+              .filter(
+                  TimetableEntry.trimester == trimester,
+                  TimetableEntry.week_number == week_number,
+              ))
+        if source == 'bb':
+            wq = wq.filter(TimetableEntry.is_backbone == True)
+        elif source == 'generated':
+            wq = wq.filter(TimetableEntry.is_backbone == False)
+        week_entries_raw = wq.all()
 
         if prog_filter:
             week_entries_raw = [e for e in week_entries_raw
@@ -2008,10 +2130,14 @@ def timetable():
                            days_all=DAYS_ALL,
                            year_levels=year_levels,
                            programmes=programmes,
+                           active_prog_codes=active_prog_codes,
                            prog_filter=prog_filter,
                            ay_default=ay_default,
                            ay_options=ay_options,
-                           selected_tri=selected_tri)
+                           selected_tri=selected_tri,
+                           sit_calendar=SIT_ACADEMIC_CALENDAR,
+                           source=source,
+                           has_backbone_ay=has_backbone_ay)
 
 
 # ---------------------------------------------------------------------------
@@ -2031,14 +2157,64 @@ def timetable_similarity():
     def _slot_label(ts):
         return f'{ts.day_of_week[:3]} {ts.start_time.strftime("%H:%M")}–{ts.end_time.strftime("%H:%M")}'
 
-    # Auto-select base/compare when exactly two AYs exist
-    base_ay    = request.args.get('base_ay',    all_ays[0] if len(all_ays) >= 2 else '')
-    compare_ay = request.args.get('compare_ay', all_ays[1] if len(all_ays) >= 2 else '')
+    # Build combined option list: value='AY2526:backbone', label='AY2526BB'
+    # Backbone variant uses BB suffix; generated variant uses plain AY name.
+    similarity_options = []  # list of (value, label)
+    for ay in all_ays:
+        has_bb  = TimetableEntry.query.filter_by(academic_year=ay, is_backbone=True).first()  is not None
+        has_gen = TimetableEntry.query.filter_by(academic_year=ay, is_backbone=False).first() is not None
+        if has_bb:
+            similarity_options.append((f'{ay}:backbone',  f'{ay}BB'))
+        if has_gen:
+            similarity_options.append((f'{ay}:generated', ay))
+        if not has_bb and not has_gen:
+            similarity_options.append((f'{ay}:all', ay))
+
+    def _parse_opt(val):
+        """Split 'AY2526:backbone' → (ay, source). Default source = 'all'."""
+        if val and ':' in val:
+            ay, src = val.split(':', 1)
+            return ay, src
+        return val or '', 'all'
+
+    # Smart defaults: base → first backbone option, compare → first generated option
+    def _default_opt(prefer_backbone):
+        for v, _ in similarity_options:
+            ay, src = _parse_opt(v)
+            if prefer_backbone and src == 'backbone':
+                return v
+        for v, _ in similarity_options:
+            ay, src = _parse_opt(v)
+            if not prefer_backbone and src == 'generated':
+                return v
+        return similarity_options[0][0] if similarity_options else ''
+
+    default_base    = _default_opt(True)
+    default_compare = _default_opt(False)
+    # If both defaults resolve to the same option, push compare to the next distinct one
+    if default_base == default_compare and len(similarity_options) >= 2:
+        default_compare = similarity_options[1][0]
+
+    base_val    = request.args.get('base',    default_base)
+    compare_val = request.args.get('compare', default_compare)
+    base_ay,    base_source    = _parse_opt(base_val)
+    compare_ay, compare_source = _parse_opt(compare_val)
+
+    # Human-readable labels for headings/alerts
+    _opt_labels = dict(similarity_options)
+    base_label    = _opt_labels.get(base_val,    base_ay)
+    compare_label = _opt_labels.get(compare_val, compare_ay)
+
     cross_rows = []
 
     if base_ay and compare_ay:
-        def _build_map(trimester_key):
-            entries = TimetableEntry.query.filter_by(trimester=trimester_key).all()
+        def _build_map(trimester_key, source='all'):
+            q = TimetableEntry.query.filter_by(trimester=trimester_key)
+            if source == 'backbone':
+                q = q.filter_by(is_backbone=True)
+            elif source == 'generated':
+                q = q.filter_by(is_backbone=False)
+            entries = q.all()
             slot_map = {}
             for e in entries:
                 key = (e.class_session.course.module_code, e.class_session.session_type)
@@ -2056,27 +2232,74 @@ def timetable_similarity():
             return slot_map
 
         def _reason_tag(class_session_id, base_timeslot_id, base_room_id, compare_tri_key):
-            """Infer why the solver moved a session off its historical slot."""
+            """Infer why the solver moved a session off its historical slot.
+            Returns (tag, explanation) — explanation is a specific, data-driven sentence for the admin."""
             cs = ClassSession.query.get(class_session_id)
+            base_ts = TimeSlot.query.get(base_timeslot_id)
+            slot_str = (f"{base_ts.day_of_week} {base_ts.start_time.strftime('%H:%M')}–{base_ts.end_time.strftime('%H:%M')}"
+                        if base_ts else "the backbone slot")
             if cs:
                 for prof in cs.all_professors:
-                    if AvailabilityDeclaration.query.filter_by(
+                    hard = AvailabilityDeclaration.query.filter_by(
                         professor_id=prof.id,
                         timeslot_id=base_timeslot_id,
-                    ).first():
-                        return 'availability'
+                        constraint_type='strict',
+                    ).first()
+                    if hard:
+                        return ('prof_hard_conflict',
+                                f"Prof. {prof.user.name} has a strict unavailability at {slot_str} — the solver cannot override this hard constraint.")
+                    soft = AvailabilityDeclaration.query.filter_by(
+                        professor_id=prof.id,
+                        timeslot_id=base_timeslot_id,
+                    ).first()
+                    if soft:
+                        return ('prof_unavailable',
+                                f"Prof. {prof.user.name} is unavailable at {slot_str}, so the solver found a different slot.")
+                if cs.student_group_id:
+                    group_clash = (TimetableEntry.query
+                                   .join(TimetableEntry.class_session)
+                                   .filter(
+                                       TimetableEntry.trimester == compare_tri_key,
+                                       TimetableEntry.timeslot_id == base_timeslot_id,
+                                       ClassSession.student_group_id == cs.student_group_id,
+                                       TimetableEntry.class_session_id != class_session_id,
+                                   ).first())
+                    if group_clash:
+                        clash_cs = group_clash.class_session
+                        sg = cs.student_group.group_label if cs.student_group else 'the same group'
+                        return ('group_overlap',
+                                f"Group {sg} already has {clash_cs.course.module_code} {clash_cs.session_type} at {slot_str}.")
             if base_room_id:
-                if TimetableEntry.query.filter_by(
+                room_clash = TimetableEntry.query.filter_by(
                     trimester=compare_tri_key,
                     room_id=base_room_id,
                     timeslot_id=base_timeslot_id,
-                ).first():
-                    return 'room_taken'
-            return 'shifted'
+                ).first()
+                if room_clash:
+                    rc_cs = room_clash.class_session
+                    base_room = Room.query.get(base_room_id)
+                    room_code = base_room.room_code if base_room else 'the backbone room'
+                    return ('room_conflict',
+                            f"{room_code} is occupied by {rc_cs.course.module_code} {rc_cs.session_type} at {slot_str}.")
+            return ('rescheduled',
+                    'No specific constraint identified — the solver chose a different slot through optimisation.')
+
+        # Module codes that existed in the base AY (filtered by source) — used to
+        # distinguish truly-new modules from ones that simply had no backbone entry
+        base_ay_mods_q = TimetableEntry.query.filter(TimetableEntry.academic_year == base_ay)
+        if base_source == 'backbone':
+            base_ay_mods_q = base_ay_mods_q.filter_by(is_backbone=True)
+        elif base_source == 'generated':
+            base_ay_mods_q = base_ay_mods_q.filter_by(is_backbone=False)
+        base_ay_mods = set(
+            e.class_session.course.module_code.upper() for e in base_ay_mods_q.all()
+        )
+        # Also include all courses that exist in the system (curriculum-level check)
+        all_curriculum_mods = set(c.module_code.upper() for c in Course.query.all())
 
         for tri_num in [1, 2, 3]:
-            base_map    = _build_map(f'{base_ay}-T{tri_num}')
-            compare_map = _build_map(f'{compare_ay}-T{tri_num}')
+            base_map    = _build_map(f'{base_ay}-T{tri_num}',    base_source)
+            compare_map = _build_map(f'{compare_ay}-T{tri_num}', compare_source)
             if not base_map and not compare_map:
                 continue
 
@@ -2096,6 +2319,14 @@ def timetable_similarity():
 
                 reason     = ''
                 reason_tag = ''
+                # A module is only "truly new" if it doesn't exist in the curriculum at all.
+                # If it exists in the DB but is missing from the backbone, that's a backbone
+                # import gap — not a new module.
+                is_truly_new = (mod.upper() not in all_curriculum_mods
+                                and mod.upper() not in base_ay_mods)
+                is_backbone_gap = (mod.upper() in all_curriculum_mods
+                                   and mod.upper() not in base_ay_mods)
+
                 if consistency == 'different':
                     parts = []
                     if bd['day'] != cd['day']:
@@ -2105,7 +2336,7 @@ def timetable_similarity():
                     if bd['room'] != cd['room']:
                         parts.append(f"Room: {bd['room'] or '?'} → {cd['room'] or '?'}")
                     reason = ' | '.join(parts) if parts else 'Slot changed'
-                    reason_tag = _reason_tag(
+                    reason_tag, explanation = _reason_tag(
                         bd['class_session_id'],
                         bd['timeslot_id'],
                         bd['room_id'],
@@ -2113,18 +2344,29 @@ def timetable_similarity():
                     )
                 elif consistency == 'base_only':
                     reason = f'Not scheduled in {compare_ay}'
+                    explanation = f'Present in {base_label} but not scheduled in {compare_label}. The module may have been dropped or excluded from the new run.'
                 elif consistency == 'compare_only':
-                    reason = f'New module in {compare_ay}'
+                    if is_truly_new:
+                        reason = f'New module added in {compare_ay}'
+                        explanation = f'Not in {base_label} at all — genuinely new to the curriculum, scheduled without a historical reference.'
+                    else:
+                        reason = f'Missing from {base_label} (backbone import gap)'
+                        explanation = f'Module exists in the curriculum but was not captured in the {base_label} import. It was scheduled freely in {compare_label} with no historical slot to follow.'
+                else:  # same
+                    explanation = ''
 
                 cross_rows.append({
-                    'tri_num'     : tri_num,
-                    'module_code' : mod,
-                    'session_type': stype,
-                    'base_slot'   : base_slot,
-                    'compare_slot': compare_slot,
-                    'consistency' : consistency,
-                    'reason'      : reason,
-                    'reason_tag'  : reason_tag,
+                    'tri_num'         : tri_num,
+                    'module_code'     : mod,
+                    'session_type'    : stype,
+                    'base_slot'       : base_slot,
+                    'compare_slot'    : compare_slot,
+                    'consistency'     : consistency,
+                    'reason'          : reason,
+                    'reason_tag'      : reason_tag,
+                    'is_truly_new'    : is_truly_new,
+                    'is_backbone_gap' : is_backbone_gap,
+                    'explanation'     : explanation,
                 })
 
     same_count = sum(1 for r in cross_rows if r['consistency'] == 'same')
@@ -2144,9 +2386,13 @@ def timetable_similarity():
         }
 
     return render_template('admin/timetable_similarity.html',
-                           all_ays=all_ays,
+                           similarity_options=similarity_options,
+                           base_val=base_val,
+                           compare_val=compare_val,
                            base_ay=base_ay,
                            compare_ay=compare_ay,
+                           base_label=base_label,
+                           compare_label=compare_label,
                            cross_rows=cross_rows,
                            same_count=same_count,
                            diff_count=diff_count,
@@ -2162,7 +2408,8 @@ def timetable_similarity():
 def timetable_export():
     import io
     import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
     from flask import send_file
 
     trimester_filter = request.args.get('trimester', '')
@@ -2175,51 +2422,183 @@ def timetable_export():
         TimetableEntry.week_number,
     ).all()
 
+    # Session-type colour palette (hex fill colours)
+    TYPE_COLOURS = {
+        'lecture':  'D6E4F0',
+        'lectorial':'D6E4F0',
+        'tutorial': 'D5F5E3',
+        'lab':      'FEF9E7',
+        'seminar':  'F9EBEA',
+    }
+    DEFAULT_COLOUR = 'F2F3F4'
+
+    HDR_FILL = PatternFill('solid', fgColor='2E4057')
+    HDR_FONT = Font(bold=True, color='FFFFFF', size=10)
+    BOLD     = Font(bold=True, size=9)
+    SMALL    = Font(size=9)
+    CENTRE   = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    LEFT     = Alignment(horizontal='left',   vertical='top',    wrap_text=True)
+    THIN     = Side(style='thin', color='BBBBBB')
+    BORDER   = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+
+    DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+
+    def _make_sheet(wb, title, sheet_entries):
+        """Build one grid sheet: rows=weeks, columns=Day×Period."""
+        from app.models.academic_calendar import AcademicCalendar
+
+        # Gather unique time slots from the entries (ordered)
+        from app.models.timeslot import TimeSlot as TS
+        slot_ids = sorted(set(e.timeslot_id for e in sheet_entries),
+                          key=lambda sid: (
+                              DAYS.index(next(e.timeslot.day_of_week for e in sheet_entries if e.timeslot_id == sid)),
+                              next(e.timeslot.start_time for e in sheet_entries if e.timeslot_id == sid)
+                          ))
+        # Build ordered list of (day, start, end, period_label) tuples
+        col_slots = []
+        seen_cols = set()
+        for e in sorted(sheet_entries, key=lambda x: (
+                DAYS.index(x.timeslot.day_of_week) if x.timeslot.day_of_week in DAYS else 9,
+                x.timeslot.start_time)):
+            ts = e.timeslot
+            key = (ts.day_of_week, ts.start_time, ts.end_time)
+            if key not in seen_cols:
+                seen_cols.add(key)
+                col_slots.append((ts.day_of_week, ts.start_time, ts.end_time, ts.period_label))
+
+        if not col_slots:
+            return
+
+        # Gather weeks
+        weeks = sorted(set(e.week_number for e in sheet_entries))
+        trimester = sheet_entries[0].trimester if sheet_entries else ''
+        cal_map = {
+            cw.week_number: cw
+            for cw in AcademicCalendar.query.filter_by(trimester=trimester).all()
+        } if trimester else {}
+
+        ws = wb.create_sheet(title=title)
+
+        # Header row 1: Day spans
+        ws.cell(1, 1, 'Week').font = HDR_FONT
+        ws.cell(1, 1).fill = HDR_FILL
+        ws.cell(1, 1).alignment = CENTRE
+        ws.cell(2, 1, 'Date').font = HDR_FONT
+        ws.cell(2, 1).fill = HDR_FILL
+        ws.cell(2, 1).alignment = CENTRE
+
+        col = 2
+        day_start_col = {}
+        for day, start, end, period in col_slots:
+            if day not in day_start_col:
+                day_start_col[day] = col
+            label = f'{start.strftime("%H:%M")}–{end.strftime("%H:%M")}'
+            c = ws.cell(1, col, day if col == day_start_col[day] else '')
+            c.font = HDR_FONT
+            c.fill = HDR_FILL
+            c.alignment = CENTRE
+            c2 = ws.cell(2, col, label)
+            c2.font = HDR_FONT
+            c2.fill = HDR_FILL
+            c2.alignment = CENTRE
+            ws.column_dimensions[get_column_letter(col)].width = 22
+            col += 1
+
+        ws.column_dimensions['A'].width = 12
+
+        # Merge day header cells
+        col = 2
+        for day in DAYS:
+            day_cols = [i + 2 for i, (d, _, _, _) in enumerate(col_slots) if d == day]
+            if len(day_cols) > 1:
+                ws.merge_cells(start_row=1, start_column=day_cols[0],
+                               end_row=1, end_column=day_cols[-1])
+            col += len(day_cols)
+
+        # Build lookup: (week, day, start_time) -> entry list
+        from collections import defaultdict
+        cell_map = defaultdict(list)
+        for e in sheet_entries:
+            cell_map[(e.week_number, e.timeslot.day_of_week, e.timeslot.start_time)].append(e)
+
+        # Data rows
+        data_row = 3
+        for wk in weeks:
+            cw = cal_map.get(wk)
+            week_label = f'Week {wk}'
+            if cw and cw.start_date:
+                date_label = cw.start_date.strftime('%d %b')
+            else:
+                date_label = ''
+
+            wc = ws.cell(data_row, 1, week_label)
+            wc.font = BOLD
+            wc.alignment = CENTRE
+            wc.border = BORDER
+            if cw and cw.is_term_break:
+                wc.fill = PatternFill('solid', fgColor='FFF3CD')
+
+            dc = ws.cell(data_row + 1, 1, date_label)
+            dc.font = SMALL
+            dc.alignment = CENTRE
+            dc.border = BORDER
+
+            col = 2
+            for day, start, end, period in col_slots:
+                cell_entries = cell_map.get((wk, day, start), [])
+                if cell_entries:
+                    e = cell_entries[0]
+                    cs  = e.class_session
+                    crs = cs.course
+                    prof = (e.override_professor.user.name if e.override_professor
+                            else (cs.primary_professor.user.name if cs.primary_professor else ''))
+                    room = e.room.room_code if e.room else 'Online'
+                    text = f'{crs.module_code}\n{cs.session_type.capitalize()}\n{room}'
+                    if prof:
+                        text += f'\n{prof}'
+                    colour = TYPE_COLOURS.get(cs.session_type, DEFAULT_COLOUR)
+                    fill = PatternFill('solid', fgColor=colour)
+                    c = ws.cell(data_row, col, text)
+                    c.fill = fill
+                    c.font = SMALL
+                    c.alignment = LEFT
+                    c.border = BORDER
+                    ws.row_dimensions[data_row].height = 52
+                else:
+                    c = ws.cell(data_row, col, '')
+                    c.border = BORDER
+                col += 1
+
+            # Second sub-row for date label already written; border remaining cells
+            for col2 in range(2, col):
+                ws.cell(data_row + 1, col2).border = BORDER
+
+            data_row += 2
+
+        ws.freeze_panes = 'B3'
+
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = 'Timetable'
+    wb.remove(wb.active)  # remove default sheet
 
-    headers = [
-        'AY', 'Trimester', 'Week', 'Day',
-        'Start Time', 'End Time', 'Room',
-        'Module Code', 'Module Name', 'Programme',
-        'Year Level', 'Session Type', 'Delivery Mode', 'Professor(s)',
-    ]
-    header_fill = PatternFill('solid', fgColor='2E4057')
-    header_font = Font(bold=True, color='FFFFFF')
-    ws.append(headers)
-    for cell in ws[1]:
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal='center')
-
+    # Group entries by trimester then year level
+    from collections import defaultdict
+    tri_year_map = defaultdict(lambda: defaultdict(list))
     for e in entries:
-        ts  = e.timeslot
-        cs  = e.class_session
-        crs = cs.course
-        profs = ', '.join(
-            p.user.name for p in (e.override_professor,) if p
-        ) or ', '.join(p.user.name for p in cs.all_professors)
-        ws.append([
-            e.academic_year or e.trimester[:6],
-            e.trimester,
-            e.week_number,
-            ts.day_of_week,
-            ts.start_time.strftime('%H:%M'),
-            ts.end_time.strftime('%H:%M'),
-            e.room.room_code if e.room else 'Online',
-            crs.module_code,
-            crs.title,
-            crs.programme.code if crs.programme else '',
-            crs.year_level,
-            cs.session_type,
-            cs.delivery_mode,
-            profs,
-        ])
+        yr = e.class_session.course.year_level or 0
+        tri_year_map[e.trimester][yr].append(e)
 
-    for col in ws.columns:
-        max_len = max(len(str(cell.value or '')) for cell in col)
-        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 40)
+    for tri_key in sorted(tri_year_map.keys()):
+        yr_map = tri_year_map[tri_key]
+        for yr in sorted(yr_map.keys()):
+            sheet_entries = yr_map[yr]
+            yr_label = f'Y{yr}' if yr else 'All'
+            short_tri = tri_key.replace('AY', '').replace('-T', ' T')
+            sheet_title = f'{short_tri} {yr_label}'[:31]  # Excel limit
+            _make_sheet(wb, sheet_title, sheet_entries)
+
+    if not wb.sheetnames:
+        ws = wb.create_sheet('No data')
+        ws['A1'] = 'No timetable entries found.'
 
     buf = io.BytesIO()
     wb.save(buf)

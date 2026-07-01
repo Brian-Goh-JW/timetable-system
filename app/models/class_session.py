@@ -6,16 +6,22 @@ class ClassSession(db.Model):
 
     id                = db.Column(db.Integer, primary_key=True)
     course_id         = db.Column(db.Integer, db.ForeignKey('courses.id'),         nullable=False)
-    session_type      = db.Column(db.Enum('lecture', 'lab', 'seminar', 'tutorial'), nullable=False)
-    delivery_mode     = db.Column(db.Enum('f2f', 'online'),                         nullable=False)
-    duration_hours    = db.Column(db.Integer,                                        nullable=False)
-    student_group_id  = db.Column(db.Integer, db.ForeignKey('student_groups.id'),  nullable=True)
-    fixed_timeslot_id = db.Column(db.Integer, db.ForeignKey('timeslots.id'),        nullable=True)
-    trimester         = db.Column(db.Integer,                                        nullable=True)  # 1, 2, or 3
+    session_type          = db.Column(db.Enum('lecture', 'lab', 'seminar', 'tutorial',
+                                              'lectorial', 'workshop', 'quiz'),      nullable=False)
+    delivery_mode         = db.Column(db.Enum('f2f', 'online'),                      nullable=False)
+    is_async              = db.Column(db.Boolean, nullable=False, default=False)      # True = online async, no timeslot needed
+    duration_hours        = db.Column(db.Integer,                                     nullable=False)
+    student_group_id      = db.Column(db.Integer, db.ForeignKey('student_groups.id'), nullable=True)
+    fixed_timeslot_id     = db.Column(db.Integer, db.ForeignKey('timeslots.id'),      nullable=True)
+    preferred_timeslot_id = db.Column(db.Integer, db.ForeignKey('timeslots.id'),      nullable=True)
+    trimester             = db.Column(db.Integer,                                      nullable=True)  # 1, 2, or 3
+    teaching_weeks        = db.Column(db.String(100), nullable=True)                  # e.g. "1,2,3,4,5,6,8,9,10,11,12,13"
+    group_label           = db.Column(db.String(20),  nullable=True)                  # Template 2 group: "All", "T1", "L1", "P1"
 
-    course        = db.relationship('Course',       backref='class_sessions')
-    student_group = db.relationship('StudentGroup', backref='class_sessions')
-    fixed_timeslot= db.relationship('TimeSlot',     foreign_keys=[fixed_timeslot_id])
+    course             = db.relationship('Course',    backref='class_sessions')
+    student_group      = db.relationship('StudentGroup', backref='class_sessions')
+    fixed_timeslot     = db.relationship('TimeSlot',  foreign_keys=[fixed_timeslot_id])
+    preferred_timeslot = db.relationship('TimeSlot',  foreign_keys=[preferred_timeslot_id])
 
     # All professor assignments — ordered by display_order (0 = primary)
     professor_assignments = db.relationship(

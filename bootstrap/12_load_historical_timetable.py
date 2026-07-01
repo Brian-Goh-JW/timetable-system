@@ -109,24 +109,64 @@ def find_room(room_str):
     return None   # unmatched
 
 # ---------------------------------------------------------------------------
-# Timeslot matching: exact day + start + end
+# Timeslot matching: prefer duration that matches the session type
 # ---------------------------------------------------------------------------
 _ts_cache = None
+_ts_by_day_start = None   # (day, start_time) -> [TimeSlot, ...]
+
+# Expected duration (minutes) per session type.
+# Extend this dict if new session types are added.
+SESSION_EXPECTED_DURATION = {
+    'lab':      180,
+    'lecture':  120,
+    'tutorial': 120,
+    'seminar':  120,
+}
 
 def _load_timeslots():
-    global _ts_cache
+    global _ts_cache, _ts_by_day_start
     if _ts_cache is None:
         _ts_cache = {}
+        _ts_by_day_start = {}
         for ts in TimeSlot.query.all():
             key = (ts.day_of_week.lower(), ts.start_time, ts.end_time)
             _ts_cache[key] = ts
-    return _ts_cache
+            ds_key = (ts.day_of_week.lower(), ts.start_time)
+            _ts_by_day_start.setdefault(ds_key, []).append(ts)
+    return _ts_cache, _ts_by_day_start
 
-def find_timeslot(day_str, start_t, end_t):
-    if not day_str or not start_t or not end_t:
+def find_timeslot(day_str, start_t, end_t, session_type=None):
+    """Find the best matching timeslot for a session.
+
+    Prefers the timeslot whose duration matches the expected duration for the
+    given session_type (e.g. labs → 180 min, lectures → 120 min).  Falls back
+    to exact (day, start, end) if no duration-preferred candidate exists.
+    """
+    if not day_str or not start_t:
         return None
-    slots = _load_timeslots()
-    return slots.get((day_str.strip().lower(), start_t, end_t))
+    slots, by_day_start = _load_timeslots()
+    day = day_str.strip().lower()
+    preferred_dur = SESSION_EXPECTED_DURATION.get(session_type) if session_type else None
+
+    # Candidates sharing the same day + start time
+    candidates = by_day_start.get((day, start_t), [])
+
+    if candidates and preferred_dur:
+        def _dur(ts):
+            return (ts.end_time.hour * 60 + ts.end_time.minute) - \
+                   (ts.start_time.hour * 60 + ts.start_time.minute)
+        # Sort: exact duration match first, then closest
+        candidates = sorted(candidates, key=lambda ts: abs(_dur(ts) - preferred_dur))
+        return candidates[0]
+
+    # Exact match by (day, start, end) — no session_type hint given
+    if end_t:
+        exact = slots.get((day, start_t, end_t))
+        if exact:
+            return exact
+
+    # Fallback: any candidate with the right start time
+    return candidates[0] if candidates else None
 
 def parse_time(t_val):
     """Convert '09:00:00' string or time object -> time."""
@@ -328,7 +368,7 @@ def parse_structured_sheet(filepath, sheet_name, tri_num, tri_key, ay):
             continue
 
         for row in row_list:
-            ts = find_timeslot(row['day'], row['start_t'], row['end_t'])
+            ts = find_timeslot(row['day'], row['start_t'], row['end_t'], session_type=session_type)
             if not ts:
                 skipped_no_ts.append(
                     f"{module_code} {session_type} — "
@@ -359,8 +399,9 @@ def parse_structured_sheet(filepath, sheet_name, tri_num, tri_key, ay):
                     week_number       = wk,
                     trimester         = tri_key,
                     academic_year     = ay,
-                    is_published      = False,
+                    is_published      = True,
                     is_manually_edited= False,
+                    is_backbone       = True,
                 ))
                 entries_created += 1
 
@@ -493,7 +534,7 @@ def parse_grid_sheet(filepath, sheet_name, tri_num, tri_key, ay):
             skipped_no_sess.append(f'{module_code} {session_type} (group={group})')
             continue
 
-        ts = find_timeslot(day_name, start_t, end_t)
+        ts = find_timeslot(day_name, start_t, end_t, session_type=session_type)
         if not ts:
             skipped_no_ts.append(f'{module_code} — {day_name} {start_t}-{end_t}')
             continue
@@ -522,6 +563,7 @@ def parse_grid_sheet(filepath, sheet_name, tri_num, tri_key, ay):
             academic_year     = ay,
             is_published      = False,
             is_manually_edited= False,
+            is_backbone       = True,
         ))
         entries_created += 1
 

@@ -2,6 +2,7 @@
 {% block title %}Timetable — SIT Timetable{% endblock %}
 
 {% block content %}
+{% set is_bb_view = (source == 'bb') %}
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
@@ -14,6 +15,20 @@
 
     <!-- Left: Generate panel -->
     <div class="col-lg-4">
+
+        {% set active_ay = active_trimester[:6] if active_trimester and active_trimester|length >= 6 else '' %}
+
+        {% if is_bb_view %}
+        <div class="alert alert-info py-3 mb-3">
+            <i class="bi bi-database me-2"></i><strong>Backbone — Reference View</strong><br>
+            <small class="text-muted">This is the imported reference timetable. Read-only — the solver does not modify it.</small>
+            <div class="mt-2">
+                <a href="?trimester={{ active_trimester }}&source=generated" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-cpu me-1"></i>Switch to Generated view
+                </a>
+            </div>
+        </div>
+        {% else %}
 
         <!-- Readiness summary -->
         {% if issues %}
@@ -72,35 +87,39 @@
                         <label class="form-label fw-medium">
                             Academic Year <span class="text-danger">*</span>
                         </label>
-                        <select class="form-select" name="academic_year" required>
+                        <select class="form-select" name="academic_year" required
+                                onchange="fillFullAYDates(this.value)">
                             {% for ay in ay_options %}
                             <option value="{{ ay }}" {% if ay == ay_default %}selected{% endif %}>AY20{{ ay[2:4] }}/{{ ay[4:6] }}</option>
                             {% endfor %}
                         </select>
                     </div>
 
-                    <div class="mb-2 small fw-medium text-muted">Week 1 Start Dates (must be Mondays)</div>
+                    <div class="mb-2 d-flex align-items-center justify-content-between">
+                        <span class="small fw-medium text-muted">Week 1 Start Dates</span>
+                        <span class="small text-muted" id="cal-source-full"></span>
+                    </div>
 
                     <div class="mb-2">
                         <label class="form-label small mb-1">
                             <span class="badge bg-primary me-1">Tri 1</span> Week 1 Start
                         </label>
                         <input type="date" class="form-control form-control-sm"
-                               name="start_date_t1" placeholder="Mon of Week 1">
+                               name="start_date_t1" id="sd_t1" placeholder="Mon of Week 1">
                     </div>
                     <div class="mb-2">
                         <label class="form-label small mb-1">
                             <span class="badge bg-success me-1">Tri 2</span> Week 1 Start
                         </label>
                         <input type="date" class="form-control form-control-sm"
-                               name="start_date_t2" placeholder="Mon of Week 1">
+                               name="start_date_t2" id="sd_t2" placeholder="Mon of Week 1">
                     </div>
                     <div class="mb-3">
                         <label class="form-label small mb-1">
                             <span class="badge bg-warning text-dark me-1">Tri 3</span> Week 1 Start
                         </label>
                         <input type="date" class="form-control form-control-sm"
-                               name="start_date_t3" placeholder="Mon of Week 1">
+                               name="start_date_t3" id="sd_t3" placeholder="Mon of Week 1">
                         <div class="form-text">Leave empty to skip that trimester.</div>
                     </div>
 
@@ -112,16 +131,17 @@
                     </div>
 
                     <div class="mb-3 p-3 bg-light rounded border">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox"
-                                   name="preserve_existing" id="preserve_ay" checked>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch"
+                                   name="preserve_existing" id="preserve_ay">
                             <label class="form-check-label fw-medium" for="preserve_ay">
-                                Preserve existing assignments (Option A)
+                                Lock existing sessions in place
                             </label>
                         </div>
                         <div class="form-text mt-1">
                             <i class="bi bi-info-circle me-1"></i>
-                            Already-scheduled sessions keep their slot. Only displaced ones move.
+                            <strong>Off (default):</strong> Full reshuffle — generates a completely fresh timetable from scratch.<br>
+                            <strong>On:</strong> Sessions already in this trimester (including backbone) stay in their exact slot. Only gaps and new sessions are filled in.
                         </div>
                     </div>
 
@@ -143,7 +163,7 @@
                                 Academic Year <span class="text-danger">*</span>
                             </label>
                             <select class="form-select" name="academic_year" required
-                                    onchange="updateTrimKey()">
+                                    onchange="updateTrimKey(); fillSingleDate()">
                                 {% for ay in ay_options %}
                                 <option value="{{ ay }}" {% if ay == ay_default %}selected{% endif %}>AY20{{ ay[2:4] }}/{{ ay[4:6] }}</option>
                                 {% endfor %}
@@ -154,7 +174,7 @@
                                 Trimester <span class="text-danger">*</span>
                             </label>
                             <select class="form-select" name="trimester_num" required
-                                    onchange="updateTrimKey()">
+                                    onchange="updateTrimKey(); fillSingleDate()">
                                 <option value="">—</option>
                                 <option value="1" {% if selected_tri == 1 %}selected{% endif %}>Tri 1</option>
                                 <option value="2" {% if selected_tri == 2 %}selected{% endif %}>Tri 2</option>
@@ -172,10 +192,11 @@
 
                     <div class="mb-3">
                         <label class="form-label fw-medium">
-                            Week 1 Start Date <span class="text-danger">*</span>
+                            Week 1 Start Date
+                            <span class="text-muted fw-normal small ms-1" id="cal-source-single"></span>
                         </label>
-                        <input type="date" class="form-control" name="start_date" required>
-                        <div class="form-text">Must be a Monday.</div>
+                        <input type="date" class="form-control" name="start_date" id="sd_single">
+                        <div class="form-text">Auto-filled from official SIT calendar. Override if needed.</div>
                     </div>
 
                     <div class="mb-3">
@@ -186,16 +207,17 @@
                     </div>
 
                     <div class="mb-3 p-3 bg-light rounded border">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox"
-                                   name="preserve_existing" id="preserve_single" checked>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch"
+                                   name="preserve_existing" id="preserve_single">
                             <label class="form-check-label fw-medium" for="preserve_single">
-                                Preserve existing assignments (Option A)
+                                Lock existing sessions in place
                             </label>
                         </div>
                         <div class="form-text mt-1">
                             <i class="bi bi-info-circle me-1"></i>
-                            Unaffected sessions keep their current slot. Uncheck for full fresh run.
+                            <strong>Off (default):</strong> Full reshuffle — generates a completely fresh timetable from scratch.<br>
+                            <strong>On:</strong> Sessions already in this trimester (including backbone) stay in their exact slot. Only gaps and new sessions are filled in.
                         </div>
                     </div>
 
@@ -422,6 +444,8 @@
 
         {% endif %}
 
+        {% endif %}{# end is_bb_view else #}
+
     </div>
 
     <!-- Right: Timetable view -->
@@ -439,36 +463,35 @@
             </a>
         </div>
 
-        <!-- Trimester tabs: AY dropdown + Tri 1/2/3 buttons -->
+        <!-- Navigation: AY dropdown + Tri chips + Year chips -->
         {% if trimesters %}
         {% set distinct_ays = namespace(vals=[]) %}
         {% for t in trimesters %}
           {% if t[:6] not in distinct_ays.vals %}{% set distinct_ays.vals = distinct_ays.vals + [t[:6]] %}{% endif %}
         {% endfor %}
         {% set active_ay = active_trimester[:6] if active_trimester else distinct_ays.vals[-1] %}
-        {% set active_tri_num = 'all' if (active_trimester and active_trimester[-4:] == '-all') else (active_trimester[-1] if active_trimester else 'all') %}
+        {% set active_tri_num = 'all' if (not active_trimester or active_trimester[-4:] == '-all') else active_trimester[-1] %}
 
         <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
-            <span class="text-muted small">AY:</span>
             <select class="form-select form-select-sm w-auto" id="ay-select" onchange="ayChanged(this)">
                 {% for ay in distinct_ays.vals %}
                 <option value="{{ ay }}" {% if ay == active_ay %}selected{% endif %}>AY20{{ ay[2:4] }}/{{ ay[4:6] }}</option>
                 {% endfor %}
             </select>
-            <span class="text-muted small ms-1">Tri:</span>
-            <select class="form-select form-select-sm w-auto" id="tri-select" onchange="triChanged(this)">
-                <option value="all" {% if active_tri_num == 'all' %}selected{% endif %}>All</option>
-                {% for tri_num in ['1', '2', '3'] %}
-                {% set tri_key = active_ay ~ '-T' ~ tri_num %}
-                <option value="{{ tri_num }}"
-                        {% if active_tri_num == tri_num %}selected{% endif %}
-                        {% if tri_key not in trimesters %}disabled{% endif %}>
-                    Tri {{ tri_num }}
-                </option>
-                {% endfor %}
-            </select>
+            <span class="text-muted small">Tri:</span>
+            <a href="?trimester={{ active_ay }}-all{% if source %}&source={{ source }}{% endif %}{% if prog_filter %}&prog={{ prog_filter }}{% endif %}"
+               class="filter-chip {% if active_tri_num == 'all' %}active{% endif %}">All</a>
+            {% for tri_num in ['1', '2', '3'] %}
+            {% set tri_key = active_ay ~ '-T' ~ tri_num %}
+            {% if tri_key in trimesters %}
+            <a href="?trimester={{ tri_key }}{% if source %}&source={{ source }}{% endif %}{% if prog_filter %}&prog={{ prog_filter }}{% endif %}"
+               class="filter-chip {% if active_tri_num == tri_num %}active{% endif %}">T{{ tri_num }}</a>
+            {% else %}
+            <span class="filter-chip" style="opacity:0.4; cursor:default;">T{{ tri_num }}</span>
+            {% endif %}
+            {% endfor %}
             {% if year_levels %}
-            <span class="text-muted small ms-1">Year:</span>
+            <span class="text-muted small ms-2">Year:</span>
             <button class="filter-chip active" id="chip-yr-all" onclick="filterYear('all')">All</button>
             {% for yr in year_levels %}
             <button class="filter-chip" id="chip-yr-{{ yr }}" onclick="filterYear('{{ yr }}')">Y{{ yr }}</button>
@@ -477,35 +500,33 @@
         </div>
         <script>
         (function() {
-            const _tris = {{ trimesters | tojson }};
             window.ayChanged = function(sel) {
                 const ay = sel.value;
                 const tri = '{{ active_tri_num }}';
                 const url = new URL(window.location.href);
-                if (tri === 'all') {
-                    url.searchParams.set('trimester', ay + '-all');
-                } else {
-                    const target = ay + '-T' + tri;
-                    const avail = _tris.filter(t => t.startsWith(ay));
-                    const dest = avail.includes(target) ? target : avail[0];
-                    if (!dest) return;
-                    url.searchParams.set('trimester', dest);
-                }
-                url.searchParams.delete('view');
-                {% if prog_filter %}url.searchParams.set('prog', '{{ prog_filter }}');{% else %}url.searchParams.delete('prog');{% endif %}
-                window.location.href = url.toString();
-            };
-            window.triChanged = function(sel) {
-                const tri = sel.value;
-                const ay = '{{ active_ay }}';
-                const url = new URL(window.location.href);
                 url.searchParams.set('trimester', tri === 'all' ? ay + '-all' : ay + '-T' + tri);
                 url.searchParams.delete('view');
+                {% if source %}url.searchParams.set('source', '{{ source }}');{% else %}url.searchParams.delete('source');{% endif %}
                 {% if prog_filter %}url.searchParams.set('prog', '{{ prog_filter }}');{% else %}url.searchParams.delete('prog');{% endif %}
                 window.location.href = url.toString();
             };
         })();
         </script>
+
+        {% if has_backbone_ay %}
+        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+            <span class="text-muted small fw-medium">Source:</span>
+            <a href="?trimester={{ active_trimester }}&source=generated{% if view_mode != 'list' %}&view={{ view_mode }}{% endif %}{% if prog_filter %}&prog={{ prog_filter }}{% endif %}"
+               class="filter-chip {% if source == 'generated' %}active{% endif %}">
+                <i class="bi bi-cpu me-1"></i>Generated
+            </a>
+            <a href="?trimester={{ active_trimester }}&source=bb{% if view_mode != 'list' %}&view={{ view_mode }}{% endif %}{% if prog_filter %}&prog={{ prog_filter }}{% endif %}"
+               class="filter-chip chip-info {% if source == 'bb' %}active{% endif %}">
+                <i class="bi bi-database me-1"></i>Backbone (BB)
+            </a>
+        </div>
+        {% endif %}
+
         {% endif %}
 
         <!-- View toggle + year filter -->
@@ -519,12 +540,12 @@
                 {% endif %}
             </small>
             <div class="btn-group btn-group-sm">
-                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='list', prog=prog_filter or None) }}"
+                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='list', prog=prog_filter or None, source=source or None) }}"
                    class="btn btn-outline-secondary {% if view_mode == 'list' %}active{% endif %}">
                     <i class="bi bi-list-ul me-1"></i>List
                 </a>
                 {% if active_trimester[-4:] != '-all' %}
-                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=week_number, prog=prog_filter or None) }}"
+                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=week_number, prog=prog_filter or None, source=source or None) }}"
                    class="btn btn-outline-secondary {% if view_mode == 'weekly' %}active{% endif %}">
                     <i class="bi bi-calendar-week me-1"></i>Weekly
                 </a>
@@ -533,18 +554,22 @@
         </div>
 
         <!-- Programme filter (server-side) -->
-        {% if programmes and programmes | length > 1 %}
+        {% set prog_display = {'CPC': 'General'} %}
+        {% if programmes %}
         <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
             <span class="text-muted small fw-medium">Programme:</span>
-            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view=view_mode) }}"
+            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view=view_mode, source=source or None) }}"
                class="filter-chip {% if not prog_filter %}active{% endif %}">
                 All
             </a>
             {% for code, name in programmes %}
-            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view=view_mode, prog=code) }}"
+            {% set label = prog_display.get(code, code) %}
+            {% set has_entries = code in active_prog_codes %}
+            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view=view_mode, prog=code, source=source or None) }}"
                class="filter-chip chip-info {% if prog_filter == code %}active{% endif %}"
-               title="{{ name }}">
-                {{ code }}
+               title="{{ name }}"
+               style="{% if not has_entries %}opacity:0.45;{% endif %}">
+                {{ label }}
             </a>
             {% endfor %}
         </div>
@@ -560,7 +585,7 @@
         <!-- Week navigator -->
         <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
             {% if prev_week_num %}
-            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=prev_week_num, prog=prog_filter or None) }}"
+            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=prev_week_num, prog=prog_filter or None, source=source or None) }}"
                class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-chevron-left"></i> Wk {{ prev_week_num }}
             </a>
@@ -582,7 +607,7 @@
             </span>
 
             {% if next_week_num %}
-            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=next_week_num, prog=prog_filter or None) }}"
+            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=next_week_num, prog=prog_filter or None, source=source or None) }}"
                class="btn btn-sm btn-outline-secondary">
                 Wk {{ next_week_num }} <i class="bi bi-chevron-right"></i>
             </a>
@@ -595,7 +620,7 @@
                 <select class="form-select form-select-sm" style="width:auto;"
                         onchange="window.location=this.value">
                     {% for cw in calendar_weeks %}
-                    <option value="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=cw.week_number, prog=prog_filter or None) }}"
+                    <option value="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=cw.week_number, prog=prog_filter or None, source=source or None) }}"
                             {% if cw.week_number == week_number %}selected{% endif %}>
                         Week {{ cw.week_number }}{% if cw.start_date %} ({{ cw.start_date.strftime('%d %b') }}){% endif %}{% if cw.is_term_break %} — Break{% endif %}
                     </option>
@@ -634,7 +659,7 @@
                                 <div class="fw-normal text-muted" style="font-size:0.7rem;" id="hdr-{{ day }}"></div>
                                 <script>
                                 (function(){
-                                    var d = new Date('{{ current_cal_week.start_date.isoformat() }}');
+                                    var d = new Date('{{ current_cal_week.start_date.isoformat() }}T12:00:00');
                                     d.setDate(d.getDate() + {{ offset }});
                                     document.getElementById('hdr-{{ day }}').textContent =
                                         d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
@@ -694,7 +719,8 @@
                                     <div class="text-truncate" style="font-size:0.62rem; opacity:0.75;">{{ grp }}</div>
                                     {% endif %}
                                     <div class="mt-1" style="font-size:0.62rem; opacity:0.75;">
-                                        {% if not entry.is_published %}<span class="badge bg-secondary" style="font-size:0.58rem;">Draft</span>{% endif %}
+                                        {% if entry.is_backbone %}<span class="badge bg-primary" style="font-size:0.58rem;">Backbone</span>
+                                        {% elif not entry.is_published %}<span class="badge bg-secondary" style="font-size:0.58rem;">Draft</span>{% endif %}
                                         {% if entry.is_manually_edited %}<span class="badge bg-info text-dark" style="font-size:0.58rem;">Edited</span>{% endif %}
                                     </div>
                                 </div>
@@ -785,6 +811,7 @@
                                 {% else %}<span class="text-muted fst-italic">Online</span>{% endif %}
                             </td>
                             <td>
+                                {% if e.is_backbone %}<span class="badge bg-primary">Backbone</span>{% endif %}
                                 {% if e.is_published %}<span class="badge bg-success">Published</span>
                                 {% else %}<span class="badge bg-secondary">Draft</span>{% endif %}
                             </td>
@@ -869,6 +896,33 @@
 </style>
 
 <script>
+var SIT_CAL = {{ sit_calendar | tojson }};
+
+function fillFullAYDates(ay) {
+    ay = (ay || '').trim().toUpperCase();
+    var cal = SIT_CAL[ay] || {};
+    var src = document.getElementById('cal-source-full');
+    ['1','2','3'].forEach(function(t) {
+        var el = document.getElementById('sd_t' + t);
+        if (el) el.value = cal[t] || '';
+    });
+    if (src) src.textContent = Object.keys(cal).length ? '· from official SIT calendar' : '· enter manually (AY not in calendar)';
+}
+
+function fillSingleDate() {
+    var ay  = (document.querySelector('#form-single [name=academic_year]').value || '').trim().toUpperCase();
+    var tri = document.querySelector('#form-single [name=trimester_num]').value;
+    var el  = document.getElementById('sd_single');
+    var src = document.getElementById('cal-source-single');
+    var cal = SIT_CAL[ay] || {};
+    if (el && tri && cal[tri]) {
+        el.value = cal[tri];
+        if (src) src.textContent = '· from official SIT calendar';
+    } else if (el && tri) {
+        if (src) src.textContent = '· not in calendar — enter manually';
+    }
+}
+
 function setGenMode(mode) {
     var formFull   = document.getElementById('form-full-ay');
     var formSingle = document.getElementById('form-single');
@@ -891,6 +945,10 @@ function updateTrimKey() {
 }
 document.addEventListener('DOMContentLoaded', function () {
     updateTrimKey();
+    // Auto-fill dates for the currently selected AY on page load
+    var fullAySel = document.querySelector('#form-full-ay [name=academic_year]');
+    if (fullAySel) fillFullAYDates(fullAySel.value);
+    fillSingleDate();
     var modal = document.getElementById('sessionDetailModal');
     modal.addEventListener('show.bs.modal', function (event) {
         var el = event.relatedTarget;
