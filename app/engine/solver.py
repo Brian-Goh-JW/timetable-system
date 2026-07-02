@@ -22,6 +22,19 @@ from app.models.availability_declaration import AvailabilityDeclaration
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _weeks_overlap(a, b):
+    """Return True if sessions a and b share at least one teaching week.
+    Sessions with non-overlapping week ranges can occupy the same timeslot without conflict.
+    """
+    if not a.teaching_weeks or not b.teaching_weeks:
+        return True  # unknown weeks → assume overlap to be safe
+    wa = set(int(w) for w in a.teaching_weeks.split(',') if w.strip().isdigit())
+    wb = set(int(w) for w in b.teaching_weeks.split(',') if w.strip().isdigit())
+    if not wa or not wb:
+        return True
+    return bool(wa & wb)
+
+
 def _slot_compatible(timeslot, session):
     """A timeslot is compatible if its duration matches the session's required duration."""
     start_mins = timeslot.start_time.hour * 60 + timeslot.start_time.minute
@@ -214,18 +227,26 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             ), {}
         compat_slots[s.id] = compat
 
-    compat_rooms = {}   # session.id → [room indices]  (f2f only)
+    compat_rooms = {}           # session.id → [room indices]  (f2f only)
+    no_room_warnings = []       # sessions skipped due to room capacity
     for s in sessions:
         if s.delivery_mode == 'f2f':
             compat = [i for i, r in enumerate(rooms) if _room_compatible(r, s)]
             if not compat:
                 group_size = s.student_group.intake_size if s.student_group else '?'
-                return False, (
-                    f'No compatible rooms for {s.course.module_code} '
-                    f'({s.session_type}, needs capacity {group_size}). '
-                    f'Check room availability and capacity.'
-                ), {}
-            compat_rooms[s.id] = compat
+                no_room_warnings.append(
+                    f'{s.course.module_code} ({s.session_type}, group size {group_size}): '
+                    f'no compatible room — skipped.'
+                )
+            else:
+                compat_rooms[s.id] = compat
+
+    # Drop sessions with no compatible room (can't be scheduled — skip gracefully)
+    if no_room_warnings:
+        skip_ids = {s.id for s in sessions if s.delivery_mode == 'f2f' and s.id not in compat_rooms}
+        for sid in skip_ids:
+            compat_slots.pop(sid, None)
+        sessions = [s for s in sessions if s.id not in skip_ids]
 
     # 3. Load classified availability declarations
     #    strict  → hard block (solver must never place professor here)
@@ -295,27 +316,46 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     }
 
     # Hard constraint A — no professor double-booking (all professors incl. co-teachers)
+    # Use pairwise != instead of AddAllDifferent so we can skip parallel-fixed pairs and
+    # sessions whose teaching_weeks don't overlap (they're sequential, same slot is fine).
     by_prof = defaultdict(list)
     for s in sessions:
         for prof_id in s.all_professor_ids:
             by_prof[prof_id].append(s)
     for sess_list in by_prof.values():
-        if len(sess_list) > 1:
-            model.AddAllDifferent([slot_vars[s.id] for s in sess_list])
+        for i in range(len(sess_list)):
+            for j in range(i + 1, len(sess_list)):
+                si, sj = sess_list[i], sess_list[j]
+                if (si.fixed_timeslot_id is not None
+                        and si.fixed_timeslot_id == sj.fixed_timeslot_id):
+                    continue  # parallel sections pinned to same slot
+                if not _weeks_overlap(si, sj):
+                    continue  # non-overlapping week ranges — same slot is fine
+                model.Add(slot_vars[si.id] != slot_vars[sj.id])
 
     # Hard constraint B — no student-group double-booking (parent/child aware)
+    # Only enforced when both sessions share at least one teaching week.
     for i in range(len(sessions)):
         for j in range(i + 1, len(sessions)):
             si, sj = sessions[i], sessions[j]
             if si.student_group_id and sj.student_group_id:
                 if sj.student_group_id in _conflicting_group_ids(si.student_group_id):
+                    if (si.fixed_timeslot_id is not None
+                            and si.fixed_timeslot_id == sj.fixed_timeslot_id):
+                        continue  # parallel sections
+                    if not _weeks_overlap(si, sj):
+                        continue  # sequential week ranges — same slot is fine
                     model.Add(slot_vars[si.id] != slot_vars[sj.id])
 
     # Hard constraint C — no room double-booking
+    # Only enforced when both sessions share at least one teaching week (sequential sessions
+    # in the same room at the same timeslot don't actually clash).
     f2f = [s for s in sessions if s.delivery_mode == 'f2f']
     for i in range(len(f2f)):
         for j in range(i + 1, len(f2f)):
             si, sj = f2f[i], f2f[j]
+            if not _weeks_overlap(si, sj):
+                continue  # sequential week ranges can reuse same room + slot
             same = model.NewBoolVar(f'same_{si.id}_{sj.id}')
             model.Add(slot_vars[si.id] == slot_vars[sj.id]).OnlyEnforceIf(same)
             model.Add(slot_vars[si.id] != slot_vars[sj.id]).OnlyEnforceIf(same.Not())
@@ -552,8 +592,8 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
 
     # 5. Solve
     cp_solver = cp_model.CpSolver()
-    cp_solver.parameters.max_time_in_seconds = 120
-    cp_solver.parameters.num_search_workers  = 4
+    cp_solver.parameters.max_time_in_seconds = 180
+    cp_solver.parameters.num_search_workers  = 8
 
     status = cp_solver.Solve(model)
 
@@ -571,18 +611,18 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         if cp_solver.Value(is_violated) == 1:
             ts = timeslots[avoid_idx]
             primary = s.primary_professor
-        preferred_violations.append({
-                'professor'      : primary.user.name if primary else '?',
-                'staff_id'       : primary.staff_id  if primary else '?',
-                'professor_id'   : s.primary_professor_id,
-                'module_code'    : s.course.module_code,
-                'module_title'   : s.course.title,
-                'session_type'   : s.session_type,
-                'day'            : ts.day_of_week,
-                'period'         : ts.period_label,
-                'time'           : f'{ts.start_time.strftime("%H:%M")}–{ts.end_time.strftime("%H:%M")}',
-                'timeslot_id'    : ts.id,
-                'declaration_id' : decl.id if decl else None,
+            preferred_violations.append({
+                'professor'       : primary.user.name if primary else '?',
+                'staff_id'        : primary.staff_id  if primary else '?',
+                'professor_id'    : s.primary_professor_id,
+                'module_code'     : s.course.module_code,
+                'module_title'    : s.course.title,
+                'session_type'    : s.session_type,
+                'day'             : ts.day_of_week,
+                'period'          : ts.period_label,
+                'time'            : f'{ts.start_time.strftime("%H:%M")}–{ts.end_time.strftime("%H:%M")}',
+                'timeslot_id'     : ts.id,
+                'declaration_id'  : decl.id if decl else None,
                 'class_session_id': s.id,
             })
 
@@ -682,6 +722,8 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     return True, 'Timetable generated successfully.', {
         'sessions_scheduled'        : len(sessions),
         'sessions_async_skipped'    : len(async_sessions),
+        'sessions_no_room_skipped'  : len(no_room_warnings),
+        'no_room_warnings'          : no_room_warnings,
         'teaching_weeks'            : len(non_break_weeks),
         'entries_created'           : entries,
         'entries_skipped_ph'        : skipped_ph,
