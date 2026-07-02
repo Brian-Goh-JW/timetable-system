@@ -177,13 +177,22 @@
                 <i class="bi bi-dash-circle"></i>Only in {{ base_ay }}
             </button>
         </div>
-        <div class="d-flex align-items-center gap-2 flex-wrap">
+        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
             <span class="text-muted small fw-medium" style="min-width:44px;">Tri</span>
             <button class="filter-chip active" id="chip-tri-all" onclick="setTri('all')">All</button>
             <button class="filter-chip chip-info" id="chip-tri-1" onclick="setTri('1')">T1</button>
             <button class="filter-chip chip-success" id="chip-tri-2" onclick="setTri('2')">T2</button>
             <button class="filter-chip chip-warning" id="chip-tri-3" onclick="setTri('3')">T3</button>
         </div>
+        {% if prog_codes %}
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="text-muted small fw-medium" style="min-width:44px;">Prog</span>
+            <button class="filter-chip active" id="chip-prog-all" onclick="setProg('all')">All</button>
+            {% for code in prog_codes %}
+            <button class="filter-chip" id="chip-prog-{{ code }}" onclick="setProg('{{ code }}')">{{ code }}</button>
+            {% endfor %}
+        </div>
+        {% endif %}
     </div>
     <a href="{{ url_for('admin.timetable_export', trimester=compare_ay ~ '-T1') }}"
        class="btn btn-sm btn-outline-dark align-self-start">
@@ -213,7 +222,7 @@
             </thead>
             <tbody>
                 {% for row in cross_rows %}
-                <tr data-cross="{{ row.consistency }}" data-tri="{{ row.tri_num }}">
+                <tr data-cross="{{ row.consistency }}" data-tri="{{ row.tri_num }}" data-prog="{{ row.module_code[:3] }}">
                     <td class="ps-3">
                         <span class="badge {% if row.tri_num==1 %}bg-primary{% elif row.tri_num==2 %}bg-success{% else %}bg-warning text-dark{% endif %}">
                             T{{ row.tri_num }}
@@ -283,12 +292,14 @@
 <script>
 var _statusFilter = 'all';
 var _triFilter    = 'all';
+var _progFilter   = 'all';
 
 function applyFilters() {
     document.querySelectorAll('tbody tr[data-cross]').forEach(function(row) {
         var statusOk = (_statusFilter === 'all' || row.dataset.cross === _statusFilter);
         var triOk    = (_triFilter    === 'all' || row.dataset.tri   === _triFilter);
-        row.style.display = (statusOk && triOk) ? '' : 'none';
+        var progOk   = (_progFilter   === 'all' || row.dataset.prog  === _progFilter);
+        row.style.display = (statusOk && triOk && progOk) ? '' : 'none';
     });
 }
 
@@ -303,6 +314,13 @@ function setTri(val) {
     _triFilter = val;
     document.querySelectorAll('[id^="chip-tri-"]').forEach(function(c) { c.classList.remove('active'); });
     document.getElementById('chip-tri-' + val).classList.add('active');
+    applyFilters();
+}
+
+function setProg(val) {
+    _progFilter = val;
+    document.querySelectorAll('[id^="chip-prog-"]').forEach(function(c) { c.classList.remove('active'); });
+    document.getElementById('chip-prog-' + val).classList.add('active');
     applyFilters();
 }
 

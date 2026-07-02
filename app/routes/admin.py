@@ -2870,6 +2870,9 @@ def timetable_similarity():
             'pct':   round(s / total * 100) if total > 0 else None,
         }
 
+    # Programme codes for the filter chips (derived from module code prefix)
+    prog_codes = sorted(set(r['module_code'][:3] for r in cross_rows))
+
     return render_template('admin/timetable_similarity.html',
                            similarity_options=similarity_options,
                            base_val=base_val,
@@ -2881,7 +2884,8 @@ def timetable_similarity():
                            cross_rows=cross_rows,
                            same_count=same_count,
                            diff_count=diff_count,
-                           tri_stats=tri_stats)
+                           tri_stats=tri_stats,
+                           prog_codes=prog_codes)
 
 
 # ---------------------------------------------------------------------------
