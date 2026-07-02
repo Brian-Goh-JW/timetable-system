@@ -238,6 +238,7 @@ def normalise_prog_year(raw):
     """
     Parse (prog_code, year_level) from Prog/Yr field.
     Handles: 'ASE YR 1', 'METS/Y2', 'EEE and ISE CBE/Yr 1', 'SBE Yr 1' etc.
+    Also handles intake-year format: 'METS/2022' → METS Year 4 (AY2526: 2026 - intake_year).
     """
     if pd.isna(raw):
         return None, None
@@ -247,12 +248,21 @@ def normalise_prog_year(raw):
     s = re.sub(r'\s+and\s+\w+\s+(?:cbe|common)?\b', '', s, flags=re.IGNORECASE).strip()
     s_up = s.upper()
 
+    # Handle intake-year format "PROG/YYYY" before single-digit patterns to avoid
+    # misreading "METS/2022" as year 2 (first digit of 2022).
+    intake_m = re.search(r'^([A-Z]+)\s*/\s*(20\d{2})\b', s_up)
+    if intake_m:
+        intake_year = int(intake_m.group(2))
+        year_level = 2026 - intake_year  # AY2526: 2022→Y4, 2023→Y3, 2024→Y2, 2025→Y1
+        if 1 <= year_level <= 5:
+            return intake_m.group(1).upper(), year_level
+
     patterns = [
-        r'^([A-Z]+)\s*/\s*(?:YR|Y)\s*(\d)',
-        r'^([A-Z]+)\s+(?:YR|YEAR)\s*(\d)',
-        r'^([A-Z]+)\s*/\s*(?:YEAR)\s*(\d)',
-        r'^([A-Z]+)\s*/\s*(\d)',
-        r'^([A-Z]+)\s+(?:CBE|COMMON).*?(?:YR|YEAR|Y)\s*(\d)',
+        r'^([A-Z]+)\s*/\s*(?:YR|Y)\s*(\d)(?!\d)',
+        r'^([A-Z]+)\s+(?:YR|YEAR)\s*(\d)(?!\d)',
+        r'^([A-Z]+)\s*/\s*(?:YEAR)\s*(\d)(?!\d)',
+        r'^([A-Z]+)\s*/\s*(\d)(?!\d)',
+        r'^([A-Z]+)\s+(?:CBE|COMMON).*?(?:YR|YEAR|Y)\s*(\d)(?!\d)',
     ]
     for pat in patterns:
         m = re.search(pat, s_up)
