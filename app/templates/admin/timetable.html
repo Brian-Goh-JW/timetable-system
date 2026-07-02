@@ -1016,4 +1016,165 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
+<!-- ===== Async Solver Progress Modal ===== -->
+<div class="modal fade" id="solverProgressModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0">
+        <h5 class="modal-title fw-semibold" id="solverModalTitle">Generating Timetable</h5>
+      </div>
+      <div class="modal-body text-center py-4">
+
+        <!-- Running state -->
+        <div id="solver-running">
+          <div class="spinner-border text-danger mb-3" style="width:3rem;height:3rem;" role="status"></div>
+          <p id="solver-status-msg" class="mb-1 fw-medium">Starting solver…</p>
+          <p class="text-muted small mb-0">
+            Elapsed: <span id="solver-elapsed">0</span>s
+            &nbsp;·&nbsp;
+            <span class="text-muted">This usually takes 1–3 minutes</span>
+          </p>
+          <div class="progress mt-3" style="height:6px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated bg-danger"
+                 style="width:100%"></div>
+          </div>
+        </div>
+
+        <!-- Success state -->
+        <div id="solver-success" style="display:none;">
+          <div class="text-success mb-3" style="font-size:3rem;"><i class="bi bi-check-circle-fill"></i></div>
+          <p id="solver-success-msg" class="fw-medium mb-1"></p>
+          <p id="solver-success-stats" class="text-muted small"></p>
+        </div>
+
+        <!-- Error state -->
+        <div id="solver-error" style="display:none;">
+          <div class="text-danger mb-3" style="font-size:3rem;"><i class="bi bi-x-circle-fill"></i></div>
+          <p class="fw-medium mb-1">Generation failed</p>
+          <p id="solver-error-msg" class="text-muted small"></p>
+        </div>
+
+        <!-- Timeout warning (shown after 5 min, solver still running) -->
+        <div id="solver-timeout-warn" class="alert alert-warning mt-3 py-2 small text-start" style="display:none;">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          This is taking longer than expected. The solver is still running — you can wait or close this and check back later.
+        </div>
+      </div>
+      <div class="modal-footer border-0 justify-content-center">
+        <button class="btn btn-outline-secondary btn-sm" id="solver-close-btn" style="display:none;"
+                data-bs-dismiss="modal">Close</button>
+        <a href="#" class="btn btn-danger btn-sm" id="solver-view-btn" style="display:none;">
+          <i class="bi bi-table me-1"></i>View Timetable
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+    var _pollInterval = null;
+    var _taskId = null;
+    var _startTs = null;
+    var _modal = null;
+
+    function elapsedSec() { return Math.floor((Date.now() - _startTs) / 1000); }
+
+    function showState(state) {
+        document.getElementById('solver-running').style.display = (state === 'running') ? '' : 'none';
+        document.getElementById('solver-success').style.display = (state === 'success') ? '' : 'none';
+        document.getElementById('solver-error').style.display   = (state === 'error')   ? '' : 'none';
+        document.getElementById('solver-close-btn').style.display = (state !== 'running') ? '' : 'none';
+    }
+
+    function tick() {
+        var el = elapsedSec();
+        document.getElementById('solver-elapsed').textContent = el;
+        if (el > 300) {  // 5 min
+            document.getElementById('solver-timeout-warn').style.display = '';
+        }
+        if (el > 600) {  // 10 min — stop polling, assume hung
+            clearInterval(_pollInterval);
+            showState('error');
+            document.getElementById('solver-error-msg').textContent =
+                'No response after 10 minutes. The solver may have stalled — check server logs.';
+            return;
+        }
+        fetch('/admin/solver/status/' + _taskId)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                document.getElementById('solver-status-msg').textContent = data.message || 'Solving…';
+                if (data.status === 'done') {
+                    clearInterval(_pollInterval);
+                    if (data.success) {
+                        showState('success');
+                        document.getElementById('solver-success-msg').textContent = data.message;
+                        var s = data.stats || {};
+                        document.getElementById('solver-success-stats').textContent =
+                            (s.sessions_scheduled ? s.sessions_scheduled + ' sessions scheduled' : '') +
+                            (s.entries_created    ? ' · ' + s.entries_created + ' entries created' : '') +
+                            (el ? ' · ' + el + 's' : '');
+                        var viewBtn = document.getElementById('solver-view-btn');
+                        viewBtn.href = '/admin/timetable?trimester=' + encodeURIComponent(data.trimester) + '&source=generated';
+                        viewBtn.style.display = '';
+                    } else {
+                        showState('error');
+                        document.getElementById('solver-error-msg').textContent = data.message;
+                    }
+                } else if (data.status === 'error') {
+                    clearInterval(_pollInterval);
+                    showState('error');
+                    document.getElementById('solver-error-msg').textContent = data.message;
+                }
+            })
+            .catch(function() {
+                document.getElementById('solver-status-msg').textContent = 'Waiting for server…';
+            });
+    }
+
+    function startSolve(formEl) {
+        var formData = new FormData(formEl);
+        // Show modal
+        _modal = _modal || new bootstrap.Modal(document.getElementById('solverProgressModal'));
+        document.getElementById('solverModalTitle').textContent = 'Generating Timetable';
+        document.getElementById('solver-timeout-warn').style.display = 'none';
+        document.getElementById('solver-view-btn').style.display = 'none';
+        document.getElementById('solver-close-btn').style.display = 'none';
+        document.getElementById('solver-status-msg').textContent = 'Starting…';
+        document.getElementById('solver-elapsed').textContent = '0';
+        showState('running');
+        _modal.show();
+
+        _startTs = Date.now();
+        fetch('/admin/timetable/solve-async', { method: 'POST', body: formData })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.error) {
+                    showState('error');
+                    document.getElementById('solver-error-msg').textContent = data.error;
+                    return;
+                }
+                _taskId = data.task_id;
+                _pollInterval = setInterval(tick, 2000);
+                tick();
+            })
+            .catch(function(e) {
+                showState('error');
+                document.getElementById('solver-error-msg').textContent = 'Failed to start solver: ' + e;
+            });
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        document.getElementById('form-full-ay').addEventListener('submit', function(e) {
+            e.preventDefault();
+            startSolve(this);
+        });
+        document.getElementById('form-single').addEventListener('submit', function(e) {
+            e.preventDefault();
+            startSolve(this);
+        });
+    });
+})();
+</script>
+
 {% endblock %}

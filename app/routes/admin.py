@@ -1,5 +1,8 @@
 import math
-from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
+import threading
+import uuid
+import time as _time
+from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, jsonify
 from flask_login import login_required, current_user
 from app import db
 from app.models.course import Course
@@ -17,6 +20,11 @@ from app.models.timeslot import TimeSlot
 from app.models.audit_log import AuditLog
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
+
+# In-memory store for background solver tasks: {task_id: {status, ...}}
+# Entries expire after 2 hours (cleaned up lazily on new task start).
+_solver_tasks: dict = {}
+_TASK_TTL = 7200  # seconds
 
 # Official SIT academic calendar — week 1 start dates (all Mondays).
 # Source: https://www.singaporetech.edu.sg/admissions/undergraduate/academic-calendar-sit-and-joint-programmes
@@ -1911,6 +1919,211 @@ def import_template1():
                            token=token,
                            orig_filename=file.filename,
                            trimester=trimester)
+
+
+# ---------------------------------------------------------------------------
+# Timetable — async solver (background task + polling)
+# ---------------------------------------------------------------------------
+
+def _purge_old_tasks():
+    """Remove task entries older than _TASK_TTL to keep the dict tidy."""
+    cutoff = _time.time() - _TASK_TTL
+    stale = [tid for tid, t in _solver_tasks.items() if t['started_at'] < cutoff]
+    for tid in stale:
+        _solver_tasks.pop(tid, None)
+
+
+def _run_solver_task(app, task_id, action, form_data):
+    """Background thread: runs solver and writes result into _solver_tasks."""
+    from datetime import date as _date
+    from app.engine.solver import solve as _solve
+    from app.engine.checker import get_blocking_issues
+
+    def _update(status, message, **kw):
+        _solver_tasks[task_id].update({'status': status, 'message': message, **kw})
+
+    with app.app_context():
+        try:
+            academic_year = form_data.get('academic_year', '').strip().upper()
+            break_raw = form_data.get('term_break_weeks', '7').strip()
+            term_break_weeks = {int(p) for p in break_raw.split(',') if p.strip().isdigit()} or {7}
+            preserve = form_data.get('preserve_existing') == 'on'
+
+            if action == 'generate':
+                tri_raw = form_data.get('trimester_num', '').strip()
+                trimester_num = int(tri_raw) if tri_raw in ('1', '2', '3') else None
+                trimester = f'{academic_year}-T{trimester_num}' if trimester_num else ''
+                start_raw = form_data.get('start_date', '').strip()
+                if not start_raw and academic_year and trimester_num:
+                    start_raw = SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(trimester_num, '')
+
+                _update('running', f'Solving {trimester}…', trimester=trimester)
+
+                pinned_slots = None
+                if preserve:
+                    existing = TimetableEntry.query.filter_by(trimester=trimester, is_backbone=False).all()
+                    seen = set()
+                    pinned_slots = {e.class_session_id: e.timeslot_id
+                                    for e in existing if e.class_session_id not in seen
+                                    and not seen.add(e.class_session_id)} or None
+
+                historical_preferred = _build_historical_preferred(academic_year, trimester_num)
+
+                bb_entries = TimetableEntry.query.filter_by(trimester=trimester, is_backbone=True).all()
+                if bb_entries:
+                    backbone_pins = {e.class_session_id: e.timeslot_id for e in bb_entries}
+                    if pinned_slots:
+                        pinned_slots.update(backbone_pins)
+                    else:
+                        pinned_slots = backbone_pins
+
+                success, message, stats = _solve(
+                    trimester, _date.fromisoformat(start_raw), term_break_weeks,
+                    trimester_num=trimester_num, academic_year=academic_year,
+                    pinned_slots=pinned_slots, historical_preferred=historical_preferred,
+                )
+                if success:
+                    _auto_create_flags(trimester, stats.get('preferred_violations', []))
+                _update('done', message, success=success, stats=stats,
+                        trimester=trimester, academic_year=academic_year)
+
+            elif action == 'generate_ay':
+                ay_stats = {}
+                any_success = False
+                for tri_num in [1, 2, 3]:
+                    tri_key = f'{academic_year}-T{tri_num}'
+                    sd_raw = form_data.get(f'start_date_t{tri_num}', '').strip()
+                    if not sd_raw:
+                        sd_raw = SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(tri_num, '')
+                    if not sd_raw:
+                        ay_stats[tri_num] = {'success': False, 'message': f'Tri {tri_num}: no start date — skipped.', 'stats': {}}
+                        continue
+
+                    tri_blockers, _ = get_blocking_issues(trimester_num=tri_num)
+                    if tri_blockers:
+                        ay_stats[tri_num] = {'success': False, 'message': f'Tri {tri_num}: {len(tri_blockers)} blocking issue(s) — skipped.', 'stats': {}}
+                        continue
+
+                    _update('running', f'Solving {tri_key} ({tri_num}/3)…',
+                            trimester=f'{academic_year}-T1', academic_year=academic_year,
+                            ay_stats=ay_stats)
+
+                    pinned_slots = None
+                    if preserve:
+                        existing = TimetableEntry.query.filter_by(trimester=tri_key, is_backbone=False).all()
+                        seen = set()
+                        pinned_slots = {e.class_session_id: e.timeslot_id
+                                        for e in existing if e.class_session_id not in seen
+                                        and not seen.add(e.class_session_id)} or None
+
+                    historical_preferred = _build_historical_preferred(academic_year, tri_num)
+                    bb_entries = TimetableEntry.query.filter_by(trimester=tri_key, is_backbone=True).all()
+                    if bb_entries:
+                        backbone_pins = {e.class_session_id: e.timeslot_id for e in bb_entries}
+                        if pinned_slots:
+                            pinned_slots.update(backbone_pins)
+                        else:
+                            pinned_slots = backbone_pins
+
+                    success, message, s = _solve(
+                        tri_key, _date.fromisoformat(sd_raw), term_break_weeks,
+                        trimester_num=tri_num, academic_year=academic_year,
+                        pinned_slots=pinned_slots, historical_preferred=historical_preferred,
+                    )
+                    if success:
+                        any_success = True
+                        _auto_create_flags(tri_key, s.get('preferred_violations', []))
+                    ay_stats[tri_num] = {'success': success, 'message': message, 'stats': s}
+
+                summary = f'{academic_year}: Tri {", ".join(str(t) for t, v in ay_stats.items() if v["success"])} generated.'
+                _update('done', summary if any_success else 'No trimesters were generated.',
+                        success=any_success, stats={}, ay_stats=ay_stats,
+                        trimester=f'{academic_year}-T1', academic_year=academic_year)
+
+        except Exception as exc:
+            _solver_tasks[task_id].update({
+                'status': 'error',
+                'success': False,
+                'message': f'Solver error: {exc}',
+            })
+
+
+@admin_bp.route('/timetable/solve-async', methods=['POST'])
+@login_required
+def timetable_solve_async():
+    """Start a background solver run and return a task_id for polling."""
+    from app.engine.checker import get_blocking_issues
+    from flask import current_app
+
+    _purge_old_tasks()
+
+    action = request.form.get('action', '')
+    if action not in ('generate', 'generate_ay'):
+        return jsonify({'error': 'Invalid action.'}), 400
+
+    # Quick validation before spawning thread
+    academic_year = request.form.get('academic_year', '').strip().upper()
+    if not academic_year:
+        return jsonify({'error': 'Academic year is required.'}), 400
+
+    if action == 'generate':
+        tri_raw = request.form.get('trimester_num', '').strip()
+        trimester_num = int(tri_raw) if tri_raw in ('1', '2', '3') else None
+        if not trimester_num:
+            return jsonify({'error': 'Trimester number is required.'}), 400
+        tri_blockers, _ = get_blocking_issues(trimester_num=trimester_num)
+        if tri_blockers:
+            return jsonify({'error': f'{len(tri_blockers)} blocking issue(s): ' + tri_blockers[0]}), 400
+        start_raw = request.form.get('start_date', '').strip() or \
+                    SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(trimester_num, '')
+        if not start_raw:
+            return jsonify({'error': 'Start date is required.'}), 400
+        trimester = f'{academic_year}-T{trimester_num}'
+    else:
+        trimester = f'{academic_year}-T1'
+
+    # Check no task already running for this trimester
+    for t in _solver_tasks.values():
+        if t.get('status') == 'running' and t.get('academic_year') == academic_year:
+            return jsonify({'error': f'A solver run for {academic_year} is already in progress.'}), 409
+
+    task_id = str(uuid.uuid4())
+    _solver_tasks[task_id] = {
+        'status': 'running',
+        'message': 'Starting…',
+        'started_at': _time.time(),
+        'success': None,
+        'stats': {},
+        'trimester': trimester,
+        'academic_year': academic_year,
+    }
+
+    form_data = request.form.to_dict()  # flat snapshot before the request context closes
+    app = current_app._get_current_object()
+    t = threading.Thread(target=_run_solver_task, args=(app, task_id, action, form_data), daemon=True)
+    t.start()
+
+    return jsonify({'task_id': task_id, 'trimester': trimester})
+
+
+@admin_bp.route('/solver/status/<task_id>')
+@login_required
+def solver_status(task_id):
+    """Poll endpoint for async solver progress."""
+    task = _solver_tasks.get(task_id)
+    if not task:
+        return jsonify({'status': 'unknown', 'message': 'Task not found.'}), 404
+    elapsed = int(_time.time() - task['started_at'])
+    return jsonify({
+        'status':        task['status'],
+        'message':       task['message'],
+        'elapsed':       elapsed,
+        'success':       task.get('success'),
+        'stats':         task.get('stats', {}),
+        'trimester':     task.get('trimester', ''),
+        'academic_year': task.get('academic_year', ''),
+        'ay_stats':      task.get('ay_stats', {}),
+    })
 
 
 # ---------------------------------------------------------------------------
