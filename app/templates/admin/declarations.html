@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Availability Declarations — SIT Timetable{% endblock %}
+{% block title %}Availability Declarations - SIT Timetable{% endblock %}
 
 {% block content %}
 
@@ -65,7 +65,7 @@
                                 <input type="hidden" name="constraint_type" value="strict">
                                 <button type="submit"
                                         class="btn btn-sm btn-outline-danger"
-                                        title="Hard block — solver will never assign this professor to this slot"
+                                        title="Hard block - solver will never assign this professor to this slot"
                                         onclick="return confirm('Classify as Strict (hard block)? The solver will never assign {{ d.professor.user.name }} to this timeslot.')">
                                     <i class="bi bi-slash-circle me-1"></i>Strict
                                 </button>
@@ -76,7 +76,7 @@
                                 <input type="hidden" name="constraint_type" value="preferred">
                                 <button type="submit"
                                         class="btn btn-sm btn-outline-warning"
-                                        title="Soft constraint — solver avoids but may use if no alternative"
+                                        title="Soft constraint - solver avoids but may use if no alternative"
                                         onclick="return confirm('Classify as Preferred (soft avoid)? The solver will try to avoid this slot for {{ d.professor.user.name }} but may use it if necessary.')">
                                     <i class="bi bi-dash-circle me-1"></i>Preferred
                                 </button>

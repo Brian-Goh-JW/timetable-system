@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Add Event — SIT Timetable{% endblock %}
+{% block title %}Add Event - SIT Timetable{% endblock %}
 
 {% block content %}
 
@@ -39,7 +39,7 @@
                         <div class="col">
                             <label class="form-label fw-medium">Trimester</label>
                             <select name="trimester" class="form-select">
-                                <option value="">— Any —</option>
+                                <option value="">- Any -</option>
                                 <option value="1" {% if form.get('trimester') == '1' %}selected{% endif %}>Tri 1</option>
                                 <option value="2" {% if form.get('trimester') == '2' %}selected{% endif %}>Tri 2</option>
                                 <option value="3" {% if form.get('trimester') == '3' %}selected{% endif %}>Tri 3</option>
@@ -93,10 +93,10 @@
                     <div class="mb-3" id="programme-picker" style="display:none;">
                         <label class="form-label fw-medium">Programme</label>
                         <select name="programme_id" class="form-select">
-                            <option value="">— Select —</option>
+                            <option value="">- Select -</option>
                             {% for prog in programmes %}
                             <option value="{{ prog.id }}" {% if form.get('programme_id') == prog.id|string %}selected{% endif %}>
-                                {{ prog.code }} — {{ prog.name }}
+                                {{ prog.code }} - {{ prog.name }}
                             </option>
                             {% endfor %}
                         </select>
@@ -105,8 +105,8 @@
                     <div class="mb-3">
                         <label class="form-label fw-medium">Outcome for Affected Sessions</label>
                         <select name="outcome" class="form-select">
-                            <option value="cancel" {% if form.get('outcome', 'cancel') == 'cancel' %}selected{% endif %}>Cancel — remove those session occurrences</option>
-                            <option value="reschedule" {% if form.get('outcome') == 'reschedule' %}selected{% endif %}>Reschedule — move to another slot (requires re-generation)</option>
+                            <option value="cancel" {% if form.get('outcome', 'cancel') == 'cancel' %}selected{% endif %}>Cancel - remove those session occurrences</option>
+                            <option value="reschedule" {% if form.get('outcome') == 'reschedule' %}selected{% endif %}>Reschedule - move to another slot (requires re-generation)</option>
                         </select>
                     </div>
 

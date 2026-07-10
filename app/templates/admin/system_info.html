@@ -1,0 +1,209 @@
+{% extends 'base.html' %}
+{% block title %}System Info - SIT Timetable{% endblock %}
+
+{% macro status_badge(status) %}
+    {% if status == 'Implemented' %}
+    <span class="badge bg-success">{{ status }}</span>
+    {% elif status == 'Data-driven' or status == 'Implemented via data' %}
+    <span class="badge bg-info text-dark">{{ status }}</span>
+    {% elif 'Implemented' in status %}
+    <span class="badge bg-success">{{ status }}</span>
+    {% else %}
+    <span class="badge bg-secondary">{{ status }}</span>
+    {% endif %}
+{% endmacro %}
+
+{% macro assumption_group_card(group) %}
+<div class="col-lg-6">
+    <div class="card glass-card h-100">
+        <div class="card-header bg-transparent border-bottom d-flex align-items-center gap-2">
+            <div class="icon-orb icon-orb-{{ group.color }}" style="width:36px;height:36px;min-width:36px;">
+                <i class="bi {{ group.icon }}" style="font-size:0.9rem;"></i>
+            </div>
+            <span class="fw-semibold">{{ group.category }}</span>
+            <span class="badge bg-light text-secondary border ms-auto">{{ group.rows | length }}</span>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover align-middle mb-0 small data-surface">
+                <tbody>
+                    {% for a in group.rows %}
+                    <tr>
+                        <td class="ps-3">
+                            <div>{{ a.label }}</div>
+                            <div class="text-muted" style="font-size:0.78rem;">{{ a.note }}</div>
+                        </td>
+                        <td class="text-end pe-3" style="width:1%; white-space:nowrap;">
+                            {% if group.kind == 'count' %}
+                                {% if a.count > 0 %}
+                                <span class="badge bg-warning text-dark">{{ a.count }}</span>
+                                {% else %}
+                                <span class="badge bg-success">0</span>
+                                {% endif %}
+                            {% else %}
+                                {% if a.risk %}
+                                <span class="badge bg-danger">{{ a.value }}</span>
+                                {% else %}
+                                <span class="fw-medium">{{ a.value }}</span>
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+{% macro constraint_group_card(group) %}
+<div class="col-lg-6">
+    <div class="card glass-card h-100">
+        <div class="card-header bg-transparent border-bottom d-flex align-items-center gap-2">
+            <div class="icon-orb icon-orb-{{ group.color }}" style="width:36px;height:36px;min-width:36px;">
+                <i class="bi {{ group.icon }}" style="font-size:0.9rem;"></i>
+            </div>
+            <span class="fw-semibold">{{ group.category }}</span>
+            <span class="badge bg-light text-secondary border ms-auto">{{ group.rows | length }}</span>
+        </div>
+        <ul class="list-group list-group-flush">
+            {% for c in group.rows %}
+            <li class="list-group-item px-3 py-2">
+                <div class="d-flex align-items-start gap-2">
+                    <span class="badge bg-light text-secondary border mt-1" style="font-size:0.68rem;">{{ c.id }}</span>
+                    <div class="flex-grow-1">
+                        <div class="fw-medium">{{ c.title }}</div>
+                        <div class="text-muted d-flex align-items-start gap-1 mt-1" style="font-size:0.8rem;">
+                            <i class="bi bi-arrow-return-right" style="font-size:0.7rem; margin-top:0.2rem;"></i>
+                            <span>{{ c.value }}</span>
+                        </div>
+                    </div>
+                    {% if c.status != 'Implemented' %}
+                    <div class="mt-1">{{ status_badge(c.status) }}</div>
+                    {% endif %}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endmacro %}
+
+{% block content %}
+
+{% set hard_count = constraints.hard | map(attribute='rows') | map('length') | sum %}
+{% set soft_count = constraints.soft | map(attribute='rows') | map('length') | sum %}
+{% set assumed_count = assumption_groups | map(attribute='rows') | map('length') | sum %}
+{% set gap_count = data_gap_groups | map(attribute='rows') | map('length') | sum %}
+{% set gap_flagged = data_gap_groups | map(attribute='rows') | sum(start=[]) | selectattr('count', 'defined') | selectattr('count', 'gt', 0) | list | length %}
+{% set changelog_count = changelog_groups | map(attribute='rows') | map('length') | sum %}
+
+<div class="mb-3">
+    <h4 class="mb-0 fw-semibold">System Info</h4>
+</div>
+
+<div class="card glass-card mb-4">
+    <div class="card-body">
+        <div class="row g-3 small">
+            <div class="col-md-4 col-lg">
+                <div class="fw-semibold text-danger"><i class="bi bi-shield-check me-1"></i>Hard Constraints</div>
+                <div class="text-muted">Rules that can <u>never</u> be broken. If satisfying one is impossible, the system stops instead of guessing.</div>
+            </div>
+            <div class="col-md-4 col-lg">
+                <div class="fw-semibold text-primary"><i class="bi bi-sliders me-1"></i>Soft Constraints</div>
+                <div class="text-muted">Preferences. The system tries to honour these but will break one rather than fail entirely.</div>
+            </div>
+            <div class="col-md-4 col-lg">
+                <div class="fw-semibold text-warning"><i class="bi bi-exclamation-diamond me-1"></i>Assumed Values</div>
+                <div class="text-muted">Choices the system made on your behalf where no uploaded data said what to do. Worth double-checking.</div>
+            </div>
+            <div class="col-md-4 col-lg">
+                <div class="fw-semibold text-danger"><i class="bi bi-flag me-1"></i>Data Gaps</div>
+                <div class="text-muted">Information that's simply <u>missing</u> - not assumed, not guessed, just not there yet.</div>
+            </div>
+            <div class="col-md-4 col-lg">
+                <div class="fw-semibold text-secondary"><i class="bi bi-clock-history me-1"></i>Change Log</div>
+                <div class="text-muted">A dated record of mistakes found and fixed in the data. History, not the system's current state.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<ul class="nav nav-pills mb-4 flex-wrap gap-2" id="sysInfoTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active d-flex align-items-center gap-2" id="tab-hard-btn" data-bs-toggle="tab" data-bs-target="#tab-hard" type="button" role="tab" aria-controls="tab-hard" aria-selected="true">
+            <i class="bi bi-shield-check"></i> Hard Constraints <span class="badge bg-danger">{{ hard_count }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link d-flex align-items-center gap-2" id="tab-soft-btn" data-bs-toggle="tab" data-bs-target="#tab-soft" type="button" role="tab" aria-controls="tab-soft" aria-selected="false">
+            <i class="bi bi-sliders"></i> Soft Constraints <span class="badge bg-primary">{{ soft_count }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link d-flex align-items-center gap-2" id="tab-assumed-btn" data-bs-toggle="tab" data-bs-target="#tab-assumed" type="button" role="tab" aria-controls="tab-assumed" aria-selected="false">
+            <i class="bi bi-exclamation-diamond"></i> Assumed Values <span class="badge bg-warning text-dark">{{ assumed_count }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link d-flex align-items-center gap-2" id="tab-gaps-btn" data-bs-toggle="tab" data-bs-target="#tab-gaps" type="button" role="tab" aria-controls="tab-gaps" aria-selected="false">
+            <i class="bi bi-flag"></i> Data Gaps
+            {% if gap_flagged > 0 %}
+            <span class="badge bg-danger">{{ gap_flagged }} to review</span>
+            {% else %}
+            <span class="badge bg-success">clear</span>
+            {% endif %}
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link d-flex align-items-center gap-2" id="tab-changelog-btn" data-bs-toggle="tab" data-bs-target="#tab-changelog" type="button" role="tab" aria-controls="tab-changelog" aria-selected="false">
+            <i class="bi bi-clock-history"></i> Change Log <span class="badge bg-secondary">{{ changelog_count }}</span>
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content" id="sysInfoTabsContent">
+
+    <div class="tab-pane fade show active" id="tab-hard" role="tabpanel" aria-labelledby="tab-hard-btn">
+        <div class="row g-3 mb-4">
+            {% for group in constraints.hard %}
+                {{ constraint_group_card(group) }}
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-soft" role="tabpanel" aria-labelledby="tab-soft-btn">
+        <div class="row g-3 mb-4">
+            {% for group in constraints.soft %}
+                {{ constraint_group_card(group) }}
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-assumed" role="tabpanel" aria-labelledby="tab-assumed-btn">
+        <div class="row g-3 mb-4">
+            {% for group in assumption_groups %}
+                {{ assumption_group_card(group) }}
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-gaps" role="tabpanel" aria-labelledby="tab-gaps-btn">
+        <div class="row g-3 mb-4">
+            {% for group in data_gap_groups %}
+                {{ assumption_group_card(group) }}
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-changelog" role="tabpanel" aria-labelledby="tab-changelog-btn">
+        <div class="row g-3 mb-4">
+            {% for group in changelog_groups %}
+                {{ assumption_group_card(group) }}
+            {% endfor %}
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}

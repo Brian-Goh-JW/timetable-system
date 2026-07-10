@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Timetable Similarity — SIT Timetable{% endblock %}
+{% block title %}Timetable Similarity - SIT Timetable{% endblock %}
 
 {% block content %}
 
@@ -9,20 +9,20 @@
     </a>
     <h4 class="fw-semibold mt-2 mb-0">Timetable Similarity Report</h4>
     <small class="text-muted">
-        Compare session slots across academic years — how well did the historical soft constraint work?
+        Compare session slots across academic years - how well did the historical soft constraint work?
     </small>
 </div>
 
 <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-3">
     <p class="text-muted small mb-0" style="max-width:480px;">
         Compare the same module's slot between two academic years, trimester by trimester.
-        Use this to verify that the <strong>historical soft constraint</strong> worked —
+        Use this to verify that the <strong>historical soft constraint</strong> worked -
         how many sessions kept the same timeslot as the previous year?
     </p>
     <form method="GET" class="d-flex align-items-center gap-2 flex-wrap">
         <label class="form-label mb-0 fw-medium small">Base:</label>
         <select name="base" class="form-select form-select-sm" style="width:auto;">
-            <option value="">— Select —</option>
+            <option value="">- Select -</option>
             {% for val, label in similarity_options %}
             <option value="{{ val }}" {% if val == base_val %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
@@ -30,7 +30,7 @@
         <span class="text-muted">→</span>
         <label class="form-label mb-0 fw-medium small">Compare:</label>
         <select name="compare" class="form-select form-select-sm" style="width:auto;">
-            <option value="">— Select —</option>
+            <option value="">- Select -</option>
             {% for val, label in similarity_options %}
             <option value="{{ val }}" {% if val == compare_val %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
@@ -146,7 +146,7 @@
 <div class="card border-0 shadow-sm mb-3">
     <div class="card-body d-flex align-items-start gap-3">
         <div class="flex-grow-1">
-            <div class="fw-medium small mb-1">Timetable Summary — {{ compare_ay }}</div>
+            <div class="fw-medium small mb-1">Timetable Summary - {{ compare_ay }}</div>
             <div id="summary-text" class="text-muted small" style="min-height:2.5rem;">
                 Click "Generate Summary" to produce an overview of the {{ compare_ay }} timetable.
             </div>
@@ -234,7 +234,7 @@
                         {% if row.base_slot %}
                             <span class="badge bg-light text-dark border" style="font-size:0.72rem;">{{ row.base_slot }}</span>
                         {% else %}
-                            <span class="text-muted">—</span>
+                            <span class="text-muted">-</span>
                         {% endif %}
                     </td>
                     <td class="text-center">
@@ -242,7 +242,7 @@
                             <span class="badge bg-light text-dark border {% if row.consistency == 'same' %}border-success{% elif row.consistency == 'different' %}border-warning{% endif %}"
                                   style="font-size:0.72rem;">{{ row.compare_slot }}</span>
                         {% else %}
-                            <span class="text-muted">—</span>
+                            <span class="text-muted">-</span>
                         {% endif %}
                     </td>
                     <td class="text-center">
@@ -272,7 +272,7 @@
                         {% elif row.reason_tag == 'room_conflict' %}
                         <span class="badge bg-warning text-dark me-1" title="The original room is already booked at this slot in the new AY">Room conflict</span>
                         {% elif row.reason_tag == 'rescheduled' %}
-                        <span class="badge bg-secondary me-1" title="Solver rescheduled this session — no specific hard constraint identified">Rescheduled</span>
+                        <span class="badge bg-secondary me-1" title="Solver rescheduled this session - no specific hard constraint identified">Rescheduled</span>
                         {% endif %}
                         <span class="text-muted">{{ row.reason }}</span>
                     </td>

@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}My Timetable — SIT Timetable{% endblock %}
+{% block title %}My Timetable - SIT Timetable{% endblock %}
 
 {% block content %}
 
@@ -31,7 +31,7 @@
 <!-- View toggle -->
 <div class="d-flex justify-content-between align-items-center mb-3">
     <small class="text-muted">
-        {% if view_mode == 'weekly' %}Weekly calendar — click a block for details
+        {% if view_mode == 'weekly' %}Weekly calendar - click a block for details
         {% else %}Recurring slot each teaching week{% endif %}
     </small>
     <div class="btn-group btn-group-sm">
@@ -90,7 +90,7 @@
             {% for cw in calendar_weeks %}
             <option value="{{ url_for('teacher.timetable', trimester=active_trimester, view='weekly', week=cw.week_number) }}"
                     {% if cw.week_number == week_number %}selected{% endif %}>
-                Week {{ cw.week_number }}{% if cw.start_date %} ({{ cw.start_date.strftime('%d %b') }}){% endif %}{% if cw.is_term_break %} — Break{% endif %}
+                Week {{ cw.week_number }}{% if cw.start_date %} ({{ cw.start_date.strftime('%d %b') }}){% endif %}{% if cw.is_term_break %} - Break{% endif %}
             </option>
             {% endfor %}
         </select>
@@ -165,7 +165,7 @@
                              data-period="{{ entry.timeslot.period_label }}"
                              data-time="{{ entry.timeslot.start_time.strftime('%H:%M') }}–{{ entry.timeslot.end_time.strftime('%H:%M') }}"
                              data-room="{{ entry.room.room_code if entry.room else 'Online' }}"
-                             data-group="{{ entry.class_session.student_group.group_label if entry.class_session.student_group else '—' }}">
+                             data-group="{{ entry.class_session.student_group.group_label if entry.class_session.student_group else '-' }}">
                             <div class="fw-bold text-truncate">{{ entry.class_session.course.module_code }}</div>
                             <div class="text-capitalize">{{ entry.class_session.session_type }}</div>
                             {% if is_online %}
@@ -201,7 +201,7 @@
 {% else %}
 <div class="card border-0 shadow-sm">
     <div class="card-header bg-white border-bottom fw-semibold">
-        {{ active_trimester }} — Weekly Schedule
+        {{ active_trimester }} - Weekly Schedule
     </div>
     <div class="card-body p-0">
         <table class="table table-hover align-middle mb-0 small">
@@ -241,7 +241,7 @@
                     </td>
                     <td>
                         {% if e.class_session.student_group %}{{ e.class_session.student_group.group_label }}
-                        {% else %}<span class="text-muted">—</span>{% endif %}
+                        {% else %}<span class="text-muted">-</span>{% endif %}
                     </td>
                     <td>
                         {% if e.room %}{{ e.room.room_code }}

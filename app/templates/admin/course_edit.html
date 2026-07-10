@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Edit {{ course.module_code }} — SIT Timetable{% endblock %}
+{% block title %}Edit {{ course.module_code }} - SIT Timetable{% endblock %}
 
 {% block content %}
 
@@ -48,7 +48,7 @@
                         <div class="form-text">Delivery mode is set from the source data.</div>
                     </div>
 
-                    <!-- Split count — only for f2f and hybrid -->
+                    <!-- Split count - only for f2f and hybrid -->
                     {% if course.delivery_mode in ('f2f', 'hybrid') %}
                     <div class="mb-3">
                         <label for="split_count" class="form-label fw-medium">
@@ -72,7 +72,7 @@
                     {% else %}
                     <div class="mb-3">
                         <label class="form-label fw-medium">Split Count</label>
-                        <input type="text" class="form-control bg-light" value="N/A — online course" disabled>
+                        <input type="text" class="form-control bg-light" value="N/A - online course" disabled>
                     </div>
                     {% endif %}
 

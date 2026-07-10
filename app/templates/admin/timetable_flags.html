@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Conflict Flags — SIT Timetable{% endblock %}
+{% block title %}Conflict Flags - SIT Timetable{% endblock %}
 
 {% block content %}
 
@@ -7,7 +7,7 @@
     <div>
         <h4 class="mb-0 fw-semibold">Conflict Flags</h4>
         <small class="text-muted">
-            Preferred availability violations — notify affected professors
+            Preferred availability violations - notify affected professors
         </small>
     </div>
     {% if open_flags %}
@@ -33,7 +33,7 @@
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-header bg-white border-bottom fw-semibold">
         <i class="bi bi-flag-fill me-2 text-warning"></i>
-        Open — Action Required
+        Open - Action Required
         <span class="badge bg-warning text-dark ms-1">{{ open_flags | length }}</span>
     </div>
 
@@ -127,7 +127,7 @@
 <div class="card border-0 shadow-sm mb-4 border-start border-danger border-3">
     <div class="card-header bg-white border-bottom fw-semibold">
         <i class="bi bi-exclamation-circle me-2 text-danger"></i>
-        Acknowledged — Professor Cannot Proceed
+        Acknowledged - Professor Cannot Proceed
         <span class="badge bg-danger ms-1">{{ acknowledged_flags | length }}</span>
     </div>
     <div class="card-body p-0">
@@ -203,11 +203,11 @@
                     <td>
                         {{ f.timetable_entry.class_session.course.module_code }}
                         <span class="text-muted text-capitalize">
-                            — {{ f.timetable_entry.class_session.session_type }}
+                            - {{ f.timetable_entry.class_session.session_type }}
                         </span>
                     </td>
                     <td class="text-muted">
-                        {{ f.resolved_at.strftime('%d %b %Y') if f.resolved_at else '—' }}
+                        {{ f.resolved_at.strftime('%d %b %Y') if f.resolved_at else '-' }}
                     </td>
                     <td>
                         {% if latest_response %}
@@ -217,7 +217,7 @@
                                 <span class="badge bg-danger">Cannot Proceed</span>
                             {% endif %}
                         {% else %}
-                            <span class="text-muted">—</span>
+                            <span class="text-muted">-</span>
                         {% endif %}
                     </td>
                 </tr>

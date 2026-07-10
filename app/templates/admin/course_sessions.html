@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Sessions — {{ course.module_code }}{% endblock %}
+{% block title %}Sessions - {{ course.module_code }}{% endblock %}
 
 {% block content %}
 
@@ -9,7 +9,7 @@
     </a>
     <h4 class="fw-semibold mt-2 mb-0">Session Assignment</h4>
     <small class="text-muted">
-        {{ course.module_code }} — {{ course.title }} &mdash; Year {{ course.year_level }}
+        {{ course.module_code }} - {{ course.title }} &mdash; Year {{ course.year_level }}
         &mdash;
         <span class="badge
             {% if course.delivery_mode == 'f2f' %}bg-success
@@ -85,7 +85,7 @@
                                 <div class="d-flex align-items-center gap-1">
                                     <span class="badge bg-secondary" style="font-size:0.65rem;">Primary</span>
                                     <select name="professor_id_primary" class="form-select form-select-sm" style="min-width:190px;">
-                                        <option value="">— No professor —</option>
+                                        <option value="">- No professor -</option>
                                         {% for prof in professors %}
                                         <option value="{{ prof.id }}"
                                             {% if s.primary_professor_id == prof.id %}selected{% endif %}>
@@ -100,7 +100,7 @@
                                 <div class="d-flex align-items-center gap-1 co-teacher-row">
                                     <span class="badge bg-light text-dark border" style="font-size:0.65rem;">Co</span>
                                     <select name="professor_id_co" class="form-select form-select-sm" style="min-width:190px;">
-                                        <option value="">— Remove —</option>
+                                        <option value="">- Remove -</option>
                                         {% for prof in professors %}
                                         <option value="{{ prof.id }}"
                                             {% if assignment.professor_id == prof.id %}selected{% endif %}>
@@ -126,10 +126,10 @@
                             <!-- Student group dropdown (hidden for online sessions) -->
                             {% if s.delivery_mode == 'online' %}
                                 <input type="hidden" name="student_group_id" value="">
-                                <span class="text-muted small fst-italic">Online — no group</span>
+                                <span class="text-muted small fst-italic">Online - no group</span>
                             {% else %}
                                 <select name="student_group_id" class="form-select form-select-sm" style="min-width:160px;">
-                                    <option value="">— No group —</option>
+                                    <option value="">- No group -</option>
                                     {% for gid, glabel, is_sub in group_choices %}
                                     <option value="{{ gid }}"
                                         {% if s.student_group_id == gid %}selected{% endif %}
@@ -142,7 +142,7 @@
 
                             <!-- Fixed timeslot dropdown -->
                             <select name="fixed_timeslot_id" class="form-select form-select-sm" style="min-width:210px;">
-                                <option value="">— No fixed slot —</option>
+                                <option value="">- No fixed slot -</option>
                                 {% for ts in compat_ts[s.id] %}
                                 <option value="{{ ts.id }}"
                                     {% if s.fixed_timeslot_id == ts.id %}selected{% endif %}>
@@ -169,7 +169,7 @@
                         {{ s.fixed_timeslot.day_of_week }}
                         {{ s.fixed_timeslot.period_label }}
                         ({{ s.fixed_timeslot.start_time.strftime('%H:%M') }}–{{ s.fixed_timeslot.end_time.strftime('%H:%M') }})
-                        — solver will always place this session here.
+                        - solver will always place this session here.
                     </td>
                 </tr>
                 {% endif %}
@@ -217,7 +217,7 @@
         row.innerHTML = `
             <span class="badge bg-light text-dark border" style="font-size:0.65rem;">Co</span>
             <select name="professor_id_co" class="form-select form-select-sm" style="min-width:190px;">
-                <option value="">— Remove —</option>
+                <option value="">- Remove -</option>
                 ${profOptions}
             </select>
             <button type="button" class="btn btn-sm btn-outline-danger py-0"

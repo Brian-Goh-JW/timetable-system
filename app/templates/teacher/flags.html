@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}My Conflict Flags — SIT Timetable{% endblock %}
+{% block title %}My Conflict Flags - SIT Timetable{% endblock %}
 
 {% block content %}
 
@@ -33,7 +33,7 @@
                 <div>
                     <span class="fw-semibold">
                         {{ f.timetable_entry.class_session.course.module_code }}
-                        — {{ f.timetable_entry.class_session.session_type | capitalize }}
+                        - {{ f.timetable_entry.class_session.session_type | capitalize }}
                     </span>
                     {% if f.timetable_entry.class_session.student_group %}
                     <span class="text-muted small ms-1">
@@ -56,7 +56,7 @@
                     {{ f.timetable_entry.timeslot.period_label }}
                     ({{ f.timetable_entry.timeslot.start_time.strftime('%H:%M') }}–{{ f.timetable_entry.timeslot.end_time.strftime('%H:%M') }})
                 </strong>
-                — this clashes with your declared unavailability for
+                - this clashes with your declared unavailability for
                 <strong>
                     {{ f.declaration.timeslot.day_of_week }}
                     {{ f.declaration.timeslot.period_label }}
@@ -146,7 +146,7 @@
                     <td class="ps-3">
                         {{ f.timetable_entry.class_session.course.module_code }}
                         <span class="text-muted text-capitalize">
-                            — {{ f.timetable_entry.class_session.session_type }}
+                            - {{ f.timetable_entry.class_session.session_type }}
                         </span>
                     </td>
                     <td>
@@ -161,11 +161,11 @@
                                 <span class="badge bg-danger">Cannot Proceed</span>
                             {% endif %}
                         {% else %}
-                            <span class="text-muted">—</span>
+                            <span class="text-muted">-</span>
                         {% endif %}
                     </td>
                     <td class="text-muted">
-                        {{ f.resolved_at.strftime('%d %b %Y') if f.resolved_at else '—' }}
+                        {{ f.resolved_at.strftime('%d %b %Y') if f.resolved_at else '-' }}
                     </td>
                 </tr>
                 {% endfor %}

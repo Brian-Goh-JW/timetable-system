@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}
     {% if edit_mode == 'all' %}Edit All Weeks{% else %}Edit Week {{ entry.week_number }}{% endif %}
-    — {{ session.course.module_code }}
+    - {{ session.course.module_code }}
 {% endblock %}
 
 {% block content %}
@@ -21,7 +21,7 @@
         {% endif %}
     </h4>
     <small class="text-muted">
-        {{ session.course.module_code }} — {{ session.course.title }}
+        {{ session.course.module_code }} - {{ session.course.title }}
         &mdash; {{ session.session_type | capitalize }}
         {% if session.student_group %}
             &mdash; {{ session.student_group.group_label }}
@@ -69,11 +69,11 @@
                             Timeslot <span class="text-danger">*</span>
                         </label>
                         <select name="timeslot_id" class="form-select" required>
-                            <option value="">— Select timeslot —</option>
+                            <option value="">- Select timeslot -</option>
                             {% for ts in compat_slots %}
                             <option value="{{ ts.id }}"
                                 {% if entry.timeslot_id == ts.id %}selected{% endif %}>
-                                {{ ts.day_of_week }} — {{ ts.period_label }}
+                                {{ ts.day_of_week }} - {{ ts.period_label }}
                                 ({{ ts.start_time.strftime('%H:%M') }}–{{ ts.end_time.strftime('%H:%M') }})
                             </option>
                             {% endfor %}
@@ -86,11 +86,11 @@
                     <div class="mb-3">
                         <label class="form-label fw-medium">Room</label>
                         <select name="room_id" class="form-select">
-                            <option value="">— No room —</option>
+                            <option value="">- No room -</option>
                             {% for r in all_rooms %}
                             <option value="{{ r.id }}"
                                 {% if entry.room_id == r.id %}selected{% endif %}>
-                                {{ r.room_code }} — {{ r.room_type | capitalize }}
+                                {{ r.room_code }} - {{ r.room_type | capitalize }}
                                 (cap. {{ r.capacity }})
                             </option>
                             {% endfor %}
@@ -104,7 +104,7 @@
                     <div class="mb-3">
                         <label class="form-label fw-medium">Professor</label>
                         <select name="professor_id" class="form-select">
-                            <option value="">— No professor —</option>
+                            <option value="">- No professor -</option>
                             {% for prof in professors %}
                             {% set current_prof = entry.effective_professor %}
                             <option value="{{ prof.id }}"
@@ -179,7 +179,7 @@
                     <dt class="col-5 text-muted">Professor</dt>
                     <dd class="col-7">
                         {% set ep = entry.effective_professor %}
-                        {% if ep %}{{ ep.user.name }}{% else %}—{% endif %}
+                        {% if ep %}{{ ep.user.name }}{% else %}-{% endif %}
                         {% if entry.override_professor_id %}
                             <span class="badge bg-warning text-dark">override</span>
                         {% endif %}

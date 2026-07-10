@@ -28,6 +28,25 @@ from app.models.room import Room
 from app.models.professor import Professor
 from app.models.timetable_entry import TimetableEntry
 from app.models.academic_calendar import AcademicCalendar
+from app.models.class_session_professor import ClassSessionProfessor
+
+
+def link_professor(session, prof):
+    """Create the ClassSessionProfessor link if it doesn't already exist.
+    Without this, find_professor()'s match was only ever used for the
+    unmatched-name report - never actually saved (a real bug, found and
+    fixed 2026-07-10)."""
+    if not prof:
+        return
+    existing = ClassSessionProfessor.query.filter_by(
+        session_id=session.id, professor_id=prof.id).first()
+    if existing:
+        return
+    is_first = ClassSessionProfessor.query.filter_by(session_id=session.id).count() == 0
+    db.session.add(ClassSessionProfessor(
+        session_id=session.id, professor_id=prof.id,
+        is_primary=is_first, display_order=0 if is_first else 1,
+    ))
 
 # ---------------------------------------------------------------------------
 # File paths
@@ -48,9 +67,9 @@ TYPE_MAP = {
     'tutorial':   'tutorial',
     'laboratory': 'lab',
     'seminar':    'seminar',
-    'workshop':   'tutorial',
-    'projects':   None,   # skip
-    'quiz':       None,   # skip
+    'workshop':   'workshop',
+    'quiz':       'quiz',
+    'projects':   None,   # skip - no session_type equivalent, not scheduled by the solver
 }
 
 def map_session_type(raw):
@@ -199,12 +218,20 @@ def find_professor(name_str):
         return None
     # Take first if comma-separated (primary professor)
     name = name_str.split(',')[0].strip().upper()
-    words = name.split()
+    words = set(name.split())
     profs = _load_professors()
+    # Whole-word match, not substring - "WANG YU" must not match "WANG
+    # FENGYU" just because "YU" is a substring of "FENGYU" (real bug found
+    # 2026-07-10, caused a false professor double-booking).
+    exact, partial = None, None
     for prof, db_name in profs:
-        if all(w in db_name for w in words):
-            return prof
-    return None
+        db_words = set(db_name.split())
+        if words == db_words:
+            exact = prof
+            break
+        if partial is None and words <= db_words:
+            partial = prof
+    return exact or partial
 
 # ---------------------------------------------------------------------------
 # ClassSession matching: by module_code + session_type + trimester_num
@@ -222,18 +249,24 @@ def find_session(module_code, session_type, trimester_num, group_variant):
         sid = _session_assignment[key]
         return ClassSession.query.get(sid)
 
-    # Find all matching sessions
-    course = Course.query.filter(
+    # A module code can have several Course rows (one per trimester it's
+    # offered in) - pick the one that actually has a matching session for
+    # THIS trimester/type, not just the first Course row found overall.
+    candidate_courses = Course.query.filter(
         Course.module_code.ilike(module_code)
-    ).first()
-    if not course:
+    ).all()
+    if not candidate_courses:
         return None
 
-    sessions = ClassSession.query.filter_by(
-        course_id=course.id,
-        session_type=session_type,
-        trimester=trimester_num,
-    ).all()
+    sessions = []
+    for course in candidate_courses:
+        sessions = ClassSession.query.filter_by(
+            course_id=course.id,
+            session_type=session_type,
+            trimester=trimester_num,
+        ).all()
+        if sessions:
+            break
     if not sessions:
         return None
 
@@ -323,8 +356,16 @@ def parse_structured_sheet(filepath, sheet_name, tri_num, tri_key, ay):
         # Module code: "DSC1001-2510-ENG-UGRD-PU-LEC/All" -> "DSC1001"
         module_code = name.split('-')[0].strip()
 
-        # Group variant: LEC/LEC2/LEC3/TUT/LAB etc. from the name
-        variant_match = re.search(r'-(LEC\d*|TUT\d*|LAB\d*|SEM\d*|P\d+|T\d+|All)/', name, re.IGNORECASE)
+        # Group variant: the real parallel-section id (P1/P2/S5/S6/Q1/All)
+        # is the token AFTER the last slash, not before it. "SEM/S5" and
+        # "SEM2/S5" are the same section S5 continuing into a later
+        # calendar block; "SEM/S5" and "SEM/S6" are different parallel
+        # sections meeting at the same block. Grouping on the pre-slash
+        # tag (the old behaviour) merged different sections - e.g. all of
+        # S5/S6/S7/S8 for UCS1001 landed in one "SEM" bucket sharing one
+        # ClassSession, wrongly cross-linking every section's real
+        # professor onto every other section (real bug, found 2026-07-10).
+        variant_match = re.search(r'[/-](\w+)$', name)
         group_variant = variant_match.group(1).upper() if variant_match else 'ALL'
 
         activity_raw  = str(row.get('Activity Type Name', '')).strip()
@@ -383,6 +424,7 @@ def parse_structured_sheet(filepath, sheet_name, tri_num, tri_key, ay):
             prof = find_professor(row['staff_raw'])
             if row['staff_raw'] not in ('', 'nan') and not prof:
                 unmatched_profs.add(row['staff_raw'].split(',')[0].strip())
+            link_professor(session, prof)
 
             for d in row['dates']:
                 wk = week_number_for_date(d, tri_start)
@@ -546,6 +588,7 @@ def parse_grid_sheet(filepath, sheet_name, tri_num, tri_key, ay):
         prof = find_professor(staff_raw)
         if staff_raw not in ('', 'nan') and not prof:
             unmatched_profs.add(staff_raw.split(',')[0].strip())
+        link_professor(session, prof)
 
         wk = week_number_for_date(session_date, tri_start)
         if not wk:

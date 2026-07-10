@@ -1,12 +1,12 @@
 {% extends 'base.html' %}
-{% block title %}Courses — SIT Timetable{% endblock %}
+{% block title %}Courses - SIT Timetable{% endblock %}
 
 {% block content %}
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h4 class="mb-0 fw-semibold">Courses</h4>
-        <small class="text-muted">DSC Programme &mdash; all modules loaded from Excel</small>
+        <small class="text-muted">Engineering Cluster - all modules loaded from Excel</small>
     </div>
 </div>
 
@@ -72,7 +72,7 @@
                         {% if course.trimester %}
                             <span class="badge bg-secondary">Tri {{ course.trimester }}</span>
                         {% else %}
-                            <span class="text-muted small">—</span>
+                            <span class="text-muted small">-</span>
                         {% endif %}
                     </td>
                     <td>

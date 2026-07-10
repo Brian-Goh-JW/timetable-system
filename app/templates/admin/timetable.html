@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Timetable — SIT Timetable{% endblock %}
+{% block title %}Timetable - SIT Timetable{% endblock %}
 
 {% block content %}
 {% set is_bb_view = (source == 'bb') %}
@@ -7,21 +7,21 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h4 class="mb-0 fw-semibold">Timetable</h4>
-        <small class="text-muted">Generate and manage the DSC programme timetable</small>
+        <small class="text-muted">Generate and manage the Engineering Cluster timetable</small>
     </div>
 </div>
 
 <div class="row g-3">
 
     <!-- Left: Generate panel -->
-    <div class="col-lg-4">
+    <div class="col-lg-3">
 
         {% set active_ay = active_trimester[:6] if active_trimester and active_trimester|length >= 6 else '' %}
 
         {% if is_bb_view %}
         <div class="alert alert-info py-3 mb-3">
-            <i class="bi bi-database me-2"></i><strong>Backbone — Reference View</strong><br>
-            <small class="text-muted">This is the imported reference timetable. Read-only — the solver does not modify it.</small>
+            <i class="bi bi-database me-2"></i><strong>Backbone - Reference View</strong><br>
+            <small class="text-muted">This is the imported reference timetable. Read-only - the solver does not modify it.</small>
             <div class="mt-2">
                 <a href="?trimester={{ active_trimester }}&source=generated" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-cpu me-1"></i>Switch to Generated view
@@ -32,7 +32,7 @@
 
         <!-- Readiness summary -->
         {% if issues %}
-        <div class="card border-0 shadow-sm mb-3 border-start border-danger border-3">
+        <div class="card glass-card animate-in mb-3 border-0 border-start border-danger border-3">
             <div class="card-body">
                 <h6 class="fw-semibold text-danger mb-2">
                     <i class="bi bi-x-circle me-2"></i>Blocking Issues (All Trimesters)
@@ -57,7 +57,7 @@
         {% endif %}
 
         {% if issue_warnings %}
-        <div class="card border-0 shadow-sm mb-3 border-start border-warning border-3">
+        <div class="card glass-card animate-in mb-3 border-0 border-start border-warning border-3">
             <div class="card-body py-2">
                 <h6 class="fw-semibold text-warning mb-1" style="font-size:0.85rem">
                     <i class="bi bi-exclamation-triangle me-2"></i>Warnings (will not block generation)
@@ -73,104 +73,16 @@
         {% endif %}
 
         <!-- Generate form -->
-        <div class="card border-0 shadow-sm mb-3">
-            <div class="card-header bg-white border-bottom fw-semibold">
+        <div class="card glass-card animate-in mb-3">
+            <div class="card-header bg-transparent border-bottom fw-semibold">
                 <i class="bi bi-cpu me-2 text-muted"></i>Generate Timetable
             </div>
             <div class="card-body">
 
-                <!-- Mode toggle -->
-                <div class="btn-group w-100 mb-3" role="group">
-                    <input type="radio" class="btn-check" name="gen_mode" id="mode_full_ay"
-                           autocomplete="off" checked onchange="setGenMode('full_ay')">
-                    <label class="btn btn-outline-secondary btn-sm" for="mode_full_ay">
-                        <i class="bi bi-calendar3 me-1"></i>Full Academic Year
-                    </label>
-                    <input type="radio" class="btn-check" name="gen_mode" id="mode_single"
-                           autocomplete="off" onchange="setGenMode('single')">
-                    <label class="btn btn-outline-secondary btn-sm" for="mode_single">
-                        <i class="bi bi-arrow-repeat me-1"></i>Re-generate Single Trimester
-                    </label>
-                </div>
-
                 <!-- ======================================================= -->
-                <!-- FULL AY FORM                                             -->
+                <!-- SINGLE TRIMESTER FORM (the only generation mode)         -->
                 <!-- ======================================================= -->
-                <form method="POST" id="form-full-ay">
-                    <input type="hidden" name="action" value="generate_ay">
-
-                    <div class="mb-3">
-                        <label class="form-label fw-medium">
-                            Academic Year <span class="text-danger">*</span>
-                        </label>
-                        <select class="form-select" name="academic_year" required
-                                onchange="fillFullAYDates(this.value)">
-                            {% for ay in ay_options %}
-                            <option value="{{ ay }}" {% if ay == ay_default %}selected{% endif %}>AY20{{ ay[2:4] }}/{{ ay[4:6] }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
-                    <div class="mb-2 d-flex align-items-center justify-content-between">
-                        <span class="small fw-medium text-muted">Week 1 Start Dates</span>
-                        <span class="small text-muted" id="cal-source-full"></span>
-                    </div>
-
-                    <div class="mb-2">
-                        <label class="form-label small mb-1">
-                            <span class="badge bg-primary me-1">Tri 1</span> Week 1 Start
-                        </label>
-                        <input type="date" class="form-control form-control-sm"
-                               name="start_date_t1" id="sd_t1" placeholder="Mon of Week 1">
-                    </div>
-                    <div class="mb-2">
-                        <label class="form-label small mb-1">
-                            <span class="badge bg-success me-1">Tri 2</span> Week 1 Start
-                        </label>
-                        <input type="date" class="form-control form-control-sm"
-                               name="start_date_t2" id="sd_t2" placeholder="Mon of Week 1">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label small mb-1">
-                            <span class="badge bg-warning text-dark me-1">Tri 3</span> Week 1 Start
-                        </label>
-                        <input type="date" class="form-control form-control-sm"
-                               name="start_date_t3" id="sd_t3" placeholder="Mon of Week 1">
-                        <div class="form-text">Leave empty to skip that trimester.</div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label fw-medium">Term Break Week(s)</label>
-                        <input type="text" class="form-control" name="term_break_weeks"
-                               value="7" placeholder="e.g. 7 or 6,7">
-                        <div class="form-text">Applies to all 3 trimesters. Comma-separated.</div>
-                    </div>
-
-                    <div class="mb-3 p-3 bg-light rounded border">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" role="switch"
-                                   name="preserve_existing" id="preserve_ay">
-                            <label class="form-check-label fw-medium" for="preserve_ay">
-                                Lock existing sessions in place
-                            </label>
-                        </div>
-                        <div class="form-text mt-1">
-                            <i class="bi bi-info-circle me-1"></i>
-                            <strong>Off (default):</strong> Full reshuffle — generates a completely fresh timetable from scratch.<br>
-                            <strong>On:</strong> Sessions already in this trimester (including backbone) stay in their exact slot. Only gaps and new sessions are filled in.
-                        </div>
-                    </div>
-
-                    <button type="submit" class="btn w-100 text-white"
-                            style="background-color:#c0272d;">
-                        <i class="bi bi-play-fill me-1"></i>Generate Full Academic Year
-                    </button>
-                </form>
-
-                <!-- ======================================================= -->
-                <!-- SINGLE TRIMESTER FORM                                    -->
-                <!-- ======================================================= -->
-                <form method="POST" id="form-single" style="display:none;">
+                <form method="POST" id="form-single">
                     <input type="hidden" name="action" value="generate">
 
                     <div class="row g-2 mb-3">
@@ -191,7 +103,7 @@
                             </label>
                             <select class="form-select" name="trimester_num" required
                                     onchange="updateTrimKey(); fillSingleDate()">
-                                <option value="">—</option>
+                                <option value="">-</option>
                                 <option value="1" {% if selected_tri == 1 %}selected{% endif %}>Tri 1</option>
                                 <option value="2" {% if selected_tri == 2 %}selected{% endif %}>Tri 2</option>
                                 <option value="3" {% if selected_tri == 3 %}selected{% endif %}>Tri 3</option>
@@ -232,7 +144,7 @@
                         </div>
                         <div class="form-text mt-1">
                             <i class="bi bi-info-circle me-1"></i>
-                            <strong>Off (default):</strong> Full reshuffle — generates a completely fresh timetable from scratch.<br>
+                            <strong>Off (default):</strong> Full reshuffle - generates a completely fresh timetable from scratch.<br>
                             <strong>On:</strong> Sessions already in this trimester (including backbone) stay in their exact slot. Only gaps and new sessions are filled in.
                         </div>
                     </div>
@@ -246,50 +158,10 @@
             </div>
         </div>
 
-        <!-- Full AY stats -->
-        {% if ay_stats %}
-        <div class="card border-0 shadow-sm mb-3">
-            <div class="card-header bg-white border-bottom fw-semibold">
-                <i class="bi bi-bar-chart me-2 text-muted"></i>Last Full AY Run
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-sm mb-0 small">
-                    <thead class="table-light">
-                        <tr><th class="ps-3">Trimester</th><th>Status</th><th>Sessions</th><th>Entries</th></tr>
-                    </thead>
-                    <tbody>
-                        {% for tri_num in [1, 2, 3] %}
-                        {% if tri_num in ay_stats %}
-                        {% set r = ay_stats[tri_num] %}
-                        <tr>
-                            <td class="ps-3 fw-medium">Tri {{ tri_num }}</td>
-                            <td>
-                                {% if r.success %}
-                                    <span class="badge bg-success">OK</span>
-                                {% else %}
-                                    <span class="badge bg-danger">Failed</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ r.stats.sessions_scheduled if r.stats.sessions_scheduled is defined else '—' }}</td>
-                            <td>{{ r.stats.entries_created if r.stats.entries_created is defined else '—' }}</td>
-                        </tr>
-                        {% if not r.success %}
-                        <tr>
-                            <td colspan="4" class="ps-3 text-danger small">{{ r.message }}</td>
-                        </tr>
-                        {% endif %}
-                        {% endif %}
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        {% endif %}
-
         <!-- Publish form -->
         {% if active_trimester and entries %}
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white border-bottom fw-semibold">
+        <div class="card glass-card animate-in">
+            <div class="card-header bg-transparent border-bottom fw-semibold">
                 <i class="bi bi-megaphone me-2 text-muted"></i>Publish Timetable
             </div>
             <div class="card-body">
@@ -313,8 +185,8 @@
 
         <!-- Reset timetable -->
         {% if active_trimester and entries %}
-        <div class="card border-0 shadow-sm mt-3">
-            <div class="card-header bg-white border-bottom fw-semibold">
+        <div class="card glass-card animate-in mt-3">
+            <div class="card-header bg-transparent border-bottom fw-semibold">
                 <i class="bi bi-trash me-2 text-muted"></i>Reset Timetable
             </div>
             <div class="card-body">
@@ -352,10 +224,62 @@
         </div>
         {% endif %}
 
+        <!-- Constraint summary: how the generation actually happened -->
+        {% if constraint_summary %}
+        <div class="card glass-card animate-in mt-3">
+            <div class="card-header bg-transparent border-bottom fw-semibold">
+                <i class="bi bi-diagram-3 me-2 text-muted"></i>How This Was Generated
+            </div>
+            <div class="card-body">
+                <div class="row g-2 text-center mb-3">
+                    <div class="col-6 border-end">
+                        <div class="fs-4 fw-bold text-danger">
+                            <i class="bi bi-shield-check"></i> {{ constraint_summary.hard_rule_count }}
+                        </div>
+                        <div class="small text-muted">Hard constraints - all satisfied<br>(generation would have failed otherwise)</div>
+                    </div>
+                    <div class="col-6">
+                        <div class="fs-4 fw-bold {% if constraint_summary.soft_total_violations > 0 %}text-warning{% else %}text-success{% endif %}">
+                            <i class="bi bi-sliders"></i> {{ constraint_summary.soft_total_violations }}
+                        </div>
+                        <div class="small text-muted">Soft constraint violation(s)<br>across {{ constraint_summary.soft_rule_count }} preference rules</div>
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-outline-secondary w-100" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#constraintDetail" aria-expanded="false">
+                    <i class="bi bi-chevron-down me-1"></i>View rule-by-rule detail
+                </button>
+                <div class="collapse mt-3" id="constraintDetail">
+                    {% for group in constraint_summary.soft_groups %}
+                    <div class="mb-3">
+                        <div class="fw-semibold small text-muted mb-1">
+                            <i class="bi {{ group.icon }} me-1"></i>{{ group.category }}
+                        </div>
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                {% for r in group.rows %}
+                                <tr>
+                                    <td class="ps-0 small" style="width:62%;">{{ r.title }}</td>
+                                    <td class="text-end pe-0">
+                                        <span class="badge {% if r.violated > 0 %}bg-warning text-dark{% else %}bg-success{% endif %}" style="font-weight:400; white-space:normal;">
+                                            {{ r.result }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Solver stats -->
         {% if stats %}
-        <div class="card border-0 shadow-sm mt-3">
-            <div class="card-header bg-white border-bottom fw-semibold">
+        <div class="card glass-card animate-in mt-3">
+            <div class="card-header bg-transparent border-bottom fw-semibold">
                 <i class="bi bi-bar-chart me-2 text-muted"></i>Last Run
             </div>
             <div class="card-body small">
@@ -370,37 +294,10 @@
                     <dd class="col-5">{{ stats.teaching_weeks }}</dd>
                     <dt class="col-7 text-muted">Entries created</dt>
                     <dd class="col-5">{{ stats.entries_created }}</dd>
-                    <dt class="col-7 text-muted">Historical slots kept</dt>
-                    <dd class="col-5">
-                        {% if stats.historical_honoured is defined %}
-                            <span class="text-success">{{ stats.historical_honoured }}</span>
-                            {% if stats.historical_changed > 0 %}
-                                / <span class="text-warning">{{ stats.historical_changed }} changed</span>
-                            {% endif %}
-                        {% else %}—{% endif %}
-                    </dd>
-                    <dt class="col-7 text-muted">Slots preserved (Option A)</dt>
-                    <dd class="col-5">
-                        {% if stats.pins_applied is defined %}
-                            {{ stats.pins_applied }}
-                            {% if stats.pins_dropped > 0 %}
-                                <span class="text-warning small">({{ stats.pins_dropped }} dropped — conflicts)</span>
-                            {% endif %}
-                        {% else %}—{% endif %}
-                    </dd>
                     <dt class="col-7 text-muted">Skipped (public holidays)</dt>
                     <dd class="col-5">{{ stats.entries_skipped_ph }}</dd>
                     <dt class="col-7 text-muted">Skipped (events)</dt>
                     <dd class="col-5">{{ stats.entries_skipped_events }}</dd>
-                    <dt class="col-7 text-muted">Strict constraints applied</dt>
-                    <dd class="col-5">{{ stats.strict_constraints_applied }}</dd>
-                    <dt class="col-7 text-muted">Preferred violations</dt>
-                    <dd class="col-5">
-                        {% set vcount = stats.preferred_violations | length %}
-                        <span class="badge {% if vcount > 0 %}bg-warning text-dark{% else %}bg-success{% endif %}">
-                            {{ vcount }}
-                        </span>
-                    </dd>
                 </dl>
             </div>
         </div>
@@ -408,8 +305,8 @@
         <!-- Conflict report -->
         {% set violations = stats.preferred_violations %}
         {% if violations %}
-        <div class="card border-0 shadow-sm mt-3 border-start border-warning border-3">
-            <div class="card-header bg-white border-bottom fw-semibold text-warning">
+        <div class="card glass-card animate-in mt-3 border-0 border-start border-warning border-3">
+            <div class="card-header bg-transparent border-bottom fw-semibold text-warning">
                 <i class="bi bi-exclamation-triangle me-2"></i>
                 Preferred Declaration Violations
                 <span class="badge bg-warning text-dark ms-1">{{ violations | length }}</span>
@@ -465,7 +362,7 @@
     </div>
 
     <!-- Right: Timetable view -->
-    <div class="col-lg-8">
+    <div class="col-lg-9">
         <div class="d-flex justify-content-end gap-2 mb-2">
             {% if active_trimester and active_trimester[-4:] != '-all' %}
             <a href="{{ url_for('admin.timetable_export', trimester=active_trimester) }}"
@@ -481,9 +378,13 @@
                class="btn btn-sm btn-outline-secondary">
                 <i class="bi bi-bar-chart me-1"></i>Similarity Report
             </a>
+            <a href="{{ url_for('admin.timetable_report', trimester=active_trimester if active_trimester and active_trimester[:2]=='AY' and '-all' not in active_trimester else '') }}"
+               class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-clipboard-data me-1"></i>Scheduling Report
+            </a>
         </div>
 
-        <!-- Navigation: AY dropdown + Tri chips + Year chips -->
+        <!-- Filter bar - all dropdowns -->
         {% if trimesters %}
         {% set distinct_ays = namespace(vals=[]) %}
         {% for t in trimesters %}
@@ -491,108 +392,104 @@
         {% endfor %}
         {% set active_ay = active_trimester[:6] if active_trimester else distinct_ays.vals[-1] %}
         {% set active_tri_num = 'all' if (not active_trimester or active_trimester[-4:] == '-all') else active_trimester[-1] %}
+        {% set prog_display = {'CPC': 'General'} %}
 
-        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
-            <select class="form-select form-select-sm w-auto" id="ay-select" onchange="ayChanged(this)">
+        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+
+            {# Academic Year #}
+            <select class="form-select form-select-sm w-auto select-glass" id="sel-ay" onchange="navigate()">
                 {% for ay in distinct_ays.vals %}
                 <option value="{{ ay }}" {% if ay == active_ay %}selected{% endif %}>AY20{{ ay[2:4] }}/{{ ay[4:6] }}</option>
                 {% endfor %}
             </select>
-            <span class="text-muted small">Tri:</span>
-            <a href="?trimester={{ active_ay }}-all{% if source %}&source={{ source }}{% endif %}{% if prog_filter %}&prog={{ prog_filter }}{% endif %}"
-               class="filter-chip {% if active_tri_num == 'all' %}active{% endif %}">All</a>
-            {% for tri_num in ['1', '2', '3'] %}
-            {% set tri_key = active_ay ~ '-T' ~ tri_num %}
-            {% if tri_key in trimesters %}
-            <a href="?trimester={{ tri_key }}{% if source %}&source={{ source }}{% endif %}{% if prog_filter %}&prog={{ prog_filter }}{% endif %}"
-               class="filter-chip {% if active_tri_num == tri_num %}active{% endif %}">T{{ tri_num }}</a>
-            {% else %}
-            <span class="filter-chip" style="opacity:0.4; cursor:default;">T{{ tri_num }}</span>
-            {% endif %}
-            {% endfor %}
+
+            {# Trimester #}
+            <select class="form-select form-select-sm w-auto select-glass" id="sel-tri" onchange="navigate()">
+                <option value="all" {% if active_tri_num == 'all' %}selected{% endif %}>All Tri</option>
+                {% for tri_num in ['1', '2', '3'] %}
+                {% set tri_key = active_ay ~ '-T' ~ tri_num %}
+                {% if tri_key in trimesters %}
+                <option value="{{ tri_num }}" {% if active_tri_num == tri_num %}selected{% endif %}>T{{ tri_num }}</option>
+                {% endif %}
+                {% endfor %}
+            </select>
+
+            {# Year level (client-side filter) #}
             {% if year_levels %}
-            <span class="text-muted small ms-2">Year:</span>
-            <button class="filter-chip active" id="chip-yr-all" onclick="filterYear('all')">All</button>
-            {% for yr in year_levels %}
-            <button class="filter-chip" id="chip-yr-{{ yr }}" onclick="filterYear('{{ yr }}')">Y{{ yr }}</button>
-            {% endfor %}
+            <select class="form-select form-select-sm w-auto select-glass" id="sel-year" onchange="filterYear(this.value)">
+                <option value="all">All Years</option>
+                {% for yr in year_levels %}
+                <option value="{{ yr }}">Y{{ yr }}</option>
+                {% endfor %}
+            </select>
             {% endif %}
+
+            {# Source #}
+            {% if has_backbone_ay %}
+            <select class="form-select form-select-sm w-auto select-glass" id="sel-source" onchange="navigate()">
+                <option value="generated" {% if source != 'bb' %}selected{% endif %}><i class="bi bi-cpu"></i> Generated</option>
+                <option value="bb" {% if source == 'bb' %}selected{% endif %}>Backbone (BB)</option>
+            </select>
+            {% endif %}
+
+            {# Programme #}
+            {% if programmes %}
+            <select class="form-select form-select-sm w-auto select-glass" id="sel-prog" onchange="navigate()">
+                <option value="">All Programmes</option>
+                {% for code, name in programmes %}
+                {% set label = prog_display.get(code, code) %}
+                <option value="{{ code }}" {% if prog_filter == code %}selected{% endif %}
+                    {% if code not in active_prog_codes %}style="color:#aaa"{% endif %}>
+                    {{ label }}{% if name and name != code %} - {{ name }}{% endif %}
+                </option>
+                {% endfor %}
+            </select>
+            {% endif %}
+
+            {# View toggle #}
+            {% if active_trimester and entries %}
+            <div class="btn-group btn-group-sm ms-auto segmented-toggle">
+                <button type="button" onclick="navigate('list')"
+                        class="btn {% if view_mode == 'list' %}active{% endif %}">
+                    <i class="bi bi-list-ul me-1"></i>List
+                </button>
+                <button type="button" onclick="navigate('weekly')"
+                        class="btn {% if view_mode == 'weekly' %}active{% endif %}"
+                        {% if active_tri_num == 'all' %}disabled title="Select a specific trimester (not \'All Tri\') to use Weekly view"{% endif %}>
+                    <i class="bi bi-calendar-week me-1"></i>Weekly
+                </button>
+            </div>
+            {% endif %}
+
         </div>
+
         <script>
         (function() {
-            window.ayChanged = function(sel) {
-                const ay = sel.value;
-                const tri = '{{ active_tri_num }}';
+            window.navigate = function(viewOverride) {
                 const url = new URL(window.location.href);
+                const ay  = document.getElementById('sel-ay').value;
+                const tri = document.getElementById('sel-tri').value;
+                const src = document.getElementById('sel-source') ? document.getElementById('sel-source').value : '{{ source or "generated" }}';
+                const prog = document.getElementById('sel-prog') ? document.getElementById('sel-prog').value : '{{ prog_filter or "" }}';
+                const currentView = '{{ view_mode }}';
+                const view = viewOverride || currentView;
+
                 url.searchParams.set('trimester', tri === 'all' ? ay + '-all' : ay + '-T' + tri);
-                url.searchParams.delete('view');
-                {% if source %}url.searchParams.set('source', '{{ source }}');{% else %}url.searchParams.delete('source');{% endif %}
-                {% if prog_filter %}url.searchParams.set('prog', '{{ prog_filter }}');{% else %}url.searchParams.delete('prog');{% endif %}
+                if (src) url.searchParams.set('source', src); else url.searchParams.delete('source');
+                if (prog) url.searchParams.set('prog', prog); else url.searchParams.delete('prog');
+                if (view === 'weekly') url.searchParams.set('view', 'weekly');
+                else url.searchParams.delete('view');
+                url.searchParams.delete('week');
                 window.location.href = url.toString();
             };
         })();
         </script>
 
-        {% if has_backbone_ay %}
-        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
-            <span class="text-muted small fw-medium">Source:</span>
-            <a href="?trimester={{ active_trimester }}&source=generated{% if view_mode != 'list' %}&view={{ view_mode }}{% endif %}{% if prog_filter %}&prog={{ prog_filter }}{% endif %}"
-               class="filter-chip {% if source == 'generated' %}active{% endif %}">
-                <i class="bi bi-cpu me-1"></i>Generated
-            </a>
-            <a href="?trimester={{ active_trimester }}&source=bb{% if view_mode != 'list' %}&view={{ view_mode }}{% endif %}{% if prog_filter %}&prog={{ prog_filter }}{% endif %}"
-               class="filter-chip chip-info {% if source == 'bb' %}active{% endif %}">
-                <i class="bi bi-database me-1"></i>Backbone (BB)
-            </a>
-        </div>
-        {% endif %}
-
-        {% endif %}
-
-        <!-- View toggle + year filter -->
         {% if active_trimester and entries %}
-        <div class="d-flex justify-content-between align-items-center mb-2">
-            <small class="text-muted">
-                {% if view_mode == 'weekly' %}
-                    Weekly calendar — click a block for details
-                {% else %}
-                    Recurring weekly slot for each session
-                {% endif %}
-            </small>
-            <div class="btn-group btn-group-sm">
-                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='list', prog=prog_filter or None, source=source or None) }}"
-                   class="btn btn-outline-secondary {% if view_mode == 'list' %}active{% endif %}">
-                    <i class="bi bi-list-ul me-1"></i>List
-                </a>
-                {% if active_trimester[-4:] != '-all' %}
-                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=week_number, prog=prog_filter or None, source=source or None) }}"
-                   class="btn btn-outline-secondary {% if view_mode == 'weekly' %}active{% endif %}">
-                    <i class="bi bi-calendar-week me-1"></i>Weekly
-                </a>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- Programme filter (server-side) -->
-        {% set prog_display = {'CPC': 'General'} %}
-        {% if programmes %}
-        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
-            <span class="text-muted small fw-medium">Programme:</span>
-            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view=view_mode, source=source or None) }}"
-               class="filter-chip {% if not prog_filter %}active{% endif %}">
-                All
-            </a>
-            {% for code, name in programmes %}
-            {% set label = prog_display.get(code, code) %}
-            {% set has_entries = code in active_prog_codes %}
-            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view=view_mode, prog=code, source=source or None) }}"
-               class="filter-chip chip-info {% if prog_filter == code %}active{% endif %}"
-               title="{{ name }}"
-               style="{% if not has_entries %}opacity:0.45;{% endif %}">
-                {{ label }}
-            </a>
-            {% endfor %}
-        </div>
+        <small class="text-muted d-block mb-2">
+            {% if view_mode == 'weekly' %}Weekly calendar - click a block for details
+            {% else %}Recurring weekly slot for each session{% endif %}
+        </small>
         {% endif %}
 
         {% endif %}
@@ -642,7 +539,7 @@
                     {% for cw in calendar_weeks %}
                     <option value="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=cw.week_number, prog=prog_filter or None, source=source or None) }}"
                             {% if cw.week_number == week_number %}selected{% endif %}>
-                        Week {{ cw.week_number }}{% if cw.start_date %} ({{ cw.start_date.strftime('%d %b') }}){% endif %}{% if cw.is_term_break %} — Break{% endif %}
+                        Week {{ cw.week_number }}{% if cw.start_date %} ({{ cw.start_date.strftime('%d %b') }}){% endif %}{% if cw.is_term_break %} - Break{% endif %}
                     </option>
                     {% endfor %}
                 </select>
@@ -658,9 +555,9 @@
         {% endif %}
 
         <!-- Weekly grid -->
-        <div class="card border-0 shadow-sm">
+        <div class="card glass-card animate-in">
             <div class="card-body p-0" style="overflow-x: auto;">
-                <table class="table table-bordered mb-0 weekly-grid" style="min-width: 780px; table-layout: fixed;">
+                <table class="table table-bordered mb-0 weekly-grid data-surface" style="min-width: 780px; table-layout: fixed;">
                     <colgroup>
                         <col style="width: 80px;">
                         {% for day in days_all %}
@@ -701,7 +598,7 @@
                                 <div class="text-muted">–</div>
                                 <div class="text-muted">{{ ts.end_time.strftime('%H:%M') }}</div>
                             </td>
-                            <!-- Day cells — each cell may contain multiple sessions (e.g. split groups) -->
+                            <!-- Day cells - each cell may contain multiple sessions (e.g. split groups) -->
                             {% for day in days_all %}
                             {% set cell_entries = week_grid[day][ts.period_label] if ts.period_label in week_grid[day] else [] %}
                             <td class="p-1 {% if day in ['Saturday','Sunday'] %}bg-light{% endif %}" style="vertical-align: top;">
@@ -717,18 +614,22 @@
                                      data-bs-toggle="modal" data-bs-target="#sessionDetailModal"
                                      data-module="{{ entry.class_session.course.module_code }}"
                                      data-title="{{ entry.class_session.course.title }}"
+                                     data-programme="{{ entry.class_session.course.programme.code }}-Y{{ yr }}"
                                      data-type="{{ entry.class_session.session_type | capitalize }}"
                                      data-delivery="{{ entry.class_session.delivery_mode }}"
                                      data-day="{{ entry.timeslot.day_of_week }}"
                                      data-period="{{ entry.timeslot.period_label }}"
                                      data-time="{{ entry.timeslot.start_time.strftime('%H:%M') }}–{{ entry.timeslot.end_time.strftime('%H:%M') }}"
                                      data-room="{{ entry.room.room_code if entry.room else 'Online' }}"
-                                     data-professor="{{ entry.effective_professor.user.name if entry.effective_professor else '—' }}"
-                                     data-group-label="{{ grp if grp else '—' }}"
+                                     data-professor="{{ entry.effective_professor.user.name if entry.effective_professor else '-' }}"
+                                     data-group-label="{{ grp if grp else '-' }}"
                                      data-status="{{ 'Published' if entry.is_published else 'Draft' }}"
                                      data-edited="{{ 'Yes' if entry.is_manually_edited else 'No' }}"
                                      data-edit-url="{{ url_for('admin.timetable_session_weeks', trimester=active_trimester, session_id=entry.class_session_id) }}">
                                     <div class="fw-bold text-truncate">{{ entry.class_session.course.module_code }}</div>
+                                    <div class="text-truncate" style="font-size:0.62rem;">
+                                        <span class="badge bg-dark" style="font-size:0.58rem;">{{ entry.class_session.course.programme.code }}-Y{{ yr }}</span>
+                                    </div>
                                     <div class="text-capitalize">{{ entry.class_session.session_type }}</div>
                                     {% if is_online %}
                                     <span class="badge bg-primary" style="font-size:0.62rem;">Online</span>
@@ -766,16 +667,16 @@
         {# LIST VIEW (default)                                                 #}
         {# ------------------------------------------------------------------ #}
         {% elif active_trimester and entries %}
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white border-bottom fw-semibold">
+        <div class="card glass-card animate-in">
+            <div class="card-header bg-transparent border-bottom fw-semibold">
                 {% if active_trimester and active_trimester[-4:] == '-all' %}
-                    AY20{{ active_trimester[2:4] }}/{{ active_trimester[4:6] }} — All Trimesters
+                    AY20{{ active_trimester[2:4] }}/{{ active_trimester[4:6] }} - All Trimesters
                 {% else %}
-                    {{ active_trimester }} — Schedule
+                    {{ active_trimester }} - Schedule
                 {% endif %}
             </div>
-            <div class="card-body p-0">
-                <table class="table table-hover align-middle mb-0 small">
+            <div class="card-body p-0" style="overflow-x: auto;">
+                <table class="table table-hover align-middle mb-0 small data-surface">
                     <thead class="table-light">
                         <tr>
                             {% if active_trimester and active_trimester[-4:] == '-all' %}<th class="ps-3">Tri</th>{% endif %}
@@ -783,6 +684,7 @@
                             <th>Period</th>
                             <th>Time</th>
                             <th>Module</th>
+                            <th>Programme</th>
                             <th>Type</th>
                             <th>Delivery</th>
                             <th>Professor</th>
@@ -812,6 +714,9 @@
                                     {{ e.class_session.course.title }}
                                 </div>
                             </td>
+                            <td>
+                                <span class="badge bg-dark">{{ e.class_session.course.programme.code }}-Y{{ e.class_session.course.year_level }}</span>
+                            </td>
                             <td class="text-capitalize">{{ e.class_session.session_type }}</td>
                             <td>
                                 <span class="badge {% if e.class_session.delivery_mode == 'f2f' %}bg-success{% else %}bg-primary{% endif %}">
@@ -820,11 +725,11 @@
                             </td>
                             <td>
                                 {% if e.class_session.primary_professor %}{{ e.class_session.primary_professor.user.name }}
-                                {% else %}<span class="text-muted">—</span>{% endif %}
+                                {% else %}<span class="text-muted">-</span>{% endif %}
                             </td>
                             <td>
                                 {% if e.class_session.student_group %}{{ e.class_session.student_group.group_label }}
-                                {% else %}<span class="text-muted">—</span>{% endif %}
+                                {% else %}<span class="text-muted">-</span>{% endif %}
                             </td>
                             <td>
                                 {% if e.room %}{{ e.room.room_code }}
@@ -849,14 +754,14 @@
         </div>
 
         {% elif active_trimester %}
-        <div class="card border-0 shadow-sm">
+        <div class="card glass-card animate-in">
             <div class="card-body text-center text-muted py-5">
                 <i class="bi bi-calendar-x fs-2 d-block mb-2"></i>
                 No timetable generated for <strong>{{ active_trimester }}</strong> yet.
             </div>
         </div>
         {% else %}
-        <div class="card border-0 shadow-sm">
+        <div class="card glass-card animate-in">
             <div class="card-body text-center text-muted py-5">
                 <i class="bi bi-calendar3 fs-2 d-block mb-2"></i>
                 Fill in the trimester details and run the solver to generate a timetable.
@@ -882,6 +787,7 @@
             <div class="modal-body">
                 <table class="table table-sm table-borderless mb-0">
                     <tr><th class="text-muted fw-normal" style="width:35%;">Module</th><td id="md-title"></td></tr>
+                    <tr><th class="text-muted fw-normal">Programme</th><td id="md-programme"></td></tr>
                     <tr><th class="text-muted fw-normal">Day / Period</th><td id="md-day"></td></tr>
                     <tr><th class="text-muted fw-normal">Time</th><td id="md-time"></td></tr>
                     <tr><th class="text-muted fw-normal">Delivery</th><td id="md-delivery"></td></tr>
@@ -904,30 +810,28 @@
 
 <style>
 .weekly-grid td, .weekly-grid th { padding: 0.25rem; }
-.session-block { min-height: 65px; display: flex; flex-direction: column; }
+.session-block {
+    min-height: 65px; display: flex; flex-direction: column;
+    transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
 .session-lecture  { background: #dbeafe; border-left: 3px solid #3b82f6; color: #1e3a5f; }
 .session-tutorial { background: #dcfce7; border-left: 3px solid #16a34a; color: #14532d; }
 .session-lab      { background: #ffedd5; border-left: 3px solid #f97316; color: #7c2d12; }
 .session-seminar  { background: #ede9fe; border-left: 3px solid #7c3aed; color: #3b0764; }
 .session-online   { opacity: 0.85; background-image: repeating-linear-gradient(
     45deg, transparent, transparent 4px, rgba(255,255,255,0.4) 4px, rgba(255,255,255,0.4) 8px); }
-.session-block:hover { filter: brightness(0.95); }
+.session-block:hover {
+    filter: brightness(0.95);
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.18);
+    z-index: 2;
+    position: relative;
+}
 .session-block.filtered-out { display: none !important; }
 </style>
 
 <script>
 var SIT_CAL = {{ sit_calendar | tojson }};
-
-function fillFullAYDates(ay) {
-    ay = (ay || '').trim().toUpperCase();
-    var cal = SIT_CAL[ay] || {};
-    var src = document.getElementById('cal-source-full');
-    ['1','2','3'].forEach(function(t) {
-        var el = document.getElementById('sd_t' + t);
-        if (el) el.value = cal[t] || '';
-    });
-    if (src) src.textContent = Object.keys(cal).length ? '· from official SIT calendar' : '· enter manually (AY not in calendar)';
-}
 
 function fillSingleDate() {
     var ay  = (document.querySelector('#form-single [name=academic_year]').value || '').trim().toUpperCase();
@@ -939,19 +843,7 @@ function fillSingleDate() {
         el.value = cal[tri];
         if (src) src.textContent = '· from official SIT calendar';
     } else if (el && tri) {
-        if (src) src.textContent = '· not in calendar — enter manually';
-    }
-}
-
-function setGenMode(mode) {
-    var formFull   = document.getElementById('form-full-ay');
-    var formSingle = document.getElementById('form-single');
-    if (mode === 'full_ay') {
-        formFull.style.display   = '';
-        formSingle.style.display = 'none';
-    } else {
-        formFull.style.display   = 'none';
-        formSingle.style.display = '';
+        if (src) src.textContent = '· not in calendar - enter manually';
     }
 }
 
@@ -965,9 +857,6 @@ function updateTrimKey() {
 }
 document.addEventListener('DOMContentLoaded', function () {
     updateTrimKey();
-    // Auto-fill dates for the currently selected AY on page load
-    var fullAySel = document.querySelector('#form-full-ay [name=academic_year]');
-    if (fullAySel) fillFullAYDates(fullAySel.value);
     fillSingleDate();
     var modal = document.getElementById('sessionDetailModal');
     modal.addEventListener('show.bs.modal', function (event) {
@@ -975,12 +864,13 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('modal-module').textContent   = el.dataset.module;
         document.getElementById('modal-type').textContent     = el.dataset.type;
         document.getElementById('md-title').textContent       = el.dataset.title;
+        document.getElementById('md-programme').textContent   = el.dataset.programme || '-';
         document.getElementById('md-day').textContent         = el.dataset.day + ' · ' + el.dataset.period;
         document.getElementById('md-time').textContent        = el.dataset.time;
         document.getElementById('md-delivery').textContent    = el.dataset.delivery === 'online' ? 'Online' : 'Face-to-face';
         document.getElementById('md-room').textContent        = el.dataset.room;
         document.getElementById('md-professor').textContent   = el.dataset.professor;
-        document.getElementById('md-group').textContent       = el.dataset.groupLabel || '—';
+        document.getElementById('md-group').textContent       = el.dataset.groupLabel || '-';
         document.getElementById('md-status').textContent      = el.dataset.status;
         document.getElementById('md-edited').textContent      = el.dataset.edited;
         document.getElementById('md-edit-link').href          = el.dataset.editUrl;
@@ -989,27 +879,18 @@ document.addEventListener('DOMContentLoaded', function () {
 
 function filterYear(year) {
     localStorage.setItem('adminTimetableYearFilter', year);
-    document.querySelectorAll('[id^="chip-yr-"]').forEach(function(c) { c.classList.remove('active'); });
-    var chip = document.getElementById('chip-yr-' + year);
-    if (chip) chip.classList.add('active');
+    var sel = document.getElementById('sel-year');
+    if (sel) sel.value = year;
 
     document.querySelectorAll('.session-block').forEach(function(block) {
-        if (year === 'all' || String(block.dataset.year) === String(year)) {
-            block.classList.remove('filtered-out');
-        } else {
-            block.classList.add('filtered-out');
-        }
+        block.classList.toggle('filtered-out', year !== 'all' && String(block.dataset.year) !== String(year));
     });
     document.querySelectorAll('tbody tr[data-year]').forEach(function(row) {
-        if (year === 'all' || String(row.dataset.year) === String(year)) {
-            row.style.display = '';
-        } else {
-            row.style.display = 'none';
-        }
+        row.style.display = (year === 'all' || String(row.dataset.year) === String(year)) ? '' : 'none';
     });
 }
 
-// Restore saved year filter on every page load
+// Restore saved year filter on page load
 document.addEventListener('DOMContentLoaded', function () {
     var saved = localStorage.getItem('adminTimetableYearFilter');
     if (saved && saved !== 'all') { filterYear(saved); }
@@ -1057,7 +938,7 @@ document.addEventListener('DOMContentLoaded', function () {
         <!-- Timeout warning (shown after 5 min, solver still running) -->
         <div id="solver-timeout-warn" class="alert alert-warning mt-3 py-2 small text-start" style="display:none;">
           <i class="bi bi-exclamation-triangle me-1"></i>
-          This is taking longer than expected. The solver is still running — you can wait or close this and check back later.
+          This is taking longer than expected. The solver is still running - you can wait or close this and check back later.
         </div>
       </div>
       <div class="modal-footer border-0 justify-content-center">
@@ -1093,11 +974,11 @@ document.addEventListener('DOMContentLoaded', function () {
         if (el > 300) {  // 5 min
             document.getElementById('solver-timeout-warn').style.display = '';
         }
-        if (el > 600) {  // 10 min — stop polling, assume hung
+        if (el > 600) {  // 10 min - stop polling, assume hung
             clearInterval(_pollInterval);
             showState('error');
             document.getElementById('solver-error-msg').textContent =
-                'No response after 10 minutes. The solver may have stalled — check server logs.';
+                'No response after 10 minutes. The solver may have stalled - check server logs.';
             return;
         }
         fetch('/admin/solver/status/' + _taskId)
@@ -1165,10 +1046,6 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     document.addEventListener('DOMContentLoaded', function () {
-        document.getElementById('form-full-ay').addEventListener('submit', function(e) {
-            e.preventDefault();
-            startSolve(this);
-        });
         document.getElementById('form-single').addEventListener('submit', function(e) {
             e.preventDefault();
             startSolve(this);

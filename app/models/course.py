@@ -6,7 +6,7 @@ class Course(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     programme_id = db.Column(db.Integer, db.ForeignKey('programmes.id'), nullable=False)
-    module_code = db.Column(db.String(20), nullable=False)                  # e.g. 'DSC3002A' (not unique — same module can run in multiple trimesters)
+    module_code = db.Column(db.String(20), nullable=False)                  # e.g. 'DSC3002A' (not unique - same module can run in multiple trimesters)
     trimester = db.Column(db.Integer, nullable=True)                        # 1, 2, or 3
     title = db.Column(db.String(150), nullable=False)                       # e.g. 'Logistics & Supply Chain'
     year_level = db.Column(db.Integer, nullable=False)                      # 1, 2, or 3

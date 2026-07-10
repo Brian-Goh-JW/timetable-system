@@ -14,16 +14,24 @@ class ClassSession(db.Model):
     student_group_id      = db.Column(db.Integer, db.ForeignKey('student_groups.id'), nullable=True)
     fixed_timeslot_id     = db.Column(db.Integer, db.ForeignKey('timeslots.id'),      nullable=True)
     preferred_timeslot_id = db.Column(db.Integer, db.ForeignKey('timeslots.id'),      nullable=True)
+    fixed_room_id         = db.Column(db.Integer, db.ForeignKey('rooms.id'),          nullable=True)
+    # ^ locks this session to one specific room (the solver still picks the time),
+    # set when the source data names an exact venue - see bootstrap/34.
     trimester             = db.Column(db.Integer,                                      nullable=True)  # 1, 2, or 3
     teaching_weeks        = db.Column(db.String(100), nullable=True)                  # e.g. "1,2,3,4,5,6,8,9,10,11,12,13"
     group_label           = db.Column(db.String(20),  nullable=True)                  # Template 2 group: "All", "T1", "L1", "P1"
+    shared_module_group_id = db.Column(db.Integer, db.ForeignKey('shared_module_groups.id'), nullable=True)
+    # ^ set when this session must be scheduled together with other programmes'
+    # sessions for "the same" module (see SharedModuleGroup) - same room+slot, combined capacity.
 
     course             = db.relationship('Course',    backref='class_sessions')
     student_group      = db.relationship('StudentGroup', backref='class_sessions')
     fixed_timeslot     = db.relationship('TimeSlot',  foreign_keys=[fixed_timeslot_id])
     preferred_timeslot = db.relationship('TimeSlot',  foreign_keys=[preferred_timeslot_id])
+    fixed_room         = db.relationship('Room',      foreign_keys=[fixed_room_id])
+    shared_module_group = db.relationship('SharedModuleGroup', backref='class_sessions')
 
-    # All professor assignments — ordered by display_order (0 = primary)
+    # All professor assignments - ordered by display_order (0 = primary)
     professor_assignments = db.relationship(
         'ClassSessionProfessor',
         backref='class_session',

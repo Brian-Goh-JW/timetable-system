@@ -17,7 +17,7 @@ def create_app():
     login_manager.init_app(app)
     mail.init_app(app)
 
-    from app import models  # noqa: F401 — ensures all models are registered with SQLAlchemy
+    from app import models  # noqa: F401 - ensures all models are registered with SQLAlchemy
 
     from app.routes.auth import auth_bp
     from app.routes.admin import admin_bp
@@ -28,5 +28,13 @@ def create_app():
     app.register_blueprint(admin_bp)
     app.register_blueprint(teacher_bp)
     app.register_blueprint(student_bp)
+
+    @app.context_processor
+    def inject_nav_open_flags_count():
+        from flask_login import current_user
+        if current_user.is_authenticated and current_user.role == 'admin':
+            from app.models.timetable_flag import TimetableFlag
+            return {'nav_open_flags_count': TimetableFlag.query.filter_by(status='open').count()}
+        return {'nav_open_flags_count': 0}
 
     return app

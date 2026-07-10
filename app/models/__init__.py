@@ -14,3 +14,5 @@ from app.models.timetable_flag import TimetableFlag
 from app.models.flag_response import FlagResponse
 from app.models.audit_log import AuditLog
 from app.models.event import Event
+from app.models.shared_module_group import SharedModuleGroup
+from app.models.solve_run import SolveRun

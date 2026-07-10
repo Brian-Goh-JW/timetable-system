@@ -58,7 +58,7 @@ def timetable():
 
     active_trimester = request.args.get('trimester', trimesters[-1] if trimesters else '')
 
-    # Auto-load the student's assigned group — no manual selection needed.
+    # Auto-load the student's assigned group - no manual selection needed.
     # student_group_id is set by the admin on the student's account.
     selected_group = current_user.student_group  # None if not yet assigned
 

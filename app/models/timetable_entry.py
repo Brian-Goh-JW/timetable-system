@@ -14,7 +14,7 @@ class TimetableEntry(db.Model):
     academic_year = db.Column(db.String(10), nullable=True)                                      # e.g. 'AY2526'
     is_published = db.Column(db.Boolean, nullable=False, default=False)                          # Admin publishes when ready
     is_manually_edited = db.Column(db.Boolean, nullable=False, default=False)                    # True if Admin edited post-generation
-    is_backbone = db.Column(db.Boolean, nullable=False, default=False)                           # True for imported real timetable — never deleted by reset
+    is_backbone = db.Column(db.Boolean, nullable=False, default=False)                           # True for imported real timetable - never deleted by reset
 
     class_session      = db.relationship('ClassSession', backref='timetable_entries')
     timeslot           = db.relationship('TimeSlot', backref='timetable_entries')

@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Availability — SIT Timetable{% endblock %}
+{% block title %}Availability - SIT Timetable{% endblock %}
 
 {% block content %}
 
@@ -26,7 +26,7 @@
                             Timeslot <span class="text-danger">*</span>
                         </label>
                         <select class="form-select" id="timeslot_id" name="timeslot_id" required>
-                            <option value="">— Select a timeslot —</option>
+                            <option value="">- Select a timeslot -</option>
                             {% for day in day_order %}
                                 {% if slots_by_day[day] %}
                                 <optgroup label="{{ day }}">
@@ -64,8 +64,8 @@
                 <i class="bi bi-info-circle me-1 text-warning"></i>
                 <strong>What happens next?</strong><br>
                 The admin will review your declaration and classify it as either
-                <em>Strict</em> (hard block — the solver will never assign you to this slot) or
-                <em>Preferred</em> (soft preference — the solver will try to avoid it).
+                <em>Strict</em> (hard block - the solver will never assign you to this slot) or
+                <em>Preferred</em> (soft preference - the solver will try to avoid it).
                 You will not receive a separate notification; check back here to see the status.
             </div>
         </div>
@@ -116,7 +116,7 @@
                                 {% elif d.constraint_type == 'preferred' %}
                                     <span class="badge bg-info text-dark">Preferred</span>
                                 {% else %}
-                                    <span class="text-muted">—</span>
+                                    <span class="text-muted">-</span>
                                 {% endif %}
                             </td>
                             <td>

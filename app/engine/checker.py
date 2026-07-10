@@ -1,6 +1,6 @@
 """
 Pre-solve readiness checker.
-Returns (blockers, warnings) — only blockers prevent generation.
+Returns (blockers, warnings) - only blockers prevent generation.
 The solver gracefully skips sessions with no professor or no student group,
 so those are warnings only.
 """
@@ -16,7 +16,7 @@ def get_blocking_issues(trimester_num=None):
     Empty blockers list means the system is ready to schedule.
 
     Args:
-        trimester_num : int|None — if provided, only check sessions for that trimester.
+        trimester_num : int|None - if provided, only check sessions for that trimester.
     """
     from sqlalchemy import exists
     from app.models.class_session_professor import ClassSessionProfessor
@@ -39,16 +39,18 @@ def get_blocking_issues(trimester_num=None):
         if not c.class_sessions:
             blockers.append(f'{c.module_code}: no sessions and split count not set.')
 
-    # 2. Sessions with no professor — solver skips these, so warning only
+    # 2. Sessions with no professor - still scheduled (room + time), just
+    # exported with a blank staff field - warning only, not a blocker
     no_prof = session_base().filter(
         ~exists().where(ClassSessionProfessor.session_id == ClassSession.id)
     ).all()
     if no_prof:
         warnings.append(
-            f'{len(no_prof)} session(s) have no professor assigned and will be skipped by the solver.'
+            f'{len(no_prof)} session(s) have no professor assigned - still scheduled, but the '
+            f'timetable and Template 2 export will show a blank staff field until one is assigned.'
         )
 
-    # 3. F2f sessions with no student group — solver skips these, so warning only
+    # 3. F2f sessions with no student group - solver skips these, so warning only
     no_group = session_base().filter(
         ClassSession.delivery_mode == 'f2f',
         ClassSession.student_group_id.is_(None),
@@ -59,7 +61,7 @@ def get_blocking_issues(trimester_num=None):
             f'{len(no_group)} f2f session(s) have no student group assigned and will be skipped.'
         )
 
-    # 4. Fixed timeslot incompatibilities — these would make the model infeasible (blocker)
+    # 4. Fixed timeslot incompatibilities - these would make the model infeasible (blocker)
     fixed_sessions = session_base().filter(
         ClassSession.fixed_timeslot_id.isnot(None)
     ).all()
@@ -80,5 +82,33 @@ def get_blocking_issues(trimester_num=None):
                 f'{ts.day_of_week} {ts.period_label} is {slot_hours}h '
                 f'but session requires {s.duration_hours}h.'
             )
+
+    # 5. Assessment load - no single module's class may have more than 1 quiz in
+    # the same teaching week (per Ms. Yang's requirements doc, a hard constraint -
+    # confirmed with Brian on 2026-07-10 that "class" here means one module's own
+    # class, not a student group's full set of modules). This can't be fixed by
+    # the solver - teaching_weeks is fixed input data, not something the solver
+    # decides - so it's surfaced here as a blocker instead of a solver rule.
+    from collections import defaultdict
+    from app.engine.solver import _weeks_overlap
+
+    # Grouped by (course, section) rather than course alone - a module split
+    # into unlabelled parallel sections (e.g. EPE2300's Group A/B) is two
+    # separate classes, not one class with two quizzes.
+    quizzes_by_course_section = defaultdict(list)
+    for s in session_base().filter(ClassSession.session_type == 'quiz').all():
+        quizzes_by_course_section[(s.course_id, s.group_label)].append(s)
+
+    for (course_id, section), quiz_list in quizzes_by_course_section.items():
+        for i in range(len(quiz_list)):
+            for j in range(i + 1, len(quiz_list)):
+                qi, qj = quiz_list[i], quiz_list[j]
+                if _weeks_overlap(qi, qj):
+                    grp_label = qi.student_group.group_label if qi.student_group else '?'
+                    section_note = f' (section {section})' if section and section != 'All' else ''
+                    blockers.append(
+                        f'{qi.course.module_code}{section_note} has 2 quiz sessions both falling in an '
+                        f'overlapping teaching week for group {grp_label} - max 1 quiz/week allowed.'
+                    )
 
     return blockers, warnings

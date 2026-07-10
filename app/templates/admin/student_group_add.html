@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Add Student Group — SIT Timetable{% endblock %}
+{% block title %}Add Student Group - SIT Timetable{% endblock %}
 
 {% block content %}
 
@@ -26,7 +26,7 @@
                             {% for prog in programmes %}
                             <option value="{{ prog.id }}"
                                 {% if form.get('programme_id') == prog.id|string %}selected{% endif %}>
-                                {{ prog.code }} — {{ prog.name }}
+                                {{ prog.code }} - {{ prog.name }}
                             </option>
                             {% endfor %}
                         </select>

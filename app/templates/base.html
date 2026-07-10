@@ -6,9 +6,17 @@
     <title>{% block title %}SIT Timetable System{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --bs-body-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            --bs-font-sans-serif: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
         .navbar-sit {
-            background-color: #c0272d;
+            background: linear-gradient(100deg, #d42e35 0%, #c0272d 45%, #971e23 100%);
+            box-shadow: 0 4px 24px rgba(150, 20, 25, 0.35);
         }
         .navbar-sit .navbar-brand,
         .navbar-sit .nav-link,
@@ -24,10 +32,37 @@
         }
         .navbar-sit .nav-link {
             font-size: 0.9rem;
-            padding-left: 0.6rem;
-            padding-right: 0.6rem;
+            padding-left: 0.7rem;
+            padding-right: 0.7rem;
         }
-        /* Filter pill chips — shared across all views */
+        .navbar-sit .dropdown-menu {
+            border: none;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            padding: 0.4rem;
+            margin-top: 0.4rem;
+        }
+        .navbar-sit .dropdown-item {
+            font-size: 0.88rem;
+            padding: 0.45rem 0.8rem;
+            border-radius: 6px;
+            color: #334155;
+        }
+        .navbar-sit .dropdown-item i {
+            width: 1.1rem;
+            display: inline-block;
+        }
+        .navbar-sit .dropdown-item:hover {
+            background-color: #fdecec;
+            color: #c0272d;
+        }
+        .navbar-sit .dropdown-item.active {
+            background-color: #c0272d;
+            color: #fff;
+        }
+        .navbar-sit .dropdown-toggle::after {
+            vertical-align: 0.15em;
+        }
+        /* Filter pill chips - shared across all views */
         .filter-chip {
             display: inline-flex;
             align-items: center;
@@ -51,8 +86,23 @@
         .filter-chip.chip-warning.active   { background: #d97706; border-color: #d97706; }
         .filter-chip.chip-info.active      { background: #0891b2; border-color: #0891b2; }
         .filter-chip.chip-danger.active    { background: #dc2626; border-color: #dc2626; }
+        /* Slightly narrower than full-bleed so there's breathing room on wide screens */
+        .app-container {
+            max-width: 1600px;
+            margin-left: auto;
+            margin-right: auto;
+            padding-left: 2rem;
+            padding-right: 2rem;
+        }
         body {
-            background-color: #f5f6f8;
+            background:
+                radial-gradient(circle at 12% 18%, rgba(192, 39, 45, 0.16) 0%, transparent 38%),
+                radial-gradient(circle at 88% 12%, rgba(37, 99, 235, 0.14) 0%, transparent 40%),
+                radial-gradient(circle at 25% 85%, rgba(147, 51, 234, 0.11) 0%, transparent 42%),
+                radial-gradient(circle at 90% 80%, rgba(22, 163, 74, 0.10) 0%, transparent 40%),
+                linear-gradient(135deg, #fdf2f2 0%, #f3f4f8 45%, #eef4fb 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
         }
         .page-header {
             background-color: #ffffff;
@@ -60,18 +110,162 @@
             padding: 1rem 0;
             margin-bottom: 1.5rem;
         }
+
+        /* ------------------------------------------------------------- */
+        /* Glassmorphism design system                                    */
+        /* ------------------------------------------------------------- */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.62);
+            -webkit-backdrop-filter: blur(20px) saturate(160%);
+            backdrop-filter: blur(20px) saturate(160%);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            border-radius: 20px;
+            box-shadow:
+                0 20px 48px rgba(31, 38, 135, 0.14),
+                0 4px 12px rgba(31, 38, 135, 0.08),
+                inset 0 1px 0 rgba(255, 255, 255, 0.7);
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
+            overflow: hidden;
+        }
+        .hover-lift:hover {
+            transform: translateY(-8px);
+            box-shadow:
+                0 28px 56px rgba(31, 38, 135, 0.22),
+                0 8px 20px rgba(31, 38, 135, 0.12),
+                inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        }
+        /* Near-opaque, no-blur surface for dense data (tables/grids) -
+           readability comes first, glass effect stays on containers only. */
+        .data-surface {
+            background: rgba(255, 255, 255, 0.94);
+            border-radius: 16px;
+        }
+
+        /* 3D gradient icon "orbs" for stat tiles - replaces flat pastel squares */
+        .icon-orb {
+            width: 52px;
+            height: 52px;
+            min-width: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 14px;
+            box-shadow: 0 6px 16px var(--orb-shadow, rgba(0,0,0,0.25)), inset 0 1px 0 rgba(255,255,255,0.4);
+        }
+        .icon-orb i { color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.15); }
+        .icon-orb-red    { background: linear-gradient(135deg, #ff9a9a, #c0272d); --orb-shadow: rgba(192,39,45,0.45); }
+        .icon-orb-amber  { background: linear-gradient(135deg, #fde68a, #f59e0b); --orb-shadow: rgba(245,158,11,0.45); }
+        .icon-orb-blue   { background: linear-gradient(135deg, #93c5fd, #2563eb); --orb-shadow: rgba(37,99,235,0.45); }
+        .icon-orb-green  { background: linear-gradient(135deg, #86efac, #16a34a); --orb-shadow: rgba(22,163,74,0.45); }
+        .icon-orb-purple { background: linear-gradient(135deg, #d8b4fe, #9333ea); --orb-shadow: rgba(147,51,234,0.45); }
+
+        /* Glass-styled dropdowns */
+        .select-glass {
+            background-color: rgba(255, 255, 255, 0.75);
+            border: 1px solid rgba(192, 39, 45, 0.15);
+            border-radius: 10px;
+            font-weight: 500;
+            color: #334155;
+            box-shadow: 0 2px 8px rgba(31, 38, 135, 0.06);
+            transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+        }
+        .select-glass:hover {
+            border-color: rgba(192, 39, 45, 0.35);
+            background-color: rgba(255, 255, 255, 0.92);
+        }
+        .select-glass:focus {
+            border-color: #c0272d;
+            box-shadow: 0 0 0 0.2rem rgba(192, 39, 45, 0.15);
+        }
+
+        /* Segmented view toggle (List/Weekly etc.) */
+        .segmented-toggle {
+            background: rgba(255, 255, 255, 0.55);
+            border-radius: 10px;
+            padding: 3px;
+            display: inline-flex;
+            gap: 2px;
+            box-shadow: 0 2px 8px rgba(31, 38, 135, 0.08);
+        }
+        .segmented-toggle .btn {
+            border: none !important;
+            border-radius: 8px !important;
+            font-weight: 500;
+            color: #475569;
+            background: transparent;
+            transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .segmented-toggle .btn.active {
+            background: linear-gradient(135deg, #d42e35, #971e23) !important;
+            color: #fff !important;
+            box-shadow: 0 4px 12px rgba(192, 39, 45, 0.35);
+        }
+        .segmented-toggle .btn:not(.active):not(:disabled):hover {
+            background: rgba(192, 39, 45, 0.08);
+            color: #c0272d;
+        }
+        .segmented-toggle .btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            background: transparent !important;
+            color: #94a3b8 !important;
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(16px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .animate-in {
+            animation: fadeInUp 0.5s ease both;
+        }
+        .stagger > *:nth-child(1) { animation-delay: 0.02s; }
+        .stagger > *:nth-child(2) { animation-delay: 0.08s; }
+        .stagger > *:nth-child(3) { animation-delay: 0.14s; }
+        .stagger > *:nth-child(4) { animation-delay: 0.20s; }
+        .stagger > *:nth-child(5) { animation-delay: 0.26s; }
+        .stagger > *:nth-child(6) { animation-delay: 0.32s; }
+        .stagger > *:nth-child(7) { animation-delay: 0.38s; }
+        .stagger > *:nth-child(8) { animation-delay: 0.44s; }
+
+        /* Navbar open-flags counter badge */
+        @keyframes pulseBadge {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55); }
+            50%      { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+        }
+        .nav-flag-badge {
+            position: absolute;
+            top: 0;
+            right: -2px;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 4px;
+            border-radius: 999px;
+            background: #dc2626;
+            color: #fff;
+            font-size: 0.65rem;
+            font-weight: 700;
+            line-height: 18px;
+            text-align: center;
+            animation: pulseBadge 2s ease-in-out infinite;
+        }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
 <body>
 
     <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-sit shadow-sm">
-        <div class="container">
-            <a class="navbar-brand fw-semibold" href="#">
-                <i class="bi bi-calendar3 me-2"></i>SIT Timetable
-            </a>
+    <nav class="navbar navbar-expand-lg navbar-sit p-0">
+        <div class="app-container">
 
+            <!-- Row 1: centered brand -->
+            <div class="d-flex justify-content-center py-2 border-bottom" style="border-color: rgba(255,255,255,0.15) !important;">
+                <a class="navbar-brand fw-bold fs-4 m-0 d-flex align-items-center" href="#">
+                    <i class="bi bi-calendar3 me-2"></i>SIT Timetable
+                </a>
+            </div>
+
+            <!-- Row 2: nav links, toggler, user info -->
+            <div class="d-flex align-items-center py-2">
             <button class="navbar-toggler border-light" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -83,53 +277,71 @@
                     {% if current_user.is_authenticated %}
 
                         {% if current_user.role == 'admin' %}
+                            {% set data_active = request.endpoint and (
+                                request.endpoint.startswith('admin.course') or
+                                request.endpoint.startswith('admin.professor') or
+                                request.endpoint.startswith('admin.student') or
+                                request.endpoint.startswith('admin.room')
+                            ) %}
+                            {% set tools_active = request.endpoint in ('admin.declarations', 'admin.timetable_flags',
+                                'admin.data_import', 'admin.audit_log', 'admin.system_info')
+                                or (request.endpoint and 'event' in request.endpoint) %}
+
                             <li class="nav-item">
                                 <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}"
-                                   href="{{ url_for('admin.dashboard') }}">Dashboard</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.course') %}active{% endif %}"
-                                   href="{{ url_for('admin.courses') }}">Courses</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.professor') %}active{% endif %}"
-                                   href="{{ url_for('admin.professors') }}">Professors</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.student_group') %}active{% endif %}"
-                                   href="{{ url_for('admin.student_groups') }}">Groups</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.student') and not request.endpoint.startswith('admin.student_group') %}active{% endif %}"
-                                   href="{{ url_for('admin.students') }}">Students</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint and request.endpoint.startswith('admin.room') %}active{% endif %}"
-                                   href="{{ url_for('admin.rooms') }}">Rooms</a>
+                                   href="{{ url_for('admin.dashboard') }}">
+                                    <i class="bi bi-speedometer2 me-1"></i>Dashboard
+                                </a>
                             </li>
                             <li class="nav-item">
                                 <a class="nav-link {% if request.endpoint == 'admin.timetable' %}active{% endif %}"
-                                   href="{{ url_for('admin.timetable') }}">Timetable</a>
+                                   href="{{ url_for('admin.timetable') }}">
+                                    <i class="bi bi-calendar-week me-1"></i>Timetable
+                                </a>
                             </li>
-                            <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'admin.declarations' %}active{% endif %}"
-                                   href="{{ url_for('admin.declarations') }}">Declarations</a>
+
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle {% if data_active %}active{% endif %}"
+                                   href="#" role="button" data-bs-toggle="dropdown">
+                                    <i class="bi bi-database me-1"></i>Data
+                                </a>
+                                <ul class="dropdown-menu">
+                                    <li><a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('admin.course') %}active{% endif %}"
+                                           href="{{ url_for('admin.courses') }}"><i class="bi bi-journal-text"></i> Courses</a></li>
+                                    <li><a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('admin.professor') %}active{% endif %}"
+                                           href="{{ url_for('admin.professors') }}"><i class="bi bi-person-badge"></i> Professors</a></li>
+                                    <li><a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('admin.student_group') %}active{% endif %}"
+                                           href="{{ url_for('admin.student_groups') }}"><i class="bi bi-people"></i> Groups</a></li>
+                                    <li><a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('admin.student') and not request.endpoint.startswith('admin.student_group') %}active{% endif %}"
+                                           href="{{ url_for('admin.students') }}"><i class="bi bi-mortarboard"></i> Students</a></li>
+                                    <li><a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('admin.room') %}active{% endif %}"
+                                           href="{{ url_for('admin.rooms') }}"><i class="bi bi-door-open"></i> Rooms</a></li>
+                                </ul>
                             </li>
-                            <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'admin.timetable_flags' %}active{% endif %}"
-                                   href="{{ url_for('admin.timetable_flags') }}">Flags</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint and 'event' in request.endpoint %}active{% endif %}"
-                                   href="{{ url_for('admin.events') }}">Events</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'admin.data_import' %}active{% endif %}"
-                                   href="{{ url_for('admin.data_import') }}">Import</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'admin.audit_log' %}active{% endif %}"
-                                   href="{{ url_for('admin.audit_log') }}">Audit Log</a>
+
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle {% if tools_active %}active{% endif %}"
+                                   href="#" role="button" data-bs-toggle="dropdown" style="position: relative;">
+                                    <i class="bi bi-gear me-1"></i>Admin Tools
+                                    {% if nav_open_flags_count and nav_open_flags_count > 0 %}
+                                    <span class="nav-flag-badge">{{ nav_open_flags_count }}</span>
+                                    {% endif %}
+                                </a>
+                                <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item {% if request.endpoint == 'admin.declarations' %}active{% endif %}"
+                                           href="{{ url_for('admin.declarations') }}"><i class="bi bi-calendar-check"></i> Declarations</a></li>
+                                    <li><a class="dropdown-item {% if request.endpoint == 'admin.timetable_flags' %}active{% endif %}"
+                                           href="{{ url_for('admin.timetable_flags') }}"><i class="bi bi-flag"></i> Flags</a></li>
+                                    <li><a class="dropdown-item {% if request.endpoint and 'event' in request.endpoint %}active{% endif %}"
+                                           href="{{ url_for('admin.events') }}"><i class="bi bi-calendar-event"></i> Events</a></li>
+                                    <li><a class="dropdown-item {% if request.endpoint == 'admin.data_import' %}active{% endif %}"
+                                           href="{{ url_for('admin.data_import') }}"><i class="bi bi-upload"></i> Import</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item {% if request.endpoint == 'admin.audit_log' %}active{% endif %}"
+                                           href="{{ url_for('admin.audit_log') }}"><i class="bi bi-clock-history"></i> Audit Log</a></li>
+                                    <li><a class="dropdown-item {% if request.endpoint == 'admin.system_info' %}active{% endif %}"
+                                           href="{{ url_for('admin.system_info') }}"><i class="bi bi-info-circle"></i> System Info</a></li>
+                                </ul>
                             </li>
 
                         {% elif current_user.role == 'professor' %}
@@ -171,9 +383,11 @@
                         <span class="navbar-text">
                             <i class="bi bi-person-circle me-1"></i>
                             {{ current_user.name }}
+                            {% if current_user.name | lower != current_user.role | lower %}
                             <span class="badge bg-light text-dark ms-1" style="font-size:0.7rem;">
                                 {{ current_user.role | capitalize }}
                             </span>
+                            {% endif %}
                         </span>
                     </li>
                     <li class="nav-item">
@@ -185,13 +399,14 @@
                 {% endif %}
 
             </div>
+            </div>
         </div>
     </nav>
 
     <!-- Flash messages -->
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
-            <div class="container mt-3">
+            <div class="app-container mt-3">
                 {% for category, message in messages %}
                     <div class="alert alert-{{ category }} alert-dismissible fade show py-2" role="alert">
                         {{ message }}
@@ -203,7 +418,7 @@
     {% endwith %}
 
     <!-- Page content -->
-    <main class="container my-4">
+    <main class="app-container my-4">
         {% block content %}{% endblock %}
     </main>
 

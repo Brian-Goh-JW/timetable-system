@@ -23,7 +23,7 @@ def _send(msg):
 
 
 # ---------------------------------------------------------------------------
-# Email A — Professor notified of conflict flag
+# Email A - Professor notified of conflict flag
 # ---------------------------------------------------------------------------
 
 def send_flag_notification(flag):
@@ -45,9 +45,9 @@ def send_flag_notification(flag):
     group_label = session.student_group.group_label if session.student_group else 'N/A'
 
     subject = (
-        f'[SIT Timetable] Conflict Notification — '
+        f'[SIT Timetable] Conflict Notification - '
         f'{session.course.module_code} {session.session_type.capitalize()} '
-        f'— Response Required'
+        f'- Response Required'
     )
 
     body = f"""Dear {prof.user.name},
@@ -61,7 +61,7 @@ by logging into the system.
 ──────────────────────────────────────────
 AFFECTED SESSION
 ──────────────────────────────────────────
-Module      : {session.course.module_code} — {session.course.title}
+Module      : {session.course.module_code} - {session.course.title}
 Session Type: {session.session_type.capitalize()}
 Group       : {group_label}
 Trimester   : {trimester}
@@ -104,7 +104,7 @@ SIT Timetable System (Automated)
 
 
 # ---------------------------------------------------------------------------
-# Email B — Admin notified that professor cannot proceed
+# Email B - Admin notified that professor cannot proceed
 # ---------------------------------------------------------------------------
 
 def send_cannot_proceed_notification(flag, flag_response):
@@ -128,8 +128,8 @@ def send_cannot_proceed_notification(flag, flag_response):
     comments    = flag_response.comments or 'No comments provided.'
 
     subject = (
-        f'[SIT Timetable] Action Required — '
-        f'{prof.user.name} Cannot Proceed — '
+        f'[SIT Timetable] Action Required - '
+        f'{prof.user.name} Cannot Proceed - '
         f'{session.course.module_code}'
     )
 
@@ -149,7 +149,7 @@ Email    : {prof.user.email}
 
 AFFECTED SESSION
 ──────────────────────────────────────────
-Module      : {session.course.module_code} — {session.course.title}
+Module      : {session.course.module_code} - {session.course.title}
 Session Type: {session.session_type.capitalize()}
 Group       : {group_label}
 Trimester   : {trimester}

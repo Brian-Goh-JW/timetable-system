@@ -1,23 +1,23 @@
 {% extends 'base.html' %}
-{% block title %}Admin Dashboard — SIT Timetable{% endblock %}
+{% block title %}Admin Dashboard - SIT Timetable{% endblock %}
 
 {% block content %}
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h4 class="mb-0 fw-semibold">Admin Dashboard</h4>
-        <small class="text-muted">DSC Programme &mdash; Engineering Cluster</small>
+        <small class="text-muted">Engineering Cluster - All Programmes</small>
     </div>
 </div>
 
 <!-- Summary cards -->
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-4 stagger">
 
     <div class="col-sm-6 col-lg-3">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card hover-lift animate-in h-100">
             <div class="card-body d-flex align-items-center gap-3">
-                <div class="rounded-3 p-3" style="background-color:#fff3f3;">
-                    <i class="bi bi-journal-bookmark fs-4" style="color:#c0272d;"></i>
+                <div class="icon-orb icon-orb-red">
+                    <i class="bi bi-journal-bookmark fs-5"></i>
                 </div>
                 <div>
                     <div class="fs-3 fw-bold">{{ stats.total_courses }}</div>
@@ -28,10 +28,10 @@
     </div>
 
     <div class="col-sm-6 col-lg-3">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card hover-lift animate-in h-100">
             <div class="card-body d-flex align-items-center gap-3">
-                <div class="rounded-3 p-3" style="background-color:#fff8e1;">
-                    <i class="bi bi-exclamation-triangle fs-4" style="color:#f59e0b;"></i>
+                <div class="icon-orb icon-orb-amber">
+                    <i class="bi bi-exclamation-triangle fs-5"></i>
                 </div>
                 <div>
                     <div class="fs-3 fw-bold">{{ stats.courses_missing_split }}</div>
@@ -42,10 +42,10 @@
     </div>
 
     <div class="col-sm-6 col-lg-3">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card hover-lift animate-in h-100">
             <div class="card-body d-flex align-items-center gap-3">
-                <div class="rounded-3 p-3" style="background-color:#f0f7ff;">
-                    <i class="bi bi-person-badge fs-4" style="color:#2563eb;"></i>
+                <div class="icon-orb icon-orb-blue">
+                    <i class="bi bi-person-badge fs-5"></i>
                 </div>
                 <div>
                     <div class="fs-3 fw-bold">{{ stats.total_professors }}</div>
@@ -56,10 +56,10 @@
     </div>
 
     <div class="col-sm-6 col-lg-3">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card hover-lift animate-in h-100">
             <div class="card-body d-flex align-items-center gap-3">
-                <div class="rounded-3 p-3" style="background-color:#f0fdf4;">
-                    <i class="bi bi-door-open fs-4" style="color:#16a34a;"></i>
+                <div class="icon-orb icon-orb-green">
+                    <i class="bi bi-door-open fs-5"></i>
                 </div>
                 <div>
                     <div class="fs-3 fw-bold">{{ stats.total_rooms }}</div>
@@ -77,13 +77,13 @@
     <h6 class="mb-0 fw-semibold text-muted small text-uppercase">Timetable KPIs</h6>
     <span class="ms-2 badge bg-light text-secondary border">{{ kpis.trimester }}</span>
 </div>
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-4 stagger">
 
     <div class="col-sm-6 col-lg-3">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card hover-lift animate-in h-100">
             <div class="card-body d-flex align-items-center gap-3">
-                <div class="rounded-3 p-3" style="background-color:#f0f7ff;">
-                    <i class="bi bi-calendar-check fs-4" style="color:#2563eb;"></i>
+                <div class="icon-orb icon-orb-blue">
+                    <i class="bi bi-calendar-check fs-5"></i>
                 </div>
                 <div>
                     <div class="fs-3 fw-bold">{{ kpis.sessions_scheduled }}</div>
@@ -94,10 +94,10 @@
     </div>
 
     <div class="col-sm-6 col-lg-3">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card hover-lift animate-in h-100">
             <div class="card-body d-flex align-items-center gap-3">
-                <div class="rounded-3 p-3" style="background-color:#f0fdf4;">
-                    <i class="bi bi-building fs-4" style="color:#16a34a;"></i>
+                <div class="icon-orb icon-orb-green">
+                    <i class="bi bi-building fs-5"></i>
                 </div>
                 <div>
                     <div class="fs-3 fw-bold">{{ kpis.room_util_pct }}%</div>
@@ -108,10 +108,10 @@
     </div>
 
     <div class="col-sm-6 col-lg-3">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card hover-lift animate-in h-100">
             <div class="card-body d-flex align-items-center gap-3">
-                <div class="rounded-3 p-3" style="background-color:#fdf4ff;">
-                    <i class="bi bi-person-check fs-4" style="color:#9333ea;"></i>
+                <div class="icon-orb icon-orb-purple">
+                    <i class="bi bi-person-check fs-5"></i>
                 </div>
                 <div>
                     <div class="fs-3 fw-bold">{{ kpis.profs_covered }}</div>
@@ -122,10 +122,10 @@
     </div>
 
     <div class="col-sm-6 col-lg-3">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card hover-lift animate-in h-100">
             <div class="card-body d-flex align-items-center gap-3">
-                <div class="rounded-3 p-3" style="background-color:#f0fdf4;">
-                    <i class="bi bi-shield-check fs-4" style="color:#16a34a;"></i>
+                <div class="icon-orb icon-orb-green">
+                    <i class="bi bi-shield-check fs-5"></i>
                 </div>
                 <div>
                     <div class="fs-3 fw-bold text-success">{{ kpis.hard_conflicts }}</div>
@@ -143,14 +143,14 @@
 
     <!-- Courses missing split count -->
     <div class="col-lg-6">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-white border-bottom fw-semibold">
+        <div class="card glass-card animate-in h-100">
+            <div class="card-header bg-transparent border-bottom fw-semibold">
                 <i class="bi bi-exclamation-circle text-warning me-2"></i>
                 Courses Requiring Split Count
             </div>
             <div class="card-body p-0">
                 {% if courses_missing_split %}
-                    <table class="table table-sm table-hover mb-0">
+                    <table class="table table-sm table-hover mb-0 data-surface">
                         <thead class="table-light">
                             <tr>
                                 <th class="ps-3">Module Code</th>
@@ -186,28 +186,33 @@
 
     <!-- System status -->
     <div class="col-lg-6">
-        <div class="card border-0 shadow-sm h-100">
-            <div class="card-header bg-white border-bottom fw-semibold">
+        <div class="card glass-card animate-in h-100">
+            <div class="card-header bg-transparent border-bottom fw-semibold">
                 <i class="bi bi-activity text-primary me-2"></i>
                 System Status
             </div>
             <div class="card-body">
                 <ul class="list-group list-group-flush">
-                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                    <li class="list-group-item bg-transparent px-0 d-flex justify-content-between align-items-center">
                         <span><i class="bi bi-table me-2 text-muted"></i>Timetable generated</span>
                         <span class="badge bg-secondary">Not yet</span>
                     </li>
-                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                    <li class="list-group-item bg-transparent px-0 d-flex justify-content-between align-items-center">
                         <span><i class="bi bi-megaphone me-2 text-muted"></i>Timetable published</span>
                         <span class="badge bg-secondary">Not yet</span>
                     </li>
-                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
-                        <span><i class="bi bi-flag me-2 text-muted"></i>Open conflict flags</span>
-                        <span class="badge {% if stats.open_flags > 0 %}bg-danger{% else %}bg-success{% endif %}">
+                    <li class="list-group-item d-flex justify-content-between align-items-center
+                                {% if stats.open_flags > 0 %}px-3 border-0 border-start border-danger border-3 bg-white bg-opacity-50 rounded-2{% else %}bg-transparent px-0{% endif %}">
+                        <span>
+                            <i class="bi bi-flag-fill me-2 {% if stats.open_flags > 0 %}text-danger{% else %}text-muted{% endif %}"></i>
+                            Open conflict flags
+                        </span>
+                        <span class="badge {% if stats.open_flags > 0 %}bg-danger nav-flag-badge-inline{% else %}bg-success{% endif %}"
+                              style="{% if stats.open_flags > 0 %}position: static; font-size: 0.85rem; padding: 0.35em 0.65em; animation: pulseBadge 2s ease-in-out infinite;{% endif %}">
                             {{ stats.open_flags }}
                         </span>
                     </li>
-                    <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+                    <li class="list-group-item bg-transparent px-0 d-flex justify-content-between align-items-center">
                         <a href="{{ url_for('admin.declarations') }}" class="text-decoration-none text-dark">
                             <i class="bi bi-clock-history me-2 text-muted"></i>Pending availability declarations
                         </a>

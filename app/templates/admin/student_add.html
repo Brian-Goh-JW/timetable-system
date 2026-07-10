@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Add Student — SIT Timetable{% endblock %}
+{% block title %}Add Student - SIT Timetable{% endblock %}
 
 {% block content %}
 
@@ -49,7 +49,7 @@
                             Cohort Group
                         </label>
                         <select class="form-select" id="student_group_id" name="student_group_id">
-                            <option value="">— Not assigned yet —</option>
+                            <option value="">- Not assigned yet -</option>
                             {% for g in all_groups %}
                                 {% if g.parent_id is none %}
                                     <optgroup label="{{ g.group_label }} (Year {{ g.year_level }})">

@@ -1,0 +1,286 @@
+{% extends 'base.html' %}
+{% block title %}Scheduling Report - SIT Timetable{% endblock %}
+
+{% macro bar_row(row, max_pct=100) %}
+<div class="d-flex align-items-center gap-2 mb-2">
+    <div class="text-truncate small text-secondary" style="width:180px;">{{ row.label }}</div>
+    <div class="flex-grow-1 position-relative" style="height:20px;">
+        <div class="position-absolute top-0 start-0 h-100 w-100 rounded-pill" style="background:#e1e0d9;"></div>
+        <div class="position-absolute top-0 start-0 h-100 rounded-pill report-bar-fill"
+             style="width:{{ row.pct }}%;"></div>
+    </div>
+    <div class="text-end small fw-semibold" style="width:44px;">{{ row.count }}</div>
+</div>
+{% endmacro %}
+
+{% block extra_head %}
+<style>
+    .report-bar-fill {
+        background: #2a78d6;
+        transition: width 0.4s ease;
+    }
+    .score-ring {
+        width: 128px; height: 128px;
+        border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        flex-direction: column;
+        position: relative;
+    }
+    .score-ring svg { position: absolute; top: 0; left: 0; transform: rotate(-90deg); }
+    .stat-tile {
+        text-align: center;
+        padding: 0.9rem 0.5rem;
+    }
+    .stat-tile .stat-value { font-size: 1.5rem; font-weight: 700; color: #0b0b0b; }
+    .stat-tile .stat-label { font-size: 0.72rem; color: #52514e; text-transform: uppercase; letter-spacing: 0.03em; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+        <h4 class="mb-0 fw-semibold">Scheduling Administration Report</h4>
+        <small class="text-muted">How the generated timetable came together, one trimester at a time</small>
+    </div>
+    <form method="GET" class="d-flex align-items-center gap-2">
+        <select class="form-select select-glass" name="trimester" onchange="this.form.submit()">
+            {% for t in trimesters %}
+            <option value="{{ t }}" {% if t == trimester %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+        </select>
+        <a href="{{ url_for('admin.timetable', trimester=trimester, source='generated') }}"
+           class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-calendar-week me-1"></i>View Timetable
+        </a>
+    </form>
+</div>
+
+{% if not report or not report.has_data %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    No scheduled sessions found for <strong>{{ trimester or 'this trimester' }}</strong> yet.
+    Generate a timetable first, then this report will fill in.
+</div>
+{% else %}
+
+<!-- Header strip -->
+<div class="card glass-card animate-in mb-3">
+    <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+        <div>
+            <div class="text-muted small">TIMETABLE RUN</div>
+            <div class="fw-bold fs-5">{{ report.trimester }}</div>
+            {% if report.generated_at %}
+            <div class="text-muted small">Generated {{ report.generated_at.strftime('%d %b %Y, %I:%M %p') }} UTC</div>
+            {% endif %}
+        </div>
+        <div class="d-flex gap-2">
+            {% if report.solver_status %}
+            <span class="badge {% if report.solver_status == 'Optimal' %}bg-success{% else %}bg-primary{% endif %} px-3 py-2">
+                {{ report.solver_status | upper }}
+            </span>
+            {% endif %}
+            {% if report.score.available %}
+            <span class="badge px-3 py-2
+                {% if report.score.value >= 80 %}bg-success
+                {% elif report.score.value >= 50 %}bg-warning text-dark
+                {% else %}bg-danger{% endif %}">
+                {{ report.score.value }}/100
+            </span>
+            {% else %}
+            <span class="badge bg-secondary px-3 py-2">Score not available</span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Stat tiles -->
+<div class="row g-3 mb-3 stagger">
+    <div class="col-6 col-md-4 col-lg-2">
+        <div class="card glass-card animate-in stat-tile h-100">
+            <div class="stat-value">{{ report.tiles.sessions_scheduled }}</div>
+            <div class="stat-label">Sessions</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+        <div class="card glass-card animate-in stat-tile h-100">
+            <div class="stat-value">{{ report.tiles.rooms_used }}</div>
+            <div class="stat-label">Rooms Used</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+        <div class="card glass-card animate-in stat-tile h-100">
+            <div class="stat-value">{{ report.tiles.staff_assigned }}</div>
+            <div class="stat-label">Staff Assigned</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+        <div class="card glass-card animate-in stat-tile h-100">
+            <div class="stat-value">{{ report.tiles.teaching_weeks }}</div>
+            <div class="stat-label">Teaching Weeks</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+        <div class="card glass-card animate-in stat-tile h-100">
+            <div class="stat-value">{{ report.tiles.historical_match or '-' }}</div>
+            <div class="stat-label">Backbone Match</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+        <div class="card glass-card animate-in stat-tile h-100">
+            {% if report.score.available %}
+            <div class="stat-value {% if report.tiles.soft_violations > 0 %}text-warning{% else %}text-success{% endif %}">
+                {{ report.tiles.soft_violations }}
+            </div>
+            {% else %}
+            <div class="stat-value text-muted">-</div>
+            {% endif %}
+            <div class="stat-label">Soft Violations</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <!-- Run overview -->
+    <div class="col-lg-7">
+        <div class="card glass-card animate-in h-100">
+            <div class="card-header bg-transparent border-bottom fw-semibold">
+                <i class="bi bi-clipboard-data me-2 text-muted"></i>Run Overview
+            </div>
+            <div class="card-body">
+                <dl class="row mb-0 small">
+                    <dt class="col-6 text-muted">Solver status</dt>
+                    <dd class="col-6"><span class="badge bg-success">{{ report.solver_status or 'Unknown' }}</span></dd>
+                    <dt class="col-6 text-muted">Hard constraints</dt>
+                    <dd class="col-6">
+                        {% if report.overview.hard_rule_count %}
+                        <span class="text-success">{{ report.overview.hard_rule_count }} rules - all satisfied</span>
+                        {% else %}-{% endif %}
+                    </dd>
+                    <dt class="col-6 text-muted">Soft constraints</dt>
+                    <dd class="col-6">
+                        {% if report.overview.soft_rule_count %}
+                        {{ report.tiles.soft_violations }} violated across {{ report.overview.soft_rule_count }} rules
+                        {% else %}-{% endif %}
+                    </dd>
+                    <dt class="col-6 text-muted">Programmes covered</dt>
+                    <dd class="col-6">{{ report.overview.programmes }}</dd>
+                    <dt class="col-6 text-muted">Modules covered</dt>
+                    <dd class="col-6">{{ report.overview.modules }}</dd>
+                    <dt class="col-6 text-muted">Student groups covered</dt>
+                    <dd class="col-6">{{ report.overview.student_groups }}</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+
+    <!-- Optimised score -->
+    <div class="col-lg-5">
+        <div class="card glass-card animate-in h-100">
+            <div class="card-header bg-transparent border-bottom fw-semibold">
+                <i class="bi bi-speedometer2 me-2 text-muted"></i>Optimised Score
+            </div>
+            <div class="card-body">
+                {% if not report.score.available %}
+                <div class="text-muted small">
+                    <i class="bi bi-info-circle me-1"></i>
+                    This trimester hasn't been generated since scoring was added, so there's no recorded
+                    solve data to score. Click <strong>Re-generate Trimester</strong> on the Timetable page to
+                    get a score.
+                </div>
+                {% else %}
+                <div class="d-flex align-items-center gap-3 mb-3">
+                    <div class="fs-1 fw-bold
+                        {% if report.score.value >= 80 %}text-success
+                        {% elif report.score.value >= 50 %}text-warning
+                        {% else %}text-danger{% endif %}">
+                        {{ report.score.value }}<span class="fs-6 text-muted">/100</span>
+                    </div>
+                    <div class="small text-muted">
+                        {% if report.score.value >= 80 %}Good - most preferences honoured.
+                        {% elif report.score.value >= 50 %}Fair - some preferences traded off.
+                        {% else %}Needs review - many preferences traded off.{% endif %}
+                    </div>
+                </div>
+                <table class="table table-sm mb-2 small">
+                    <tbody>
+                        <tr><td>Hard conflicts</td><td class="text-end text-success">-{{ report.score.hard_conflicts }}</td></tr>
+                        <tr><td>Soft constraint violations</td><td class="text-end {% if report.score.soft_violations > 0 %}text-warning{% else %}text-success{% endif %}">-{{ report.score.soft_violations * 2 }}</td></tr>
+                        <tr><td>Preference declarations overridden</td><td class="text-end {% if report.score.preference_problems > 0 %}text-warning{% else %}text-success{% endif %}">{{ report.score.preference_problems }}</td></tr>
+                    </tbody>
+                </table>
+                <div class="small text-muted" style="font-size:0.72rem;">
+                    <i class="bi bi-info-circle me-1"></i>Self-defined score, not an official metric: 100 points minus 2
+                    for every soft-constraint violation, floor 0. Hard constraints can never be violated - the
+                    generation would have failed outright otherwise.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Scheduling breakdown -->
+<div class="card glass-card animate-in mb-3">
+    <div class="card-header bg-transparent border-bottom fw-semibold">
+        <i class="bi bi-bar-chart-steps me-2 text-muted"></i>Scheduling Breakdown
+        <span class="text-muted small fw-normal ms-2">Distribution of sessions across the generated timetable</span>
+    </div>
+    <div class="card-body">
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="fw-semibold small text-uppercase text-muted mb-2">Source</div>
+                {% for row in report.breakdown.source %}{{ bar_row(row) }}{% endfor %}
+            </div>
+            <div class="col-md-6">
+                <div class="fw-semibold small text-uppercase text-muted mb-2">Day</div>
+                {% for row in report.breakdown.day %}{{ bar_row(row) }}{% endfor %}
+            </div>
+            <div class="col-md-6">
+                <div class="fw-semibold small text-uppercase text-muted mb-2">Class Type</div>
+                {% for row in report.breakdown.class_type %}{{ bar_row(row) }}{% endfor %}
+            </div>
+            <div class="col-md-6">
+                <div class="fw-semibold small text-uppercase text-muted mb-2">Delivery Mode</div>
+                {% for row in report.breakdown.delivery_mode %}{{ bar_row(row) }}{% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if report.constraint_summary %}
+<div class="card glass-card animate-in mb-3">
+    <div class="card-header bg-transparent border-bottom fw-semibold">
+        <i class="bi bi-diagram-3 me-2 text-muted"></i>Soft Constraint Detail
+    </div>
+    <div class="card-body">
+        <div class="row">
+            {% for group in report.constraint_summary.soft_groups %}
+            <div class="col-md-6 mb-3">
+                <div class="fw-semibold small text-muted mb-1">
+                    <i class="bi {{ group.icon }} me-1"></i>{{ group.category }}
+                </div>
+                <table class="table table-sm mb-0">
+                    <tbody>
+                        {% for r in group.rows %}
+                        <tr>
+                            <td class="ps-0 small" style="width:62%;">{{ r.title }}</td>
+                            <td class="text-end pe-0">
+                                <span class="badge {% if r.violated > 0 %}bg-warning text-dark{% else %}bg-success{% endif %}" style="font-weight:400; white-space:normal;">
+                                    {{ r.result }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}

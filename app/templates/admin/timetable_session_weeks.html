@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Session Weeks — {{ session.course.module_code }}{% endblock %}
+{% block title %}Session Weeks - {{ session.course.module_code }}{% endblock %}
 
 {% block content %}
 
@@ -10,7 +10,7 @@
     </a>
     <h4 class="fw-semibold mt-2 mb-0">Session Weeks</h4>
     <small class="text-muted">
-        {{ session.course.module_code }} — {{ session.course.title }}
+        {{ session.course.module_code }} - {{ session.course.title }}
         &mdash; {{ session.session_type | capitalize }}
         &mdash; {{ session.delivery_mode | upper }}
         {% if session.student_group %}
@@ -61,7 +61,7 @@
                             –
                             {{ cal[e.week_number].end_date.strftime('%d %b') }}
                         {% else %}
-                            —
+                            -
                         {% endif %}
                     </td>
                     <td>{{ e.timeslot.day_of_week }}</td>
@@ -86,7 +86,7 @@
                                 </span>
                             {% endif %}
                         {% else %}
-                            <span class="text-muted">—</span>
+                            <span class="text-muted">-</span>
                         {% endif %}
                     </td>
                     <td>
@@ -95,7 +95,7 @@
                                 <i class="bi bi-pencil me-1"></i>Edited
                             </span>
                         {% else %}
-                            <span class="text-muted">—</span>
+                            <span class="text-muted">-</span>
                         {% endif %}
                     </td>
                     <td>

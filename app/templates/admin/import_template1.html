@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Import Template 1 — SIT Timetable{% endblock %}
+{% block title %}Import Template 1 - SIT Timetable{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -96,7 +96,7 @@
 <div class="alert alert-warning py-2 small mb-3">
     <i class="bi bi-exclamation-triangle me-1"></i>
     <strong>{{ warn_count }} session{{ 's' if warn_count != 1 else '' }}</strong> have data issues highlighted below.
-    You can still import — warnings do not block import. Rows with no staff will be imported but
+    You can still import - warnings do not block import. Rows with no staff will be imported but
     will need staff assigned manually afterwards.
 </div>
 {% endif %}
@@ -139,12 +139,12 @@
                 <td>
                     {% for st in s.staff %}
                     <div>{{ st.name }}{% if st.sid %} <span class="text-muted">({{ st.sid }})</span>{% endif %}</div>
-                    {% else %}<span class="text-muted">—</span>{% endfor %}
+                    {% else %}<span class="text-muted">-</span>{% endfor %}
                 </td>
                 <td class="text-center">
                     {% if s.pref_slot_id %}
                     <i class="bi bi-check-circle-fill text-success"></i>
-                    {% else %}—{% endif %}
+                    {% else %}-{% endif %}
                 </td>
                 <td>
                     {% if s.warnings %}

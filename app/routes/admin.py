@@ -26,13 +26,83 @@ admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 _solver_tasks: dict = {}
 _TASK_TTL = 7200  # seconds
 
-# Official SIT academic calendar — week 1 start dates (all Mondays).
+def _save_solve_run(trimester, stats):
+    """Persist a successful solve()'s stats for this trimester (one row per
+    trimester, upserted). The primary generate flow is async - it posts to
+    /timetable/solve-async, then the page redirects to a plain GET, so the
+    stats dict from that POST is gone by the time the page renders. Storing
+    in the DB (not just in-memory) means the constraint summary and
+    Scheduling Report survive a server restart and don't depend on which
+    process ran the solve."""
+    import json
+    from app.models.solve_run import SolveRun
+    row = SolveRun.query.filter_by(trimester=trimester).first()
+    if row is None:
+        row = SolveRun(trimester=trimester)
+        db.session.add(row)
+    row.solver_status = stats.get('solver_status', 'Feasible')
+    row.stats_json = json.dumps(stats)
+    db.session.commit()
+
+
+def _load_solve_run(trimester):
+    """Return the last persisted solve() stats dict for this trimester, or
+    {} if none exists yet."""
+    import json
+    from app.models.solve_run import SolveRun
+    row = SolveRun.query.filter_by(trimester=trimester).first()
+    if row is None:
+        return {}
+    try:
+        return json.loads(row.stats_json)
+    except (TypeError, ValueError):
+        return {}
+
+# Official SIT academic calendar - week 1 start dates (all Mondays).
 # Source: https://www.singaporetech.edu.sg/admissions/undergraduate/academic-calendar-sit-and-joint-programmes
 SIT_ACADEMIC_CALENDAR = {
     'AY2425': {1: '2024-09-02', 2: '2025-01-06', 3: '2025-05-05'},
     'AY2526': {1: '2025-09-01', 2: '2026-01-05', 3: '2026-05-04'},
     'AY2627': {1: '2026-08-31', 2: '2027-01-04', 3: '2027-05-03'},
 }
+
+# ---------------------------------------------------------------------------
+# Template 2 export mapping tables - hand-transcribed, not sourced from any
+# uploaded data. Shared between timetable_export_template2() and system_info()
+# so the "assumed values" disclosure page always reflects what the export
+# actually uses (single source of truth - no risk of the two drifting apart).
+# ---------------------------------------------------------------------------
+T2_CLASS_TYPE = {
+    'lecture': 'Lecture', 'lectorial': 'Lectorial', 'tutorial': 'Tutorial',
+    'lab': 'Laboratory', 'seminar': 'Seminar', 'workshop': 'Workshop', 'quiz': 'Quiz',
+}
+T2_ACT_CODE = {
+    'lecture': 'LEC', 'lectorial': 'LET', 'tutorial': 'TUT',
+    'lab': 'LAB', 'seminar': 'SEM', 'workshop': 'WOR', 'quiz': 'QUZ',
+}
+# Both tables verified 2026-07-10 against Ms. Yang's own "Class Type" reference
+# sheet (Worksheet in ITP Project Requirements (Template 2).xlsx) - her sheet
+# names Laboratory (not "Lab") and codes workshop as WOR (not "WRK").
+T2_DAY_ABBR = {
+    'Monday': 'Mon', 'Tuesday': 'Tue', 'Wednesday': 'Wed',
+    'Thursday': 'Thu', 'Friday': 'Fri',
+}
+T2_CLUSTER_ABBR = {
+    'ENG': 'ENG', 'Engineering': 'ENG', 'ICT': 'ICT',
+    'University-Wide': 'UWM', 'Business': 'BUS', 'Health': 'HLS',
+}
+T2_PROG_SECTOR = {
+    'ASE': ('PUNGGOL', 'PU'), 'CVE': ('PUNGGOL', 'PU'), 'SDE': ('PUNGGOL', 'PU'),
+    'NAME': ('PUNGGOL', 'PU'), 'RSE': ('PUNGGOL', 'PU'), 'EDE': ('PUNGGOL', 'PU'),
+    'EEE': ('PUNGGOL', 'PU'), 'EPE': ('PUNGGOL', 'PU'), 'METS': ('PUNGGOL', 'PU'),
+    'MEC': ('PUNGGOL', 'PU'), 'MDME': ('PUNGGOL', 'PU'), 'SBE': ('PUNGGOL', 'PU'),
+    'ESE': ('PUNGGOL', 'PU'), 'DSC': ('PUNGGOL', 'PU'), 'CPC': ('PUNGGOL', 'PU'),
+    'ISE': ('PUNGGOL', 'PU'),
+}
+# All SIT programmes are now consolidated at the Punggol campus (confirmed by
+# Brian 2026-07-10) - the previous per-programme DOVER/TP/SP/NYP/NP mapping
+# modelled the old distributed-campus setup and is no longer correct.
+T2_PROG_SECTOR_DEFAULT = ('PUNGGOL', 'PU')  # fallback for any unmapped programme code
 
 
 @admin_bp.before_request
@@ -70,7 +140,7 @@ def dashboard():
         'pending_declarations':  AvailabilityDeclaration.query.filter_by(status='pending').count(),
     }
 
-    # KPIs — computed from the most recently generated trimester
+    # KPIs - computed from the most recently generated trimester
     kpis = None
     latest_row = db.session.query(TimetableEntry.trimester)\
         .order_by(TimetableEntry.trimester.desc()).first()
@@ -136,7 +206,7 @@ def course_edit(course_id):
         split_count = None
         if course.delivery_mode in ('f2f', 'hybrid'):
             if split_count_raw == '':
-                split_count = None      # Admin left it blank — still not set
+                split_count = None      # Admin left it blank - still not set
             else:
                 try:
                     split_count = int(split_count_raw)
@@ -508,7 +578,7 @@ def room_delete(room_id):
     room = Room.query.get_or_404(room_id)
 
     if room.timetable_entries:
-        flash(f'Room {room.room_code} cannot be deleted — it has assigned timetable entries. Deactivate it instead.', 'danger')
+        flash(f'Room {room.room_code} cannot be deleted - it has assigned timetable entries. Deactivate it instead.', 'danger')
         return redirect(url_for('admin.rooms'))
 
     code = room.room_code
@@ -644,7 +714,7 @@ def student_group_generate(group_id):
         ).first()
         if blocking:
             flash(
-                f'Cannot regenerate sub-groups for {parent.group_label} — '
+                f'Cannot regenerate sub-groups for {parent.group_label} - '
                 f'existing sub-groups have sessions assigned. '
                 f'Clear all session assignments first.',
                 'danger'
@@ -683,7 +753,7 @@ def student_group_delete(group_id):
     ).first()
     if blocking:
         flash(
-            f'Group {group.group_label} cannot be deleted — '
+            f'Group {group.group_label} cannot be deleted - '
             f'it or its sub-groups have sessions assigned. '
             f'Clear all session assignments first.',
             'danger'
@@ -741,7 +811,7 @@ def course_sessions(course_id):
                 sessions.pop()
                 changed = True
             else:
-                break  # Leave assigned sessions alone — admin must clear them manually
+                break  # Leave assigned sessions alone - admin must clear them manually
 
     if changed:
         db.session.commit()
@@ -839,7 +909,7 @@ def session_assign(course_id, session_id):
 
 
 # ---------------------------------------------------------------------------
-# Availability Declarations — admin classification
+# Availability Declarations - admin classification
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/declarations', methods=['GET', 'POST'])
@@ -855,7 +925,7 @@ def declarations():
             decl.status          = 'classified'
             db.session.commit()
             flash(
-                f'{decl.professor.user.name} — {decl.timeslot.day_of_week} '
+                f'{decl.professor.user.name} - {decl.timeslot.day_of_week} '
                 f'{decl.timeslot.period_label} classified as {constraint_type.capitalize()}.',
                 'success'
             )
@@ -879,7 +949,7 @@ def declarations():
 
 
 # ---------------------------------------------------------------------------
-# Manual timetable editing — helpers
+# Manual timetable editing - helpers
 # ---------------------------------------------------------------------------
 
 DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
@@ -966,7 +1036,7 @@ def _write_audit(user_id, trimester, action,
 
 
 # ---------------------------------------------------------------------------
-# Manual timetable editing — routes
+# Manual timetable editing - routes
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/timetable/<trimester>/sessions/<int:session_id>/weeks')
@@ -1043,7 +1113,7 @@ def timetable_edit_entry(entry_id):
                 new_prof_obj = Professor.query.get(new_prof_id) if new_prof_id else None
 
                 def _ts_label(ts):
-                    return f'{ts.day_of_week} {ts.period_label} ({ts.start_time.strftime("%H:%M")}–{ts.end_time.strftime("%H:%M")})' if ts else '—'
+                    return f'{ts.day_of_week} {ts.period_label} ({ts.start_time.strftime("%H:%M")}–{ts.end_time.strftime("%H:%M")})' if ts else '-'
 
                 _write_audit(
                     user_id      = current_user.id,
@@ -1056,8 +1126,8 @@ def timetable_edit_entry(entry_id):
                     new_ts       = _ts_label(new_ts_obj),
                     old_room     = old_room_obj.room_code if old_room_obj else 'Online',
                     new_room     = new_room_obj.room_code if new_room_obj else 'Online',
-                    old_prof     = old_prof_obj.user.name if old_prof_obj else '—',
-                    new_prof     = new_prof_obj.user.name if new_prof_obj else '—',
+                    old_prof     = old_prof_obj.user.name if old_prof_obj else '-',
+                    new_prof     = new_prof_obj.user.name if new_prof_obj else '-',
                 )
 
                 entry.timeslot_id           = new_ts_id
@@ -1148,7 +1218,7 @@ def timetable_edit_all_weeks(trimester, session_id):
                 new_prof_obj = Professor.query.get(new_prof_id) if new_prof_id else None
 
                 def _ts_label(ts):
-                    return f'{ts.day_of_week} {ts.period_label} ({ts.start_time.strftime("%H:%M")}–{ts.end_time.strftime("%H:%M")})' if ts else '—'
+                    return f'{ts.day_of_week} {ts.period_label} ({ts.start_time.strftime("%H:%M")}–{ts.end_time.strftime("%H:%M")})' if ts else '-'
 
                 _write_audit(
                     user_id      = current_user.id,
@@ -1161,8 +1231,8 @@ def timetable_edit_all_weeks(trimester, session_id):
                     new_ts       = _ts_label(new_ts_obj),
                     old_room     = old_room_obj.room_code if old_room_obj else 'Online',
                     new_room     = new_room_obj.room_code if new_room_obj else 'Online',
-                    old_prof     = old_prof_obj.user.name if old_prof_obj else '—',
-                    new_prof     = new_prof_obj.user.name if new_prof_obj else '—',
+                    old_prof     = old_prof_obj.user.name if old_prof_obj else '-',
+                    new_prof     = new_prof_obj.user.name if new_prof_obj else '-',
                 )
 
                 for e in entries:
@@ -1416,6 +1486,634 @@ def audit_log_export():
 
 
 # ---------------------------------------------------------------------------
+# System Info - constraints reference + assumed/self-input data disclosure
+# ---------------------------------------------------------------------------
+
+def _build_constraints_reference(sv, sv_shared_group_count):
+    """The single source of truth for every hard/soft constraint's id, title,
+    and description. Used by both system_info() (static reference) and
+    timetable()'s post-generation summary (same text, live numbers attached)
+    so the two pages can never describe a rule differently."""
+
+    def fmt(t):
+        return t.strftime('%H:%M')
+
+    constraints = {
+        'hard': [
+            {'category': 'Conflict Prevention', 'icon': 'bi-shield-check', 'color': 'red', 'rows': [
+                {'id': 'H1', 'title': 'No two classes in the same room at the same time',
+                 'status': 'Implemented', 'value': 'Checked room by room, only for weeks the classes actually overlap'},
+                {'id': 'H2', 'title': 'A professor cannot teach two classes at the same time',
+                 'status': 'Implemented', 'value': 'Checked professor by professor, only for weeks the classes actually overlap'},
+                {'id': 'H3', 'title': 'A student group cannot attend two classes at the same time',
+                 'status': 'Implemented', 'value': 'Also checks for clashes between a group and its sub-groups'},
+                {'id': 'H4', 'title': 'The room must be big enough for the class',
+                 'status': 'Implemented', 'value': "The room's capacity must be at least the class's size"},
+                {'id': 'H17', 'title': 'Modules shared across programmes are scheduled as one combined class',
+                 'status': 'Implemented', 'value': f'{sv_shared_group_count} module(s) linked - same time and room, room size checked against everyone combined'},
+            ]},
+            {'category': 'Room & Delivery Mode', 'icon': 'bi-door-open', 'color': 'blue', 'rows': [
+                {'id': 'H5', 'title': 'Online classes are never assigned a physical room',
+                 'status': 'Implemented', 'value': 'Online classes simply have no room attached'},
+                {'id': 'H6', 'title': 'In-person classes always get a real room, never left virtual',
+                 'status': 'Implemented', 'value': 'Every in-person class must be matched to a room of the right type and size'},
+            ]},
+            {'category': 'Calendar & Teaching Weeks', 'icon': 'bi-calendar3', 'color': 'purple', 'rows': [
+                {'id': 'H7', 'title': 'Odd/even week patterns (e.g. a class held only on odd weeks)',
+                 'status': 'Implemented via data', 'value': 'Each class has its own list of which weeks it runs in, taken directly from the '
+                            'uploaded file and followed exactly'},
+                {'id': 'H8', 'title': 'No classes on public holidays or term breaks',
+                 'status': 'Implemented', 'value': f'Uses the Singapore public holiday calendar, plus the '
+                            f'term-break week (default: week {sorted(sv.DEFAULT_TERM_BREAK_WEEKS)})'},
+                {'id': 'H16', 'title': 'University-wide modules: the two weekly classes must be on different days',
+                 'status': 'Implemented', 'value': f'Applies only to {", ".join(sorted(sv.UNIWIDE_DAY_SEPARATED_MODULES))} '
+                            '- the only modules the requirements doc names for this rule'},
+            ]},
+            {'category': 'Daily Time Windows', 'icon': 'bi-clock-history', 'color': 'green', 'rows': [
+                {'id': 'H9', 'title': 'No classes before 9:00am',
+                 'status': 'Built into the schedule', 'value': 'There simply are no time slots before 9:00am to choose from'},
+                {'id': 'H10', 'title': 'No classes after 6:00pm',
+                 'status': 'Implemented', 'value': f'No unlocked class may start at or after {fmt(sv.EVENING_CUTOFF)} - a handful of '
+                            'real, source-confirmed evening classes (DSC-shared modules with other programmes) are the only exception, '
+                            'locked to their exact real time'},
+                {'id': 'H11', 'title': 'Wednesday afternoons are blocked',
+                 'status': 'Implemented', 'value': f'No class may start at or after {fmt(sv.WED_AFTERNOON_CUTOFF)} on Wednesday'},
+                {'id': 'H12', 'title': 'Friday 12:00pm-2:00pm is a protected window',
+                 'status': 'Implemented', 'value': f'No class may start between {fmt(sv.FRI_BLOCK_START)} and {fmt(sv.FRI_BLOCK_END)} on Friday'},
+                {'id': 'H13', 'title': 'Lunch break - flexible, not a fixed time',
+                 'status': 'Implemented', 'value': f'Every student group gets at least 1 fully free hour somewhere between '
+                            f'{fmt(sv.LUNCH_WINDOW_START)} and {fmt(sv.LUNCH_WINDOW_END)} each day - not one fixed hour for everyone'},
+                {'id': 'H14', 'title': 'No classes on Saturday',
+                 'status': 'Implemented', 'value': 'The system only knows about Monday to Friday time slots'},
+                {'id': 'H15', 'title': 'No Friday classes after 5:00pm',
+                 'status': 'Built into the schedule', 'value': 'Comes from the same time-slot list as the other Friday rules above'},
+            ]},
+        ],
+        'soft': [
+            {'category': 'Availability & Continuity', 'icon': 'bi-person-check', 'color': 'blue', 'rows': [
+                {'id': 'S-avail', 'title': "Respect a professor's declared availability",
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_AVAILABILITY} - the highest of any soft rule'},
+                {'id': 'S-pref-ts', 'title': "A professor's preferred time slot (read from their notes)",
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_PREFERRED_TS}'},
+                {'id': 'S-hist', 'title': "Keep the same slot as last year's equivalent term, where possible",
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_HISTORICAL}'},
+            ]},
+            {'category': 'Workload & Comfort', 'icon': 'bi-battery-half', 'color': 'amber', 'rows': [
+                {'id': 'S1', 'title': 'Avoid switching a professor between online and in-person back-to-back',
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_MODE_SWITCH_PROF}'},
+                {'id': 'S2', 'title': 'Avoid switching a student group between online and in-person back-to-back',
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_MODE_SWITCH_GROUP}'},
+                {'id': 'S3', 'title': "Avoid leaving a professor with more than a 2-hour gap in the same day",
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_PROF_IDLE_GAP} - triggers past a {sv.PROF_IDLE_GAP_THRESHOLD_HOURS}-hour gap'},
+                {'id': 'S8', 'title': f'Avoid a student group having {sv.GROUP_BACKTOBACK_LIMIT_HOURS + 1}+ hours of classes back-to-back with no break',
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_GROUP_BACKTOBACK_HOURS} - the longer the unbroken run, the bigger the penalty'},
+                {'id': 'S4', 'title': 'Avoid a student group having more than 4 consecutive teaching hours',
+                 'status': 'Covered by S8 above', 'value': 'S8\'s stricter rule already catches every case this one would - '
+                            'nothing extra needed'},
+            ]},
+            {'category': 'Scheduling Quality', 'icon': 'bi-stars', 'color': 'purple', 'rows': [
+                {'id': 'S5', 'title': "Keep a student group's classes clustered, not spread across extra days",
+                 'status': 'Implemented (groups only)', 'value': f'Priority {sv.WEIGHT_DAY_CLUSTER} - not yet applied to professors\' schedules'},
+                {'id': 'S6', 'title': 'Prefer a room that\'s at least 60% full', 'status': 'Implemented',
+                 'value': f'Priority {sv.WEIGHT_ROOM_UTIL} - target {int(sv.ROOM_UTIL_THRESHOLD * 100)}% full'},
+                {'id': 'S7', 'title': "Avoid a group's very first or very last slot of the day",
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_EXTREMAL_SLOT}'},
+                {'id': 'S9', 'title': 'Prefer classes to end by 5:00pm', 'status': 'Implemented',
+                 'value': f'Priority {sv.WEIGHT_LATE_END} - target cutoff {fmt(sv.LATE_END_CUTOFF)}'},
+                {'id': 'S10', 'title': 'Prefer a snugly-sized room, not just any room that fits',
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_ROOM_BEST_FIT} - a single very mismatched room doesn\'t '
+                            'overwhelm the rest of the schedule\'s quality'},
+                {'id': 'S11', 'title': 'Keep the same room for back-to-back classes (same professor or group)',
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_CONSISTENT_VENUE}'},
+            ]},
+            {'category': 'Pedagogical Ordering', 'icon': 'bi-mortarboard', 'color': 'green', 'rows': [
+                {'id': 'S-lec-tut', 'title': "A module's lecture comes before its tutorial",
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_LEC_TUT_ORDER}'},
+                {'id': 'S-lec-lab', 'title': "A module's lecture comes before its lab",
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_LEC_LAB_ORDER}'},
+            ]},
+        ],
+    }
+    return constraints
+
+
+# Maps each soft constraint's id (from _build_constraints_reference) to a
+# function computing (result text, violation count) from a solve() stats
+# dict. S4 is intentionally absent - its card says "covered by S8 above",
+# so it has no independent number to show.
+_SOFT_STAT_MAP = {
+    'S-avail':   lambda s: (f"{len(s.get('preferred_violations', []))} violated",
+                             len(s.get('preferred_violations', []))),
+    'S-pref-ts': lambda s: (f"{s.get('preferred_ts_honoured', 0)} honoured", 0),
+    'S-hist':    lambda s: (f"{s.get('historical_honoured', 0)} kept, {s.get('historical_changed', 0)} changed",
+                             s.get('historical_changed', 0)),
+    'S1':        lambda s: (f"{s.get('mode_switches_prof', 0)} violated", s.get('mode_switches_prof', 0)),
+    'S2':        lambda s: (f"{s.get('mode_switches_group', 0)} violated", s.get('mode_switches_group', 0)),
+    'S3':        lambda s: (f"{s.get('prof_idle_gap_violations', 0)} violated", s.get('prof_idle_gap_violations', 0)),
+    'S8':        lambda s: (f"{s.get('group_backtoback_violations', 0)} violated", s.get('group_backtoback_violations', 0)),
+    'S5':        lambda s: (f"{s.get('day_spread_pairs', 0)} day-spread instances (informational, not a violation count)", 0),
+    'S6':        lambda s: (f"{s.get('room_util_violations', 0)} violated", s.get('room_util_violations', 0)),
+    'S7':        lambda s: (f"{s.get('extremal_slot_violations', 0)} violated", s.get('extremal_slot_violations', 0)),
+    'S9':        lambda s: (f"{s.get('late_end_violations', 0)} violated", s.get('late_end_violations', 0)),
+    'S10':       lambda s: (f"{s.get('room_best_fit_wasted_seats', 0)} wasted seats total (informational, not a violation count)", 0),
+    'S11':       lambda s: (f"{s.get('consistent_venue_violations', 0)} violated", s.get('consistent_venue_violations', 0)),
+    'S-lec-tut': lambda s: (f"{s.get('lec_tut_ordered', 0)} correctly ordered", 0),
+    'S-lec-lab': lambda s: (f"{s.get('lec_lab_ordered', 0)} correctly ordered", 0),
+}
+
+
+def _build_constraint_summary(stats):
+    """Post-generation breakdown: how many of each constraint were actually
+    applied/violated in the given solve() stats, reusing the exact same
+    rule text as System Info so the two pages never disagree."""
+    if not stats:
+        return None
+    from app.engine import solver as sv
+    from app.models.shared_module_group import SharedModuleGroup
+
+    ref = _build_constraints_reference(sv, SharedModuleGroup.query.count())
+
+    soft_groups = []
+    total_violations = 0
+    soft_rule_count = 0
+    for group in ref['soft']:
+        rows = []
+        for r in group['rows']:
+            fn = _SOFT_STAT_MAP.get(r['id'])
+            if fn is None:
+                continue  # S4 - no independent number, covered by S8
+            soft_rule_count += 1
+            result_text, violated = fn(stats)
+            total_violations += violated
+            rows.append({'id': r['id'], 'title': r['title'], 'result': result_text, 'violated': violated})
+        if rows:
+            soft_groups.append({'category': group['category'], 'icon': group['icon'],
+                                 'color': group['color'], 'rows': rows})
+
+    hard_rule_count = sum(len(g['rows']) for g in ref['hard'])
+    hard_applied = (stats.get('strict_constraints_applied', 0)
+                     + stats.get('pins_applied', 0)
+                     + stats.get('room_pins_applied', 0))
+    hard_dropped = stats.get('pins_dropped', 0) + stats.get('room_pins_dropped', 0)
+
+    return {
+        'hard_rule_count': hard_rule_count,
+        'hard_applied': hard_applied,
+        'hard_dropped': hard_dropped,
+        'soft_rule_count': soft_rule_count,
+        'soft_total_violations': total_violations,
+        'soft_groups': soft_groups,
+    }
+
+
+@admin_bp.route('/system-info')
+@login_required
+def system_info():
+    from app.engine import solver as sv
+    from sqlalchemy import exists as sa_exists
+    from app.models.shared_module_group import SharedModuleGroup
+
+    def fmt(t):
+        return t.strftime('%H:%M')
+
+    sv_shared_group_count = SharedModuleGroup.query.count()
+    constraints = _build_constraints_reference(sv, sv_shared_group_count)
+
+    # ---- Assumptions / self-input data disclosure ------------------------
+    _has_session = sa_exists().where(ClassSession.course_id == Course.id)
+    courses_missing_split = Course.query.filter(
+        Course.delivery_mode.in_(['f2f', 'hybrid']),
+        Course.split_count.is_(None),
+        ~_has_session,
+    ).order_by(Course.year_level, Course.module_code).all()
+
+    no_prof_sessions = ClassSession.query.filter(
+        ~sa_exists().where(ClassSessionProfessor.session_id == ClassSession.id)
+    ).all()
+
+    no_group_sessions = ClassSession.query.filter(
+        ClassSession.delivery_mode == 'f2f',
+        ClassSession.student_group_id.is_(None),
+        sa_exists().where(ClassSessionProfessor.session_id == ClassSession.id),
+    ).all()
+
+    no_prof_modules = sorted({
+        f'{s.course.programme.code} {s.course.module_code}' for s in no_prof_sessions
+    })
+
+    no_fixed_room_sessions = ClassSession.query.filter(
+        ClassSession.fixed_timeslot_id.isnot(None)
+    ).count()
+
+    long_sessions = ClassSession.query.filter(
+        ClassSession.duration_hours > sv.LONG_SESSION_THRESHOLD_HOURS
+    ).count()
+
+    # Live check: which programmes in the DB aren't covered by the Template 2
+    # export's Programme -> Sector/Campus mapping (T2_PROG_SECTOR)? These would
+    # silently fall through to the PUNGGOL/PU default (all SIT programmes are
+    # now consolidated at Punggol - confirmed by Brian 2026-07-10).
+    all_prog_codes = {p.code for p in Programme.query.all()}
+    unmapped_prog_codes = sorted(all_prog_codes - set(T2_PROG_SECTOR.keys()))
+
+    cal_years = ', '.join(sorted(SIT_ACADEMIC_CALENDAR.keys()))
+    cal_date_count = sum(len(v) for v in SIT_ACADEMIC_CALENDAR.values())
+
+    # Live check: modules with 2+ quiz sessions sharing a teaching week (max 1
+    # quiz/week per Ms. Yang's requirements doc - confirmed with Brian on
+    # 2026-07-10 that "class" means one module's own class, not a student
+    # group's full set of modules). This can't be fixed by the solver -
+    # teaching_weeks is fixed input data - so it's surfaced here and as a
+    # generation-blocking issue on the Timetable page (checker.py).
+    from app.engine.checker import get_blocking_issues as _get_blocking_issues
+    _blockers, _ = _get_blocking_issues()
+    quiz_overlap_count = sum(1 for b in _blockers if 'quiz' in b.lower())
+
+    # Cross-programme shared module linking (Common Modules / Programme Grouping)
+    # stats - see bootstrap/28_load_common_modules.py for the actual matching logic.
+    shared_groups_all = SharedModuleGroup.query.all()
+    shared_sessions_linked = sum(len(g.class_sessions) for g in shared_groups_all)
+
+    # Which programmes are sourced from the team's cleaned data vs the raw
+    # upload - see bootstrap/32_load_cleaned_eng_data.py.
+    CLEANED_DATA_PROGS = {'CVE', 'MEC', 'METS', 'EEE', 'ISE', 'RSE', 'SBE', 'DSC'}
+    raw_data_progs = sorted(all_prog_codes - CLEANED_DATA_PROGS)
+    null_weeks_cleaned = ClassSession.query.join(Course).join(Programme).filter(
+        Programme.code.in_(CLEANED_DATA_PROGS),
+        ClassSession.teaching_weeks.is_(None),
+    ).count()
+    fixed_room_count = ClassSession.query.filter(ClassSession.fixed_room_id.isnot(None)).count()
+
+    # Change Log - dated, one-off audit-trail entries (bugs found & fixed, data
+    # migrations). Kept separate from assumption_groups below: these describe
+    # PAST corrections, not standing "this is how the system currently assumes
+    # things" facts - mixing the two made the page hard to scan.
+    changelog_groups = [
+        {'category': 'Data Quality Fixes - 2026-07-10', 'icon': 'bi-wrench-adjustable', 'color': 'red', 'kind': 'value', 'rows': [
+            {'label': 'Some class weeks were being read wrong', 'value': '82 classes corrected, 27 missing classes restored',
+             'note': 'Some spreadsheet cells combined a week number with a date and time note (e.g. "Week 3, '
+                     'Wed 17 Sep, 2-4pm"). The system was mistakenly reading every number in that text as a week '
+                     'number, not just the real one. Fixed so only the actual week number is used. This also '
+                     'explains why 27 classes had gone missing entirely: two different classes had accidentally '
+                     'come out looking identical after the mistake, so the system kept only one of them. Both are '
+                     'now correctly in place.'},
+            {'label': 'Some Year 4 Mechatronics (METS) classes were mislabelled as Year 2', 'value': '4 modules corrected',
+             'note': 'A previous fix for this exact issue was only applied in one of two places that needed it, '
+                     'so it didn\'t take effect for regular imports. 4 modules (MET4004, MET4305, MET4505, '
+                     'MET4604) were stored as Year 2 even though everything else about them correctly said '
+                     'Year 4. Now fixed everywhere.'},
+            {'label': "5 files' class weeks were missing entirely", 'value': 'EPE Years 1-3, METS Years 2-4',
+             'note': 'Most uploaded files label the class-weeks column "Teaching Weeks", but these 5 files just '
+                     'call it "Weeks". The system only recognised the longer name, so it silently skipped that '
+                     'whole column in these files - every class in them had no week information at all until '
+                     'this was fixed.'},
+            {'label': 'Clarified what "one quiz per week" actually means', 'value': "Per module, not per student",
+             'note': 'Confirmed with Brian: the rule limits each individual module to one quiz per week - it '
+                     'does not mean a student can only have one quiz across all their modules in a week. Reading '
+                     'it the wrong way, the system was flagging 67 problems that weren\'t real; read correctly, '
+                     'it found 3 genuine ones (now down to 1 - see Data Gaps).'},
+            {'label': 'Shared modules were missing real class data for most programmes', 'value': '62 classes created or corrected across 6 modules',
+             'note': 'Six modules taken by students across several programmes at once (ENG1001, ENG1004, '
+                     'ENG1005, ENG1008, ENG1010, ENG3001) were being skipped by the import completely, so most '
+                     'programmes taking them had no timetable data at all. Also fixed: two programmes (MDME and '
+                     'SBE) had been wrongly scheduled into the exact same lecture at the exact same time for '
+                     'ENG1001, when they should each have their own separate lecture with a different lecturer.'},
+            {'label': 'Export file now correctly shows Punggol as the campus', 'value': 'All programmes',
+             'note': 'Confirmed with Brian: every SIT programme is now based at Punggol. The exported file used '
+                     'to spread programmes across several old campus names from before the move. Checked '
+                     'against the official sample file and corrected.'},
+        ]},
+        {'category': 'Cleaned Data Migration - 2026-07-10', 'icon': 'bi-arrow-repeat', 'color': 'red', 'kind': 'value', 'rows': [
+            {'label': '8 programmes now use the verified data your team cleaned', 'value': f'{len(CLEANED_DATA_PROGS)} on cleaned data, {len(raw_data_progs)} still on the original upload',
+             'note': 'CVE, MEC, METS, EEE, ISE, RSE, SBE and DSC now load from your team\'s cleaned, verified '
+                     'files instead of the original raw upload. The other programmes don\'t have a cleaned '
+                     f'version yet, so they still use the original data for now: {", ".join(raw_data_progs)}.'},
+            {'label': 'Terms 2 and 3 are now loaded too', 'value': 'All 3 terms for these 8 programmes',
+             'note': 'Originally only Term 1 was brought in. Extended to Terms 2 and 3 as well - the cleaned '
+                     'files had this data all along, just not used yet. Two exceptions found along the way: MEC '
+                     'and part of EEE\'s Term 2/3 sheets are just a module list without real class details (only '
+                     '1 of 103 rows had an actual activity/time filled in) - nothing usable to bring in there '
+                     'yet, that\'s a gap in the source file itself, not something missed.'},
+            {'label': 'Exact room assignments from the cleaned files are now honoured', 'value': f'{fixed_room_count} classes locked to their named room',
+             'note': 'The system can now "lock" a class to one specific room, the same way it could already lock '
+                     'a class to one specific time. Matched the named venues in the cleaned files against actual '
+                     'rooms in the system - about a third matched confidently and got locked; the rest use a '
+                     'different short-form room naming (e.g. "TR1", "LAB1") that doesn\'t match how rooms are '
+                     'named elsewhere in the system, or reference a room that doesn\'t exist in the room list at '
+                     'all yet - left alone rather than guessed at.'},
+            {'label': "Some activities were left out because they don't need a weekly time slot", 'value': '10 items excluded (assignments, capstone projects, work placements, and similar)',
+             'note': 'Things like assignments, capstone projects, and work placements aren\'t regular weekly '
+                     'classes, so they were left out - the same treatment already given to internships and '
+                     'attachments. One extra case caught by hand: two work-placement modules were labelled as '
+                     'ordinary classes in the file, and their real-world dates had been misread as week numbers '
+                     '- spotted as suspicious and removed manually.'},
+            {'label': 'A second shared-module group (EEE/ISE) is now connected too', 'value': '4 modules linked (ENG1101-ENG1104)',
+             'note': 'Confirmed these 4 modules are genuinely the same class taught to EEE and ISE students '
+                     'together (identical class weeks and identical named lecturer on both sides - not a '
+                     'coincidence). Linked the same way ENG1001 already is. A 5th similar-looking module '
+                     '(ENG1100) did NOT show this same pattern (different class structure and no lecturer named '
+                     'on the EEE side), so it was left alone rather than assumed to match. EEE and ISE also '
+                     'reference a much larger second family of shared modules in Terms 2/3 - not yet '
+                     'investigated, flagged for a future pass.'},
+            {'label': 'Old timetable entries for these 8 programmes will need regenerating', 'value': '230 old class records replaced, 21 manually-locked time slots lost',
+             'note': 'Switching to the cleaned data meant removing the old class records for these 8 programmes '
+                     'and creating fresh ones (some class codes changed in the process). 21 classes that an '
+                     'admin had manually locked to a specific time slot lost that lock and would need to be set '
+                     'again if still needed.'},
+        ]},
+        {'category': 'Filling In Missing Professors - 2026-07-10', 'icon': 'bi-person-check', 'color': 'red', 'kind': 'value', 'rows': [
+            {'label': 'Classes are no longer dropped just for missing a professor', 'value': 'Room and time are still assigned',
+             'note': 'Previously, any class with no professor was skipped entirely and simply didn\'t appear on '
+                     'the timetable or in the Template 2 export. Now it still gets a room and a time slot - only '
+                     'the staff name is left blank if genuinely unknown. This surfaces the gap instead of hiding '
+                     'it by silently dropping the class.'},
+            {'label': 'Filled in from the same module\'s own known lecturer', 'value': '47 classes across 33 modules',
+             'note': 'Where a module had one component with a named lecturer (usually the lecture) but other '
+                     'components (tutorial, lab, quiz) left blank in the source, that same lecturer was applied '
+                     'to the blank ones. This is a real inference, not a guess: it\'s the one named person '
+                     'already tied to that specific module, not picked at random. Includes the "All instructors" '
+                     'ENG1001 quizzes (linked to each programme\'s own ENG1001 lecturer) and EPE2300\'s second '
+                     'section (see below).'},
+            {'label': 'EPE2300 split into two labelled sections', 'value': 'Section A and Section B',
+             'note': 'The source data showed two complete, unlabelled parallel sections (different lecturers, '
+                     'each with their own Lecture/Tutorial/Lab/Quiz) with no "Group A/B" marker to tell them '
+                     'apart, which was earlier flagged as a possible false quiz-conflict. Labelled them '
+                     'Section A (Thaiyal Naayagi Ramasamy / Khalid Seyed Saeed Ahsan Abidi) and Section B '
+                     '(Anurag Sharma) based on the staff split already in the data - resolves the flag without '
+                     'inventing anything not already stated.'},
+            {'label': 'Quiz-clash check now aware of sections', 'value': 'Compares within the same section only',
+             'note': 'Following the EPE2300 fix, the quiz check now treats differently-labelled sections of the '
+                     'same module as separate classes, instead of comparing every quiz in the module against '
+                     'every other regardless of section.'},
+            {'label': 'Left honestly blank - no lecturer named anywhere in the source', 'value': f'{len(no_prof_sessions)} classes across {len(no_prof_modules)} modules',
+             'note': 'For these, there was no real person to infer from - not even a same-module sibling class '
+                     'with a name attached. Inventing a specific person\'s name here would mean attaching a real '
+                     'identity to a class they never agreed to teach, which is different from an assumption - '
+                     'it would be presenting invented information as fact. These are left with a blank staff '
+                     'field and listed here for the programme coordinators to fill in: '
+                     f'{", ".join(no_prof_modules)}.'},
+        ]},
+        {'category': 'Raw-Data Programmes Audited - 2026-07-10', 'icon': 'bi-search', 'color': 'blue', 'kind': 'value', 'rows': [
+            {'label': "Re-checked the 8 programmes still on the original upload", 'value': 'ASE, CPC, EDE, EPE, ESE, MDME, NAME, SDE',
+             'note': 'Ran the same week-number and year-level checks used earlier today against these 8 - they '
+                     'came back clean, since the underlying parser fixes were applied system-wide, not just to '
+                     'the 8 programmes that got switched to cleaned data.'},
+            {'label': 'One more class weeks mistake found and fixed', 'value': 'ESE3112B (1 workshop)',
+             'note': 'The source cell said "26 Sept 25", a real calendar date, not a week number. Worked out '
+                     'which teaching week that date actually falls in using the official SIT term start date '
+                     '(1 Sept 2025 = Week 1) - it\'s Week 4. Corrected from a nonsense value.'},
+            {'label': '"CPC" is an empty programme entry', 'value': '0 modules, 0 classes',
+             'note': 'This programme code exists in the system (from the Template 2 export mapping) but has no '
+                     'course or class data at all - nothing to audit here yet. Worth checking with Brian whether '
+                     'CPC should have real data or can be removed.'},
+            {'label': "NAME's Year 3 file has almost no real data", 'value': 'Only 1 real row, and it\'s excluded from scheduling',
+             'note': 'The uploaded file for NAME Year 3 is 47 rows long but only 1 has real content, and that '
+                     'one is a Practicum placement (already correctly excluded from scheduling, same as other '
+                     'internship-type activities). Not a bug - NAME genuinely has no Year 3 classroom data yet.'},
+        ]},
+        {'category': 'DSC Real Timetable Restored - 2026-07-10', 'icon': 'bi-exclamation-octagon', 'color': 'red', 'kind': 'value', 'rows': [
+            {'label': 'DSC is the ONLY programme with a real, already-committed timetable', 'value': f'{TimetableEntry.query.filter_by(is_backbone=True).count()} real class times restored',
+             'note': 'Confirmed with Brian: a finalised real timetable was only ever submitted for DSC (3 files, '
+                     'one per term) - no other programme has been given one. So DSC is treated as a special '
+                     'case, not the norm: its real schedule is the source of truth and the system must reproduce '
+                     'it exactly, never recompute it. Every other programme has no real timetable to work from, '
+                     'which is exactly why the system computes their schedules itself. Earlier today\'s general '
+                     '"switch to cleaned data" step wrongly treated DSC the same as the other 7 programmes and '
+                     'deleted this real timetable data by mistake - caught and fixed immediately once flagged.'},
+            {'label': 'How this actually works', 'value': 'DSC classes strongly prefer their real time; every other programme is computed freely',
+             'note': 'For DSC only, each class\'s real day/time/room (exactly as the professor submitted) is '
+                     'loaded in as a strong preference, not an unbreakable lock - the system will reproduce it '
+                     'exactly whenever nothing stops it, and only move a class when there is a genuine reason '
+                     '(e.g. the same professor is also needed for another class at that time). All 15 other '
+                     'programmes have no submitted timetable at all, so they continue to have their schedule '
+                     'worked out by the system as normal - there is nothing to prefer for them. A few classes in '
+                     'DSC\'s files use very short or very oddly-timed slots (e.g. a 1-hour Friday slot, evening '
+                     'classes after 6pm for a related module) that don\'t match any time slot currently defined '
+                     'in the system - those specific classes could not be preferred and are flagged, not '
+                     'silently dropped.'},
+            {'label': 'A few names and rooms in DSC\'s files could not be matched', 'value': '4 unmatched rooms, 3 unmatched staff names',
+             'note': 'Some room codes (e.g. in the W3 building) and a couple of staff names in DSC\'s submitted '
+                     'files don\'t match anything currently in the system\'s room or staff list - those specific '
+                     'classes were still scheduled at their correct time, just without a room or staff name '
+                     'attached yet.'},
+        ]},
+        {'category': 'DSC Backbone: Locking Removed, Data Bugs Fixed - 2026-07-10', 'icon': 'bi-wrench-adjustable', 'color': 'orange', 'kind': 'value', 'rows': [
+            {'label': 'DSC\'s real timetable is no longer an unbreakable lock', 'value': 'Changed from a hard lock to a strong preference',
+             'note': 'Previously, every DSC class was locked to its exact real-world time with zero flexibility. '
+                     'This broke Trimester 2 entirely (the system could not generate any timetable for it) '
+                     'because one professor\'s locked class left no possible time for a second class they also '
+                     'teach. Fixed by changing DSC\'s real schedule into a very strong scheduling preference '
+                     'instead - the system now reproduces it exactly whenever nothing else is affected, and only '
+                     'shifts a class when there is a genuine reason to. Result: Trimester 1 reproduced its real '
+                     'schedule exactly for 6 of 8 classes, Trimester 2 for 20 of 23, Trimester 3 for all 3.'},
+            {'label': 'Two data-matching bugs found and fixed in the same pass', 'value': '2 bugs found via direct comparison against the original Excel files',
+             'note': 'While investigating the Trimester 2 failure: (1) the professor-name-matching logic was '
+                     'accidentally matching by any partial text overlap, which once wrongly linked a professor '
+                     'named "Wang Yu" to a completely different professor named "Wang Fengyu" (because "Yu" '
+                     'happens to appear inside "Fengyu") - fixed to only match whole names; (2) some of DSC\'s '
+                     'parallel class sections (e.g. 4 separate seminar groups of the same module, each with a '
+                     'different lecturer) were being merged into fewer database entries than actually exist, '
+                     'which wrongly mixed up which lecturer taught which group - fixed the grouping logic and '
+                     'confirmed against the original files that every professor is now correctly attached to '
+                     'their own real section only.'},
+        ]},
+        {'category': 'Template 2 Export: Checked Against Ms. Yang\'s Own Reference File - 2026-07-10', 'icon': 'bi-file-earmark-check', 'color': 'green', 'kind': 'value', 'rows': [
+            {'label': 'Every column name, order, and value format checked field-by-field', 'value': '31/31 columns confirmed correct',
+             'note': 'Compared this system\'s Template 2 export directly against Ms. Yang\'s own reference file '
+                     '("Worksheet in ITP Project Requirements (Template 2).xlsx"), including its built-in '
+                     '"Class Type" code list (the official Activity Type/Class Type names) and its "Zone", '
+                     '"Day", "Time", and "Course Code" lookup sheets. All 31 columns match her expected names, '
+                     'order, and value formats (day abbreviations, HHMM time format, hostkey formats, zone '
+                     'names, and so on).'},
+            {'label': 'Two real mismatches found and fixed', 'value': '"Lab"->"Laboratory", workshop code "WRK"->"WOR"',
+             'note': 'Her official Class Type list names the activity "Laboratory", not "Lab", and codes '
+                     'workshop sessions as "WOR", not "WRK" (this system had used "WRK"). Both were silent '
+                     'mismatches that would have shown up as wrong values in her import, not caught by any '
+                     'internal test since our own code was internally consistent - only caught by comparing '
+                     'directly against her reference file. Fixed both, and also fixed the "Term" column to be a '
+                     'true number (e.g. 2510) instead of a text value, matching her file\'s exact column type.'},
+            {'label': '"Room1" now filled in with the real assigned room', 'value': 'Was always blank - now shows the actual scheduled room',
+             'note': 'Ms. Yang\'s reference file left this column blank in every example row, but that file is a '
+                     'pre-scheduling requirements list (rooms not decided yet), while this export happens after '
+                     'scheduling (rooms are known). Brian confirmed the real room should be included. One thing '
+                     'to flag: the room codes used here (e.g. "E2-07-01") are this system\'s own internal '
+                     'naming, not confirmed against a Punggol-specific room list from Ms. Yang\'s side - her '
+                     'reference file\'s own room lookup sheet only has Dover-campus rooms, so there is nothing '
+                     'to check the exact expected Punggol format against yet. "Room2" and "RoomGrouping" stay '
+                     'blank - there is no data source for a second room per class anywhere in the system.'},
+        ]},
+        {'category': 'Full System Audit: Fabricated Professor Names Found and Removed - 2026-07-11', 'icon': 'bi-search', 'color': 'red', 'kind': 'value', 'rows': [
+            {'label': '14 DSC class sessions had a made-up professor name, not from any source file', 'value': 'Found by cross-checking every name against all 3 real files',
+             'note': 'Names like "Bob Chen", "Alice Wong", and "Frank Goh" were attached to some DSC classes even '
+                     'though those names never appear anywhere in DSC\'s real submitted timetable. Traced to '
+                     'leftover records from a brief, earlier mistake where DSC was processed like every other '
+                     'programme before being switched to its real timetable (see the DSC entry above) - those old, '
+                     'wrong names were never cleaned up, and a routine "fill in a likely name from a nearby class" '
+                     'step then spread them further. Every affected class was checked against the original Excel '
+                     'files: where a real name existed, it was used; where a class genuinely has no equivalent in '
+                     'the real timetable, it is now correctly shown as unstaffed rather than guessed.'},
+            {'label': 'Quiz sessions were being silently skipped on import', 'value': 'Fixed - quizzes and workshops now import correctly',
+             'note': 'A labelling bug meant every quiz class in DSC\'s real timetable file (13 of them) was quietly '
+                     'ignored during import, and workshop classes were mislabelled as tutorials. Fixed; several '
+                     'real quiz classes are now correctly loaded with their real time and professor.'},
+            {'label': '5 real quizzes needed new time slots the system didn\'t have', 'value': 'Fixed - added the missing time slots rather than drop the real data',
+             'note': 'DSC3303\'s quiz is genuinely 1 hour long, and 4 shared-module quizzes (INF1009, INF2008, '
+                     'SDE3001, SDE3002) are genuinely held 6pm-8pm in the evening - neither existed as a time slot '
+                     'option in the system. Since Brian confirmed the real timetable file is accurate and these '
+                     'classes really do happen, the system was updated to properly support them rather than leave '
+                     'them out: added the 3 missing time slots, and locked each of these 5 classes to their exact '
+                     'real time so they don\'t affect anyone else\'s schedule. The "no classes after 6pm" rule '
+                     'still holds for every other class - these 5 are a disclosed, source-confirmed exception, not '
+                     'a loosening of the rule generally.'},
+        ]},
+    ]
+
+    # Assumed / Self-Input Values - standing facts about how the system fills
+    # gaps not covered by uploaded data. Unlike changelog_groups above, these
+    # aren't tied to a date - they describe the system's current behaviour.
+    assumption_groups = [
+        {'category': 'Solver Scheduling Defaults', 'icon': 'bi-gear', 'color': 'blue', 'kind': 'value', 'rows': [
+            {'label': 'Default week to treat as a term break', 'value': f'Week {sorted(sv.DEFAULT_TERM_BREAK_WEEKS)}',
+             'note': 'Only used if a specific break week isn\'t chosen when generating a timetable.'},
+            {'label': 'Wednesday afternoon cutoff', 'value': fmt(sv.WED_AFTERNOON_CUTOFF),
+             'note': 'SIT\'s CCA (co-curricular activity) policy - a fixed school-wide rule, not something read '
+                     'from any uploaded file.'},
+            {'label': 'Friday protected window', 'value': f'{fmt(sv.FRI_BLOCK_START)}-{fmt(sv.FRI_BLOCK_END)}',
+             'note': 'A fixed SIT-wide rule, not something read from any uploaded file.'},
+            {'label': 'Lunch window (flexible, not a fixed block)', 'value': f'{fmt(sv.LUNCH_WINDOW_START)}-{fmt(sv.LUNCH_WINDOW_END)}',
+             'note': 'Every class group needs at least 1 free hour somewhere in this window, on any day - it '
+                     'isn\'t one fixed hour blocked for everyone (corrected per Ms. Yang, who clarified the '
+                     'original "no class 12:00-13:00" reading was wrong).'},
+            {'label': 'Preferred end-of-day cutoff', 'value': fmt(sv.LATE_END_CUTOFF),
+             'note': 'Just a preference, not a hard rule - a class can still be scheduled later than this if '
+                     'there\'s no earlier slot available.'},
+        ]},
+        {'category': 'Room & Capacity Rules', 'icon': 'bi-door-open', 'color': 'green', 'kind': 'value', 'rows': [
+            {'label': 'Which room types can host which class types', 'value': 'A rule we set ourselves',
+             'note': 'Lab classes need a lab room. Lectures, lectorials and quizzes need a lecture or seminar '
+                     'room. Tutorials, seminars and workshops also use a seminar or lecture room. This matching '
+                     'isn\'t based on any field in the uploaded data - it\'s a rule the system applies on its own.'},
+            {'label': 'Class size used when no group is linked', 'value': '1 student',
+             'note': 'If a class has no student group linked to it, the system assumes only 1 student when '
+                     'checking room size and usage - almost certainly too low for a real class that\'s simply '
+                     'missing its group link.'},
+        ]},
+        {'category': 'Academic Calendar & Timeslots', 'icon': 'bi-calendar3', 'color': 'purple', 'kind': 'value', 'rows': [
+            {'label': 'SIT academic calendar (when each term starts)', 'value': f'{cal_date_count} dates ({cal_years})',
+             'note': 'Typed in by hand from SIT\'s public academic calendar page, not from any uploaded file. '
+                     'Should be double-checked at the start of every new academic year.'},
+            {'label': 'Standard daily time slots', 'value': '35 slots (5 days x 7 periods)',
+             'note': 'Set up by the project team from SIT\'s standard period-block reference sheet - fixed '
+                     'unless SIT changes its daily class-period structure.'},
+            {'label': 'Public holiday list', 'value': "A general Singapore public-holiday list",
+             'note': 'Not a list curated specifically for SIT - it\'s the general Singapore public holiday '
+                     'calendar, which can differ from SIT\'s own observed closures (e.g. school-specific '
+                     'makeup or closure days).'},
+        ]},
+        {'category': 'Template 2 Export Mappings', 'icon': 'bi-file-earmark-spreadsheet', 'color': 'red', 'kind': 'value', 'rows': [
+            {'label': 'Programme to campus mapping',
+             'value': f'{len(T2_PROG_SECTOR)} mapped' + (f', {len(unmapped_prog_codes)} UNMAPPED' if unmapped_prog_codes else ', all covered'),
+             'risk': bool(unmapped_prog_codes),
+             'note': ('All SIT programmes are now based at the Punggol campus (confirmed by Brian 2026-07-10), '
+                      'so every programme - listed here or not - exports as Punggol. '
+                      f'Not explicitly listed yet (still fine, defaults to Punggol anyway): {", ".join(unmapped_prog_codes)}.'
+                      if unmapped_prog_codes else
+                      'Every current programme is explicitly listed, and any new one added later would also '
+                      'default to Punggol automatically - no other campus is in use.')},
+            {'label': 'Class-type abbreviation mapping', 'value': f'{len(T2_ACT_CODE)} class types',
+             'note': 'e.g. lecture becomes "LEC", lectorial becomes "LET", tutorial becomes "TUT". Any class '
+                     'type not on this list exports as "OTH".'},
+            {'label': 'Cluster abbreviation mapping', 'value': f'{len(T2_CLUSTER_ABBR)} explicit + fallback',
+             'note': 'A cluster name not on this list falls back to its first 3 letters, capitalised - which '
+                     'could produce an odd-looking abbreviation for a brand-new cluster name.'},
+            {'label': 'Class-length units', 'value': '1 hour = 3 units (20-minute blocks)',
+             'note': 'The exported file expects class length in 20-minute units, so the system multiplies the '
+                     'hour count by 3. This matches SIT\'s own template format, but isn\'t written down anywhere '
+                     'in it - worked out from the sample file.'},
+            {'label': 'Which classes get marked as "recorded"', 'value': 'Lectorials only',
+             'note': 'Every other class type exports as "not recorded" - based on the assumption that only '
+                     'lectorials are ever recorded.'},
+            {'label': '"Term start week" column', 'value': 'Always set to 1',
+             'note': 'Every exported row shows "1" here - it isn\'t calculated from the real calendar or term '
+                     'break dates.'},
+        ]},
+        {'category': 'Cross-Programme Coordination', 'icon': 'bi-diagram-3', 'color': 'red', 'kind': 'value', 'rows': [
+            {'label': 'Classes shared across multiple programmes', 'value': f'{len(shared_groups_all)} shared group(s), {shared_sessions_linked} class(es) linked',
+             'note': 'Built from two of your source files: one lists which modules are shared by which '
+                     'programmes in free text, matched as closely as possible; the other spells out full class '
+                     'schedules for shared modules, but its layout varies from module to module, so it was '
+                     'typed up carefully by hand instead of read automatically, to avoid mistakes.'},
+            {'label': 'Only the lecture is shared, not the tutorial/lab/quiz', 'value': '1 combined lecture per programme group',
+             'note': 'When several programmes share a module, only their lecture is scheduled at the same time '
+                     'for everyone - tutorials, labs, and quizzes stay separate per programme. This is a '
+                     'judgment call, not something stated in the source files. Where a file only gave one row '
+                     'covering several programmes for a tutorial/lab/quiz (no per-programme breakdown), the same '
+                     'details were copied once for each programme rather than merged into a single class.'},
+            {'label': 'Room size for shared classes', 'value': 'Big enough for every programme combined',
+             'note': 'When several programmes share one class, the room chosen must fit everyone from all of '
+                     'those programmes together - this isn\'t from any uploaded file, it\'s what made sense to us.'},
+        ]},
+    ]
+
+    # Data Gaps - live counts of missing/incomplete data needing attention.
+    # Kept separate from assumption_groups: a gap is "we don't have this data
+    # at all", not "we filled in a value" - a different kind of disclosure.
+    data_gap_groups = [
+        {'category': 'Data Gaps', 'icon': 'bi-exclamation-triangle', 'color': 'amber', 'kind': 'count', 'rows': [
+            {'label': 'Classes with no professor assigned', 'count': len(no_prof_sessions),
+             'note': 'These are skipped entirely - they won\'t appear on any generated timetable until a '
+                     'professor is assigned.'},
+            {'label': 'In-person classes with no student group assigned', 'count': len(no_group_sessions),
+             'note': 'Also skipped entirely until a group is assigned.'},
+            {'label': 'Modules missing a group-split setting', 'count': len(courses_missing_split),
+             'note': 'Generation is blocked until an admin sets how many groups this module should be split '
+                     'into - see the Dashboard warning.'},
+            {'label': 'Classes with a manually-set time slot', 'count': no_fixed_room_sessions,
+             'note': 'These were placed by an admin directly, not worked out by the system.'},
+            {'label': f'Single classes longer than {sv.LONG_SESSION_THRESHOLD_HOURS} hours', 'count': long_sessions,
+             'note': 'For information only - a class\'s length is fixed before scheduling even starts, so this '
+                     'isn\'t something the system controls. Some engineering labs are legitimately this long; '
+                     'worth reviewing case by case.'},
+            {'label': 'Modules with more than one quiz in the same week', 'count': quiz_overlap_count,
+             'note': 'This blocks timetable generation completely - each module is only allowed one quiz per '
+                     'week, and the system can\'t move a quiz to a different week since that comes from the '
+                     'uploaded data, not a scheduling choice. Confirmed with Brian that this rule applies per '
+                     'module, not per student. The one case still open (EPE2300) might not be a real problem: '
+                     'the source file shows two separate, unlabelled groups of students (different lecturers) '
+                     'with no way to tell them apart - not fixed, since we didn\'t want to invent a label the '
+                     'data itself didn\'t give us.'},
+            {'label': 'Modules shared between two intake years under one record', 'count': 2,
+             'note': 'MME3201A and SBE3113A are each referenced by two different years\' files, but the '
+                     'database can currently only store one year per module - a pre-existing limitation, not '
+                     'something from today\'s changes. Neither has week information either way, so nothing is '
+                     'at risk; left as-is until there\'s a decision on how to properly support a module offered '
+                     'across two cohort years.'},
+            {'label': 'No way yet to detect overlapping elective choices', 'count': 1,
+             'note': 'Ms. Yang\'s requirements mention checking for overlaps between elective options a student '
+                     'might pick - but nowhere in any uploaded file (raw or cleaned) is there a flag marking '
+                     'which modules are electives, or which electives are alternatives to each other. The '
+                     'closest thing found: DSC\'s Term 2 file reserves two generic "Elective 1" / "Elective 2" '
+                     'time slots (each with its own dedicated lecturer already assigned) rather than naming '
+                     'specific elective modules at all - this sidesteps the overlap question entirely rather '
+                     'than answering it, and doesn\'t generalise to how other programmes might handle electives. '
+                     'Still needs a real source file from Brian to implement properly.'},
+            {'label': '"Lectures fully online" statement contradicts the real data', 'count': 1,
+             'note': 'The requirements doc has one line saying lectures are always online with no physical room '
+                     'needed - but across the entire dataset (raw and cleaned, all 16 programmes), lectures are '
+                     'explicitly marked f2f (in-person) about as often as online, row by row. The system trusts '
+                     'each class\'s own stated delivery mode from the uploaded data instead of this blanket rule, '
+                     'since the data itself is more specific and consistent than the general statement.'},
+        ]},
+    ]
+
+    return render_template('admin/system_info.html',
+                           constraints=constraints,
+                           assumption_groups=assumption_groups,
+                           data_gap_groups=data_gap_groups,
+                           changelog_groups=changelog_groups)
+
+
+# ---------------------------------------------------------------------------
 # Data Import / Export
 # ---------------------------------------------------------------------------
 
@@ -1655,7 +2353,7 @@ def data_import():
 
 
 # ---------------------------------------------------------------------------
-# Template 1 import — upload → preview → confirm
+# Template 1 import - upload → preview → confirm
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/import/template1', methods=['GET', 'POST'])
@@ -1789,7 +2487,7 @@ def import_template1():
     if confirm and token:
         fpath = os.path.join(UPLOAD_DIR, f'{token}.xlsx')
         if not os.path.exists(fpath):
-            flash('Upload session expired — please re-upload.', 'danger')
+            flash('Upload session expired - please re-upload.', 'danger')
             return redirect(url_for('admin.import_template1'))
 
         all_slots = TimeSlot.query.all()
@@ -1903,7 +2601,7 @@ def import_template1():
             'session_type':   rec['session_type'],
             'group_label':    rec['group_label'],
             'duration_hours': rec['duration_hours'],
-            'teaching_weeks': rec['teaching_weeks'] or '—',
+            'teaching_weeks': rec['teaching_weeks'] or '-',
             'is_async':       rec['is_async'],
             'delivery_mode':  rec['delivery_mode'],
             'prog_code':      rec['prog_code'],
@@ -1922,7 +2620,7 @@ def import_template1():
 
 
 # ---------------------------------------------------------------------------
-# Timetable — async solver (background task + polling)
+# Timetable - async solver (background task + polling)
 # ---------------------------------------------------------------------------
 
 def _purge_old_tasks():
@@ -1967,15 +2665,18 @@ def _run_solver_task(app, task_id, action, form_data):
                                     for e in existing if e.class_session_id not in seen
                                     and not seen.add(e.class_session_id)} or None
 
+                # Backbone (real, professor-submitted) entries are fed to the
+                # solver as a strongly-weighted soft preference via
+                # historical_preferred, NOT a hard pin. A hard pin cannot
+                # yield even when a session it locks is genuinely
+                # incompatible with another hard rule elsewhere (e.g. the
+                # same professor's second, unpinned class needing a slot) -
+                # that turned the whole trimester infeasible (found
+                # 2026-07-10). The soft version reproduces the real
+                # timetable whenever nothing conflicts, since matching it
+                # costs nothing and deviating only adds objective cost, but
+                # lets the solver move a class when there's a real conflict.
                 historical_preferred = _build_historical_preferred(academic_year, trimester_num)
-
-                bb_entries = TimetableEntry.query.filter_by(trimester=trimester, is_backbone=True).all()
-                if bb_entries:
-                    backbone_pins = {e.class_session_id: e.timeslot_id for e in bb_entries}
-                    if pinned_slots:
-                        pinned_slots.update(backbone_pins)
-                    else:
-                        pinned_slots = backbone_pins
 
                 success, message, stats = _solve(
                     trimester, _date.fromisoformat(start_raw), term_break_weeks,
@@ -1984,61 +2685,9 @@ def _run_solver_task(app, task_id, action, form_data):
                 )
                 if success:
                     _auto_create_flags(trimester, stats.get('preferred_violations', []))
+                    _save_solve_run(trimester, stats)
                 _update('done', message, success=success, stats=stats,
                         trimester=trimester, academic_year=academic_year)
-
-            elif action == 'generate_ay':
-                ay_stats = {}
-                any_success = False
-                for tri_num in [1, 2, 3]:
-                    tri_key = f'{academic_year}-T{tri_num}'
-                    sd_raw = form_data.get(f'start_date_t{tri_num}', '').strip()
-                    if not sd_raw:
-                        sd_raw = SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(tri_num, '')
-                    if not sd_raw:
-                        ay_stats[tri_num] = {'success': False, 'message': f'Tri {tri_num}: no start date — skipped.', 'stats': {}}
-                        continue
-
-                    tri_blockers, _ = get_blocking_issues(trimester_num=tri_num)
-                    if tri_blockers:
-                        ay_stats[tri_num] = {'success': False, 'message': f'Tri {tri_num}: {len(tri_blockers)} blocking issue(s) — skipped.', 'stats': {}}
-                        continue
-
-                    _update('running', f'Solving {tri_key} ({tri_num}/3)…',
-                            trimester=f'{academic_year}-T1', academic_year=academic_year,
-                            ay_stats=ay_stats)
-
-                    pinned_slots = None
-                    if preserve:
-                        existing = TimetableEntry.query.filter_by(trimester=tri_key, is_backbone=False).all()
-                        seen = set()
-                        pinned_slots = {e.class_session_id: e.timeslot_id
-                                        for e in existing if e.class_session_id not in seen
-                                        and not seen.add(e.class_session_id)} or None
-
-                    historical_preferred = _build_historical_preferred(academic_year, tri_num)
-                    bb_entries = TimetableEntry.query.filter_by(trimester=tri_key, is_backbone=True).all()
-                    if bb_entries:
-                        backbone_pins = {e.class_session_id: e.timeslot_id for e in bb_entries}
-                        if pinned_slots:
-                            pinned_slots.update(backbone_pins)
-                        else:
-                            pinned_slots = backbone_pins
-
-                    success, message, s = _solve(
-                        tri_key, _date.fromisoformat(sd_raw), term_break_weeks,
-                        trimester_num=tri_num, academic_year=academic_year,
-                        pinned_slots=pinned_slots, historical_preferred=historical_preferred,
-                    )
-                    if success:
-                        any_success = True
-                        _auto_create_flags(tri_key, s.get('preferred_violations', []))
-                    ay_stats[tri_num] = {'success': success, 'message': message, 'stats': s}
-
-                summary = f'{academic_year}: Tri {", ".join(str(t) for t, v in ay_stats.items() if v["success"])} generated.'
-                _update('done', summary if any_success else 'No trimesters were generated.',
-                        success=any_success, stats={}, ay_stats=ay_stats,
-                        trimester=f'{academic_year}-T1', academic_year=academic_year)
 
         except Exception as exc:
             _solver_tasks[task_id].update({
@@ -2058,7 +2707,7 @@ def timetable_solve_async():
     _purge_old_tasks()
 
     action = request.form.get('action', '')
-    if action not in ('generate', 'generate_ay'):
+    if action != 'generate':
         return jsonify({'error': 'Invalid action.'}), 400
 
     # Quick validation before spawning thread
@@ -2066,21 +2715,18 @@ def timetable_solve_async():
     if not academic_year:
         return jsonify({'error': 'Academic year is required.'}), 400
 
-    if action == 'generate':
-        tri_raw = request.form.get('trimester_num', '').strip()
-        trimester_num = int(tri_raw) if tri_raw in ('1', '2', '3') else None
-        if not trimester_num:
-            return jsonify({'error': 'Trimester number is required.'}), 400
-        tri_blockers, _ = get_blocking_issues(trimester_num=trimester_num)
-        if tri_blockers:
-            return jsonify({'error': f'{len(tri_blockers)} blocking issue(s): ' + tri_blockers[0]}), 400
-        start_raw = request.form.get('start_date', '').strip() or \
-                    SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(trimester_num, '')
-        if not start_raw:
-            return jsonify({'error': 'Start date is required.'}), 400
-        trimester = f'{academic_year}-T{trimester_num}'
-    else:
-        trimester = f'{academic_year}-T1'
+    tri_raw = request.form.get('trimester_num', '').strip()
+    trimester_num = int(tri_raw) if tri_raw in ('1', '2', '3') else None
+    if not trimester_num:
+        return jsonify({'error': 'Trimester number is required.'}), 400
+    tri_blockers, _ = get_blocking_issues(trimester_num=trimester_num)
+    if tri_blockers:
+        return jsonify({'error': f'{len(tri_blockers)} blocking issue(s): ' + tri_blockers[0]}), 400
+    start_raw = request.form.get('start_date', '').strip() or \
+                SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(trimester_num, '')
+    if not start_raw:
+        return jsonify({'error': 'Start date is required.'}), 400
+    trimester = f'{academic_year}-T{trimester_num}'
 
     # Check no task already running for this trimester
     for t in _solver_tasks.values():
@@ -2122,12 +2768,11 @@ def solver_status(task_id):
         'stats':         task.get('stats', {}),
         'trimester':     task.get('trimester', ''),
         'academic_year': task.get('academic_year', ''),
-        'ay_stats':      task.get('ay_stats', {}),
     })
 
 
 # ---------------------------------------------------------------------------
-# Timetable — generate and view
+# Timetable - generate and view
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/timetable', methods=['GET', 'POST'])
@@ -2164,124 +2809,13 @@ def timetable():
         return f'AY{s+1:02d}{e+1:02d}'
 
     selected_tri = None   # remembered for re-populating the form after POST
-    ay_stats     = {}    # {tri_num: {'success', 'message', 'stats'}} for Full AY run
 
     if request.method == 'POST':
         action    = request.form.get('action', '')
         trimester = request.form.get('trimester', '').strip()
         start_raw = request.form.get('start_date', '').strip()
 
-        if action == 'generate_ay':
-            # ---------------------------------------------------------------
-            # Full Academic Year — run solver for Tri 1, 2, 3 sequentially
-            # ---------------------------------------------------------------
-            academic_year = request.form.get('academic_year', '').strip().upper()
-            preserve      = request.form.get('preserve_existing') == 'on'
-            break_raw     = request.form.get('term_break_weeks', '7').strip()
-            term_break_weeks = set()
-            for part in break_raw.split(','):
-                part = part.strip()
-                if part.isdigit():
-                    term_break_weeks.add(int(part))
-            if not term_break_weeks:
-                term_break_weeks = {7}
-
-            if not academic_year:
-                flash('Academic year is required (e.g. AY2526).', 'danger')
-            else:
-                any_success = False
-                for tri_num in [1, 2, 3]:
-                    tri_key  = f'{academic_year}-T{tri_num}'
-                    sd_raw   = request.form.get(f'start_date_t{tri_num}', '').strip()
-                    if not sd_raw:
-                        # Fall back to official SIT calendar
-                        sd_raw = SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(tri_num, '')
-                    if not sd_raw:
-                        ay_stats[tri_num] = {
-                            'success': False,
-                            'message': f'Tri {tri_num}: no start date — skipped (not in known calendar).',
-                            'stats'  : {},
-                        }
-                        continue
-
-                    tri_blockers, _tri_warns = get_blocking_issues(trimester_num=tri_num)
-                    if tri_blockers:
-                        ay_stats[tri_num] = {
-                            'success': False,
-                            'message': f'Tri {tri_num}: {len(tri_blockers)} blocking issue(s) — skipped. '
-                                       f'({tri_blockers[0]}...)',
-                            'stats'  : {},
-                        }
-                        continue
-
-                    try:
-                        start_date = date.fromisoformat(sd_raw)
-                        pinned_slots = None
-                        if preserve:
-                            existing = TimetableEntry.query.filter_by(trimester=tri_key, is_backbone=False).all()
-                            seen_sess = set()
-                            pinned_slots = {}
-                            for e in existing:
-                                if e.class_session_id not in seen_sess:
-                                    seen_sess.add(e.class_session_id)
-                                    pinned_slots[e.class_session_id] = e.timeslot_id
-                            if not pinned_slots:
-                                pinned_slots = None
-
-                        historical_preferred = _build_historical_preferred(academic_year, tri_num)
-
-                        # Hard-pin backbone sessions so generated == backbone (1:1 similarity).
-                        # Pins are dropped silently if incompatible or professor-blocked.
-                        bb_entries = TimetableEntry.query.filter_by(
-                            trimester=tri_key, is_backbone=True).all()
-                        if bb_entries:
-                            backbone_pins = {}
-                            for e in bb_entries:
-                                if e.class_session_id not in backbone_pins:
-                                    backbone_pins[e.class_session_id] = e.timeslot_id
-                            # Backbone takes priority over preserve-mode carry-overs
-                            if pinned_slots:
-                                pinned_slots.update(backbone_pins)
-                            else:
-                                pinned_slots = backbone_pins
-
-                        success, message, s = solve(
-                            tri_key, start_date, term_break_weeks,
-                            trimester_num=tri_num,
-                            academic_year=academic_year,
-                            pinned_slots=pinned_slots,
-                            historical_preferred=historical_preferred,
-                        )
-                        if success:
-                            any_success = True
-                            _auto_create_flags(tri_key, s.get('preferred_violations', []))
-                        ay_stats[tri_num] = {
-                            'success': success,
-                            'message': message,
-                            'stats'  : s,
-                        }
-                    except Exception as e:
-                        ay_stats[tri_num] = {
-                            'success': False,
-                            'message': f'Solver error: {str(e)}',
-                            'stats'  : {},
-                        }
-
-                if any_success:
-                    succeeded = [t for t, v in ay_stats.items() if v['success']]
-                    flash(
-                        f'{academic_year} — Tri {", ".join(str(t) for t in succeeded)} '
-                        f'generated successfully.',
-                        'success'
-                    )
-                else:
-                    flash('No trimesters were generated. Check issues above.', 'danger')
-
-                # For the tab display, default to T1 after a Full AY run
-                if not trimester:
-                    trimester = f'{academic_year}-T1'
-
-        elif action == 'generate':
+        if action == 'generate':
             # New fields: academic_year + trimester_num; build the internal key
             academic_year = request.form.get('academic_year', '').strip().upper()
             tri_raw       = request.form.get('trimester_num', '').strip()
@@ -2309,7 +2843,7 @@ def timetable():
             elif not trimester_num:
                 flash('Trimester number (1, 2, or 3) is required.', 'danger')
             elif not start_raw:
-                flash('Start date is required (AY not in known SIT calendar — enter manually).', 'danger')
+                flash('Start date is required (AY not in known SIT calendar - enter manually).', 'danger')
             else:
                 try:
                     start_date = date.fromisoformat(start_raw)
@@ -2335,20 +2869,11 @@ def timetable():
                         if not pinned_slots:
                             pinned_slots = None
 
+                    # Backbone entries go in as a soft preference (via
+                    # historical_preferred below), not a hard pin - see the
+                    # matching comment in _run_solver_task for why a hard pin
+                    # made Tri2 infeasible (found 2026-07-10).
                     historical_preferred = _build_historical_preferred(academic_year, trimester_num)
-
-                    # Hard-pin backbone sessions so generated == backbone (1:1 similarity).
-                    bb_entries = TimetableEntry.query.filter_by(
-                        trimester=trimester, is_backbone=True).all()
-                    if bb_entries:
-                        backbone_pins = {}
-                        for e in bb_entries:
-                            if e.class_session_id not in backbone_pins:
-                                backbone_pins[e.class_session_id] = e.timeslot_id
-                        if pinned_slots:
-                            pinned_slots.update(backbone_pins)
-                        else:
-                            pinned_slots = backbone_pins
 
                     success, message, stats = solve(
                         trimester, start_date, term_break_weeks,
@@ -2362,6 +2887,7 @@ def timetable():
                         flash(message, 'success')
                         # Auto-create TimetableFlag records for preferred violations
                         _auto_create_flags(trimester, stats.get('preferred_violations', []))
+                        _save_solve_run(trimester, stats)
                     else:
                         flash(message, 'danger')
                 except Exception as e:
@@ -2595,14 +3121,21 @@ def timetable():
         if e.class_session.course.year_level
     )) if unique_entries else []
 
+    # The primary generate flow is async (posts to solve-async, then this
+    # page loads as a plain GET) so `stats` is usually still {} here even
+    # right after a successful generation - fall back to the last solve
+    # persisted for this trimester so the summary still shows up.
+    display_stats = stats or _load_solve_run(trimester)
+    constraint_summary = _build_constraint_summary(display_stats)
+
     return render_template('admin/timetable.html',
                            issues=issues,
                            issue_warnings=issue_warnings,
                            trimesters=trimesters,
                            active_trimester=trimester,
                            entries=unique_entries,
-                           stats=stats,
-                           ay_stats=ay_stats,
+                           stats=display_stats,
+                           constraint_summary=constraint_summary,
                            result=result,
                            view_mode=view_mode,
                            week_number=week_number,
@@ -2626,7 +3159,175 @@ def timetable():
 
 
 # ---------------------------------------------------------------------------
-# Timetable Similarity — mirrored timetable report across trimesters
+# Scheduling Administration Report - a fuller, standalone view of how one
+# trimester's timetable was generated: run overview, an optimised score, and
+# a breakdown of the actual scheduled sessions by source/day/type/mode.
+# Own design (not a copy of any reference) - built to fit this app's own
+# data model rather than force-fitting someone else's labels.
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/timetable/report')
+@login_required
+def timetable_report():
+    from app.models.solve_run import SolveRun
+    from app.models.programme import Programme
+
+    trimester = request.args.get('trimester', '')
+    if not trimester:
+        _latest = (db.session.query(TimetableEntry.trimester)
+                   .distinct().order_by(TimetableEntry.trimester.desc()).first())
+        trimester = _latest[0] if _latest else ''
+
+    trimesters = sorted(set(
+        t[0] for t in db.session.query(TimetableEntry.trimester).distinct().all()
+    ), reverse=True)
+
+    if not trimester:
+        return render_template('admin/timetable_report.html', trimester='',
+                                trimesters=trimesters, report=None)
+
+    all_entries = (
+        TimetableEntry.query
+        .filter_by(trimester=trimester)
+        .join(TimetableEntry.class_session)
+        .join(ClassSession.course)
+        .options(
+            db.joinedload(TimetableEntry.timeslot),
+            db.joinedload(TimetableEntry.room),
+            db.joinedload(TimetableEntry.class_session).joinedload(ClassSession.course).joinedload(Course.programme),
+            db.joinedload(TimetableEntry.class_session).joinedload(ClassSession.student_group),
+        )
+        .all()
+    )
+
+    # One row per session (not one per week) for every count/breakdown below -
+    # a weekly class recurring 13 times must count once, not 13 times.
+    seen = set()
+    sessions = []
+    for e in all_entries:
+        if e.class_session_id not in seen:
+            seen.add(e.class_session_id)
+            sessions.append(e)
+
+    def _count_by(key_fn, label_fn=None):
+        counts = {}
+        for e in sessions:
+            k = key_fn(e)
+            if k is None:
+                continue
+            counts[k] = counts.get(k, 0) + 1
+        label_fn = label_fn or (lambda k: k)
+        rows = [{'label': label_fn(k), 'count': v} for k, v in counts.items()]
+        rows.sort(key=lambda r: -r['count'])
+        max_count = max((r['count'] for r in rows), default=0)
+        for r in rows:
+            r['pct'] = round(100 * r['count'] / max_count) if max_count else 0
+        return rows
+
+    DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+    day_rows = _count_by(lambda e: e.timeslot.day_of_week if e.timeslot else None)
+    day_rows.sort(key=lambda r: DAY_ORDER.index(r['label']) if r['label'] in DAY_ORDER else 99)
+    max_day = max((r['count'] for r in day_rows), default=0)
+    for r in day_rows:
+        r['pct'] = round(100 * r['count'] / max_day) if max_day else 0
+
+    class_type_rows = _count_by(
+        lambda e: e.class_session.session_type,
+        lambda k: T2_CLASS_TYPE.get(k, k.capitalize()),
+    )
+    delivery_rows = _count_by(
+        lambda e: e.class_session.delivery_mode,
+        lambda k: {'f2f': 'Face-to-face', 'online': 'Online', 'hybrid': 'Hybrid'}.get(k, k.capitalize()),
+    )
+    source_rows = _count_by(
+        lambda e: e.is_backbone,
+        lambda k: 'Backbone (real timetable)' if k else 'Solver-generated',
+    )
+
+    rooms_used = len({e.room_id for e in sessions if e.room_id})
+    staff_assigned = (
+        db.session.query(ClassSessionProfessor.professor_id)
+        .join(ClassSession, ClassSessionProfessor.session_id == ClassSession.id)
+        .filter(ClassSession.id.in_([e.class_session_id for e in sessions]))
+        .distinct().count()
+    ) if sessions else 0
+    teaching_weeks = len({e.week_number for e in all_entries if e.week_number})
+    programmes_covered = len({
+        e.class_session.course.programme_id for e in sessions
+        if e.class_session.course.programme_id
+    })
+    modules_covered = len({e.class_session.course_id for e in sessions})
+    student_groups_covered = len({
+        e.class_session.student_group_id for e in sessions
+        if e.class_session.student_group_id
+    })
+
+    solve_row = SolveRun.query.filter_by(trimester=trimester).first()
+    stats = {}
+    if solve_row:
+        import json as _json
+        try:
+            stats = _json.loads(solve_row.stats_json)
+        except (TypeError, ValueError):
+            stats = {}
+    constraint_summary = _build_constraint_summary(stats) if stats else None
+
+    hist_honoured = stats.get('historical_honoured')
+    hist_changed = stats.get('historical_changed')
+    historical_match = None
+    if hist_honoured is not None and (hist_honoured + (hist_changed or 0)) > 0:
+        historical_match = f'{hist_honoured}/{hist_honoured + hist_changed}'
+
+    soft_total = constraint_summary['soft_total_violations'] if constraint_summary else 0
+    preference_problems = len(stats.get('preferred_violations', []))
+    # Self-defined scoring, disclosed on the page - not an official metric.
+    # -2 points per soft-constraint violation, floor 0. Hard constraints can
+    # never be violated (the solve would have failed), so that term is
+    # always -0.
+    score = max(0, 100 - soft_total * 2)
+
+    report = {
+        'trimester': trimester,
+        'solver_status': solve_row.solver_status if solve_row else None,
+        'generated_at': solve_row.created_at if solve_row else None,
+        'has_data': bool(sessions),
+        'tiles': {
+            'sessions_scheduled': len(sessions),
+            'rooms_used': rooms_used,
+            'staff_assigned': staff_assigned,
+            'teaching_weeks': teaching_weeks,
+            'historical_match': historical_match,
+            'soft_violations': soft_total,
+        },
+        'overview': {
+            'programmes': programmes_covered,
+            'modules': modules_covered,
+            'student_groups': student_groups_covered,
+            'hard_rule_count': constraint_summary['hard_rule_count'] if constraint_summary else None,
+            'soft_rule_count': constraint_summary['soft_rule_count'] if constraint_summary else None,
+        },
+        'score': {
+            'available': solve_row is not None,
+            'value': score,
+            'hard_conflicts': 0,
+            'soft_violations': soft_total,
+            'preference_problems': preference_problems,
+        },
+        'breakdown': {
+            'source': source_rows,
+            'day': day_rows,
+            'class_type': class_type_rows,
+            'delivery_mode': delivery_rows,
+        },
+        'constraint_summary': constraint_summary,
+    }
+
+    return render_template('admin/timetable_report.html',
+                           trimester=trimester, trimesters=trimesters, report=report)
+
+
+# ---------------------------------------------------------------------------
+# Timetable Similarity - mirrored timetable report across trimesters
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/timetable/similarity')
@@ -2718,7 +3419,7 @@ def timetable_similarity():
 
         def _reason_tag(class_session_id, base_timeslot_id, base_room_id, compare_tri_key):
             """Infer why the solver moved a session off its historical slot.
-            Returns (tag, explanation) — explanation is a specific, data-driven sentence for the admin."""
+            Returns (tag, explanation) - explanation is a specific, data-driven sentence for the admin."""
             cs = ClassSession.query.get(class_session_id)
             base_ts = TimeSlot.query.get(base_timeslot_id)
             slot_str = (f"{base_ts.day_of_week} {base_ts.start_time.strftime('%H:%M')}–{base_ts.end_time.strftime('%H:%M')}"
@@ -2732,7 +3433,7 @@ def timetable_similarity():
                     ).first()
                     if hard:
                         return ('prof_hard_conflict',
-                                f"Prof. {prof.user.name} has a strict unavailability at {slot_str} — the solver cannot override this hard constraint.")
+                                f"Prof. {prof.user.name} has a strict unavailability at {slot_str} - the solver cannot override this hard constraint.")
                     soft = AvailabilityDeclaration.query.filter_by(
                         professor_id=prof.id,
                         timeslot_id=base_timeslot_id,
@@ -2767,9 +3468,9 @@ def timetable_similarity():
                     return ('room_conflict',
                             f"{room_code} is occupied by {rc_cs.course.module_code} {rc_cs.session_type} at {slot_str}.")
             return ('rescheduled',
-                    'No specific constraint identified — the solver chose a different slot through optimisation.')
+                    'No specific constraint identified - the solver chose a different slot through optimisation.')
 
-        # Module codes that existed in the base AY (filtered by source) — used to
+        # Module codes that existed in the base AY (filtered by source) - used to
         # distinguish truly-new modules from ones that simply had no backbone entry
         base_ay_mods_q = TimetableEntry.query.filter(TimetableEntry.academic_year == base_ay)
         if base_source == 'backbone':
@@ -2806,7 +3507,7 @@ def timetable_similarity():
                 reason_tag = ''
                 # A module is only "truly new" if it doesn't exist in the curriculum at all.
                 # If it exists in the DB but is missing from the backbone, that's a backbone
-                # import gap — not a new module.
+                # import gap - not a new module.
                 is_truly_new = (mod.upper() not in all_curriculum_mods
                                 and mod.upper() not in base_ay_mods)
                 is_backbone_gap = (mod.upper() in all_curriculum_mods
@@ -2833,7 +3534,7 @@ def timetable_similarity():
                 elif consistency == 'compare_only':
                     if is_truly_new:
                         reason = f'New module added in {compare_ay}'
-                        explanation = f'Not in {base_label} at all — genuinely new to the curriculum, scheduled without a historical reference.'
+                        explanation = f'Not in {base_label} at all - genuinely new to the curriculum, scheduled without a historical reference.'
                     else:
                         reason = f'Missing from {base_label} (backbone import gap)'
                         explanation = f'Module exists in the curriculum but was not captured in the {base_label} import. It was scheduled freely in {compare_label} with no historical slot to follow.'
@@ -2889,7 +3590,7 @@ def timetable_similarity():
 
 
 # ---------------------------------------------------------------------------
-# Timetable export — flat XLSX download
+# Timetable export - flat XLSX download
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/timetable/export')
@@ -3099,46 +3800,21 @@ def timetable_export():
 
 
 # ---------------------------------------------------------------------------
-# Template 2 export — SIT upload format (flat row-per-session-pattern)
+# Template 2 export - SIT upload format (flat row-per-session-pattern)
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/timetable/export-template2')
 @login_required
 def timetable_export_template2():
-    import io, re
+    import io, os, re
     import openpyxl
-    from openpyxl.styles import Font, PatternFill
-    from openpyxl.utils import get_column_letter
+    from openpyxl.styles import Font
     from flask import send_file
     from collections import defaultdict
     from datetime import time as dtime
 
     trimester_filter = request.args.get('trimester', '')
 
-    CLASS_TYPE = {
-        'lecture': 'Lecture', 'lectorial': 'Lectorial', 'tutorial': 'Tutorial',
-        'lab': 'Lab', 'seminar': 'Seminar', 'workshop': 'Workshop', 'quiz': 'Quiz',
-    }
-    ACT_CODE = {
-        'lecture': 'LET', 'lectorial': 'LET', 'tutorial': 'TUT',
-        'lab': 'LAB', 'seminar': 'SEM', 'workshop': 'WRK', 'quiz': 'QUZ',
-    }
-    DAY_ABBR = {
-        'Monday': 'Mon', 'Tuesday': 'Tue', 'Wednesday': 'Wed',
-        'Thursday': 'Thu', 'Friday': 'Fri',
-    }
-    CLUSTER_ABBR = {
-        'ENG': 'ENG', 'Engineering': 'ENG', 'ICT': 'ICT',
-        'University-Wide': 'UWM', 'Business': 'BUS', 'Health': 'HLS',
-    }
-    PROG_SECTOR = {
-        'ASE': ('DOVER', 'DV'), 'CVE': ('DOVER', 'DV'), 'SDE': ('DOVER', 'DV'),
-        'NAME': ('DOVER', 'DV'), 'RSE': ('TP', 'TP'), 'EDE': ('SP', 'SP'),
-        'EEE': ('NYP', 'NY'), 'EPE': ('NYP', 'NY'), 'METS': ('NYP', 'NY'),
-        'MEC': ('NP', 'NP'), 'MDME': ('NP', 'NP'), 'SBE': ('PUNGGOL', 'PU'),
-        'ESE': ('PUNGGOL', 'PU'), 'DSC': ('DOVER', 'DV'), 'CPC': ('DOVER', 'DV'),
-        'ISE': ('NYP', 'NY'),
-    }
     HEADERS = [
         'Module', 'Class Type', 'Template', 'Group', 'Day', 'Start', 'End',
         'Class Size', 'Sector', 'RoomGrouping', 'Room1', 'Room2', 'StaffGrouping',
@@ -3148,13 +3824,6 @@ def timetable_export_template2():
         'SIS Staff ID 2', 'Zone Hoskey', 'Location Suitability ID',
         'Location Hostkey', 'Location Hostkey 2',
     ]
-    COL_WIDTHS = {
-        'Module': 12, 'Class Type': 12, 'Template': 9, 'Group': 8, 'Day': 6,
-        'Start': 7, 'End': 7, 'Class Size': 10, 'Sector': 10, 'Staff1': 28,
-        'Staff2': 28, 'Tri Week': 22, 'Activity Hostkey': 42,
-        'SIS Module Code': 32, 'Term': 7, 'Activity Type': 13, 'Duration': 9,
-        'SIS Staff ID': 14, 'SIS Staff ID 2': 14, 'Zone Hoskey': 12,
-    }
 
     def _term_code(tri_str):
         m = re.match(r'AY(\d{2})\d{2}-T(\d)', tri_str or '')
@@ -3179,13 +3848,16 @@ def timetable_export_template2():
             db.joinedload(ClassSession.student_group),
             db.joinedload(ClassSession.timetable_entries)
                 .joinedload(TimetableEntry.timeslot),
+            db.joinedload(ClassSession.timetable_entries)
+                .joinedload(TimetableEntry.room),
+            db.joinedload(ClassSession.fixed_room),
         )
     )
     if tri_int is not None:
         q = q.filter(ClassSession.trimester == tri_int)
     all_sessions = q.order_by(Course.module_code, ClassSession.session_type).all()
 
-    # Build slot map: cs.id → (timeslot | None, sorted_weeks_list)
+    # Build slot map: cs.id → (timeslot | None, sorted_weeks_list, room | None)
     slot_map = {}
     for cs in all_sessions:
         te_list = [e for e in cs.timetable_entries
@@ -3193,19 +3865,20 @@ def timetable_export_template2():
         if te_list:
             ts = te_list[0].timeslot
             weeks = sorted(set(e.week_number for e in te_list if e.week_number != 7))
-            slot_map[cs.id] = (ts, weeks)
+            room = te_list[0].room
+            slot_map[cs.id] = (ts, weeks, room)
         elif cs.fixed_timeslot_id and cs.fixed_timeslot:
             weeks = ([int(w) for w in cs.teaching_weeks.split(',') if w.strip()]
                      if cs.teaching_weeks else [])
-            slot_map[cs.id] = (cs.fixed_timeslot, weeks)
+            slot_map[cs.id] = (cs.fixed_timeslot, weeks, cs.fixed_room)
         else:
-            slot_map[cs.id] = (None, [])
+            slot_map[cs.id] = (None, [], None)
 
     # Sort for stable Template numbering
     DAYS_ORD = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
 
     def _sort_key(cs):
-        ts, _ = slot_map[cs.id]
+        ts, _, _ = slot_map[cs.id]
         d = DAYS_ORD.get(ts.day_of_week, 9) if ts else 9
         s = ts.start_time if ts else dtime(0, 0)
         return (cs.course.module_code, cs.session_type,
@@ -3222,10 +3895,10 @@ def timetable_export_template2():
     rows = []
 
     for cs in all_sessions:
-        ts, weeks = slot_map[cs.id]
+        ts, weeks, room = slot_map[cs.id]
         prog = cs.course.programme
-        sector, campus_abbr = PROG_SECTOR.get(prog.code, ('DOVER', 'DV'))
-        cluster_abbr = CLUSTER_ABBR.get(prog.cluster, prog.cluster[:3].upper())
+        sector, campus_abbr = T2_PROG_SECTOR.get(prog.code, T2_PROG_SECTOR_DEFAULT)
+        cluster_abbr = T2_CLUSTER_ABBR.get(prog.cluster, prog.cluster[:3].upper())
         mod_code = cs.course.module_code
         group = cs.group_label or 'All'
         weeks_str = cs.teaching_weeks or (','.join(str(w) for w in weeks) if weeks else '')
@@ -3251,22 +3924,25 @@ def timetable_export_template2():
             act_counter[mod_key] += 1
             act_state[act_tuple] = act_counter[mod_key]
         act_num = act_state[act_tuple]
-        act_code = ACT_CODE.get(cs.session_type, 'OTH')
+        act_code = T2_ACT_CODE.get(cs.session_type, 'OTH')
         act_sfx  = '' if act_num == 1 else str(act_num)
 
         hostkey     = f'{mod_code}-{term_code}-{cluster_abbr}-UGRD-{campus_abbr}-{act_code}{act_sfx}/{group}'
         sis_mod     = f'{mod_code}-{term_code}-{cluster_abbr}-UGRD-{campus_abbr}'
 
-        # Staff
+        # Staff - handle names stored as "Prof A\nProf B" (single DB record, two people)
         profs = cs.all_professors
         staff1_name = profs[0].user.name if profs else ''
         staff1_id   = profs[0].staff_id  if profs else ''
         staff2_name = profs[1].user.name if len(profs) > 1 else ''
         staff2_id   = profs[1].staff_id  if len(profs) > 1 else ''
+        if '\n' in staff1_name and not staff2_name:
+            parts = staff1_name.split('\n', 1)
+            staff1_name, staff2_name = parts[0].strip(), parts[1].strip()
 
         # Timeslot
         if ts:
-            day_str   = DAY_ABBR.get(ts.day_of_week, ts.day_of_week[:3])
+            day_str   = T2_DAY_ABBR.get(ts.day_of_week, ts.day_of_week[:3])
             start_str = ts.start_time.strftime('%H%M')
             end_str   = ts.end_time.strftime('%H%M')
         else:
@@ -3274,7 +3950,7 @@ def timetable_export_template2():
 
         rows.append({
             'Module':                 mod_code,
-            'Class Type':             CLASS_TYPE.get(cs.session_type, cs.session_type.capitalize()),
+            'Class Type':             T2_CLASS_TYPE.get(cs.session_type, cs.session_type.capitalize()),
             'Template':               tmpl_num,
             'Group':                  group,
             'Day':                    day_str,
@@ -3283,7 +3959,7 @@ def timetable_export_template2():
             'Class Size':             cs.student_group.intake_size if cs.student_group else '',
             'Sector':                 sector,
             'RoomGrouping':           '',
-            'Room1':                  '',
+            'Room1':                  room.room_code if room else '',
             'Room2':                  '',
             'StaffGrouping':          '',
             'Staff1':                 staff1_name,
@@ -3294,7 +3970,7 @@ def timetable_export_template2():
             'FMTS Tri Start Week':    1,
             'Activity Hostkey':       hostkey,
             'SIS Module Code':        sis_mod,
-            'Term':                   term_code,
+            'Term':                   int(term_code),
             'Activity Type':          act_code,
             'Duration':               cs.duration_hours * 3,
             'Staff Suitability ID':   '',
@@ -3306,29 +3982,28 @@ def timetable_export_template2():
             'Location Hostkey 2':     '',
         })
 
-    # Build Excel workbook
-    wb  = openpyxl.Workbook()
-    ws  = wb.active
-    ws.title = 'Timetable'
+    # Build Excel workbook using the reference template as base so that all
+    # lookup sheets, auto-filter, data-validation dropdowns, and header
+    # formatting are preserved exactly as Ms. Yang's template.
+    import os
+    base_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                             'static', 'template2_base.xlsx')
+    wb = openpyxl.load_workbook(base_path)
+    ws = wb['Timetable']
 
-    HDR_FILL = PatternFill('solid', fgColor='2E4057')
-    HDR_FONT = Font(bold=True, color='FFFFFF', size=10)
-    DATA_FONT = Font(size=9)
+    # Clear existing data rows (keep header row 1 with its formatting).
+    if ws.max_row > 1:
+        ws.delete_rows(2, ws.max_row - 1)
 
-    for ci, h in enumerate(HEADERS, 1):
-        c = ws.cell(1, ci, h)
-        c.font = HDR_FONT
-        c.fill = HDR_FILL
-        ws.column_dimensions[get_column_letter(ci)].width = COL_WIDTHS.get(h, 14)
+    DATA_FONT = Font(size=11)
 
-    for ri, row in enumerate(rows, 2):
-        for ci, h in enumerate(HEADERS, 1):
-            c = ws.cell(ri, ci, row.get(h, ''))
-            c.font = DATA_FONT
-
-    ws.freeze_panes = 'A2'
-    if not rows:
-        ws.cell(2, 1, 'No sessions found for this trimester.')
+    if rows:
+        for ri, row in enumerate(rows, 2):
+            for ci, h in enumerate(HEADERS, 1):
+                c = ws.cell(ri, ci, row.get(h, ''))
+                c.font = DATA_FONT
+    else:
+        ws.cell(2, 1, 'No sessions found for this trimester.').font = DATA_FONT
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -3339,7 +4014,7 @@ def timetable_export_template2():
 
 
 # ---------------------------------------------------------------------------
-# Timetable summary — plain-English overview via LLM
+# Timetable summary - plain-English overview via LLM
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/timetable/summary')
@@ -3405,7 +4080,7 @@ def timetable_summary():
 
 
 # ---------------------------------------------------------------------------
-# Events — planned events as hard constraints
+# Events - planned events as hard constraints
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/events')
@@ -3427,7 +4102,7 @@ def events():
                     .all())
         count = 0
         for entry in affected:
-            session_date = entry.class_session  # placeholder — detailed check in template
+            session_date = entry.class_session  # placeholder - detailed check in template
             count_check = _event_affects_entry(ev, entry)
             if count_check:
                 count += 1
@@ -3442,7 +4117,7 @@ def _event_affects_entry(event, entry):
     _day_offset = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
     cal = entry.academic_calendar_week if hasattr(entry, 'academic_calendar_week') else None
 
-    # We need the entry's actual date — requires the calendar week
+    # We need the entry's actual date - requires the calendar week
     from app.models.academic_calendar import AcademicCalendar
     cal_week = AcademicCalendar.query.filter_by(
         trimester=entry.trimester,

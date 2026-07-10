@@ -196,12 +196,43 @@ def parse_remarks(remarks_str, duration_hours, all_slots):
 
 
 def normalise_weeks(raw):
+    """Parse a Teaching Weeks cell into a comma-separated week-number string.
+
+    Some source rows (one-off/block-teaching sessions) pack a "Week N" label
+    and a full date/time note into the same cell, e.g.
+    "Week 3\\nWed, 17 Sep: 2pm - 4pm (2.5hrs)". Only the first line carries
+    the actual week(s); everything after is a human-readable date/time note
+    whose numbers (day-of-month, times, durations) must NOT be treated as
+    week numbers. When the cell leads with "Week"/"Weeks", only that leading
+    token is parsed (supports "Week 5", "Week 5-6", "Week 8-13, 15"); ranges
+    are expanded. Cells without a "Week" prefix (plain lists like
+    "1,2,3,...,13") fall back to extracting every number on the first line.
+    """
     if pd.isna(raw):
         return None
     s = str(raw).strip()
     if re.match(r'\d{4}-\d{2}-\d{2}', s):
         return None
-    parts = re.findall(r'\d+', s)
+    first_line = s.split('\n')[0].strip()
+
+    m = re.match(
+        r'^weeks?\b\s*[:\-]?\s*'
+        r'((?:\d+\s*(?:-\s*\d+)?)(?:[,\s]+\d+\s*(?:-\s*\d+)?)*)',
+        first_line, re.IGNORECASE,
+    )
+    if m:
+        weeks = set()
+        for part in re.split(r'[,\s]+', m.group(1).strip()):
+            rm = re.match(r'^(\d+)\s*-\s*(\d+)$', part)
+            if rm:
+                a, b = int(rm.group(1)), int(rm.group(2))
+                weeks.update(range(min(a, b), max(a, b) + 1))
+            elif part.isdigit():
+                weeks.add(int(part))
+        weeks = {w for w in weeks if 1 <= w <= 52}
+        return ','.join(str(w) for w in sorted(weeks)) if weeks else None
+
+    parts = re.findall(r'\d+', first_line)
     if parts:
         weeks = sorted(set(int(p) for p in parts if 1 <= int(p) <= 52))
         return ','.join(str(w) for w in weeks)
@@ -400,7 +431,7 @@ def build_col_map(header_vals):
             col_map[c] = 'activity'
         elif 'delivery mode' in lc:
             col_map[c] = 'delivery_mode'
-        elif 'teaching weeks' in lc:
+        elif 'teaching weeks' in lc or lc == 'weeks':
             col_map[c] = 'teaching_weeks'
         elif lc == 'staff 1':
             col_map[c] = 'staff1'
