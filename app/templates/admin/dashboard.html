@@ -71,160 +71,150 @@
 
 </div>
 
-<!-- Timetable KPIs -->
+<!-- Timetable KPIs - one row per trimester, so nothing is hidden behind a
+     single card that happened to pick whichever trimester sorts last -->
 {% if kpis %}
 <div class="d-flex align-items-center mb-2">
-    <h6 class="mb-0 fw-semibold text-muted small text-uppercase">Timetable KPIs</h6>
-    <span class="ms-2 badge bg-light text-secondary border">{{ kpis.trimester }}</span>
+    <h6 class="mb-0 fw-semibold text-muted small text-uppercase">Timetable KPIs by Trimester</h6>
 </div>
-<div class="row g-3 mb-4 stagger">
-
-    <div class="col-sm-6 col-lg-3">
-        <div class="card glass-card hover-lift animate-in h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="icon-orb icon-orb-blue">
-                    <i class="bi bi-calendar-check fs-5"></i>
-                </div>
-                <div>
-                    <div class="fs-3 fw-bold">{{ kpis.sessions_scheduled }}</div>
-                    <div class="text-muted small">Sessions Scheduled</div>
-                </div>
-            </div>
-        </div>
+<div class="card glass-card animate-in mb-4">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0 data-surface align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Trimester</th>
+                    <th>Sessions Scheduled</th>
+                    <th>Room Utilisation</th>
+                    <th>Professors Covered</th>
+                    <th>Status</th>
+                    <th class="pe-3">Last Generated</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for k in kpis %}
+                <tr>
+                    <td class="ps-3 fw-semibold">{{ k.trimester }}</td>
+                    <td>{{ k.sessions_scheduled }}</td>
+                    <td>{{ k.room_util_pct }}%
+                        <span class="text-muted small">of rooms used</span></td>
+                    <td>{{ k.profs_covered }}</td>
+                    <td>
+                        {% if k.is_published %}
+                        <span class="badge bg-success">Published</span>
+                        {% else %}
+                        <span class="badge bg-secondary">Draft</span>
+                        {% endif %}
+                    </td>
+                    <td class="pe-3 text-muted small">
+                        {% if k.generated_at %}{{ k.generated_at.strftime('%d %b %Y, %I:%M %p') }} UTC
+                        {% else %}-{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
-
-    <div class="col-sm-6 col-lg-3">
-        <div class="card glass-card hover-lift animate-in h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="icon-orb icon-orb-green">
-                    <i class="bi bi-building fs-5"></i>
-                </div>
-                <div>
-                    <div class="fs-3 fw-bold">{{ kpis.room_util_pct }}%</div>
-                    <div class="text-muted small">Room Utilisation</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-sm-6 col-lg-3">
-        <div class="card glass-card hover-lift animate-in h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="icon-orb icon-orb-purple">
-                    <i class="bi bi-person-check fs-5"></i>
-                </div>
-                <div>
-                    <div class="fs-3 fw-bold">{{ kpis.profs_covered }}</div>
-                    <div class="text-muted small">Professors Covered</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-sm-6 col-lg-3">
-        <div class="card glass-card hover-lift animate-in h-100">
-            <div class="card-body d-flex align-items-center gap-3">
-                <div class="icon-orb icon-orb-green">
-                    <i class="bi bi-shield-check fs-5"></i>
-                </div>
-                <div>
-                    <div class="fs-3 fw-bold text-success">{{ kpis.hard_conflicts }}</div>
-                    <div class="text-muted small">Hard Conflicts</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
 </div>
 {% endif %}
 
 <!-- Action items / attention required -->
 <div class="row g-3">
 
-    <!-- Courses missing split count -->
+    <!-- Needs Attention - one consolidated list; only items with a count
+         show as clickable rows, and it collapses to a single "all clear"
+         line when there is genuinely nothing to review. -->
     <div class="col-lg-6">
         <div class="card glass-card animate-in h-100">
             <div class="card-header bg-transparent border-bottom fw-semibold">
                 <i class="bi bi-exclamation-circle text-warning me-2"></i>
-                Courses Requiring Split Count
+                Needs Attention
             </div>
             <div class="card-body p-0">
-                {% if courses_missing_split %}
-                    <table class="table table-sm table-hover mb-0 data-surface">
-                        <thead class="table-light">
-                            <tr>
-                                <th class="ps-3">Module Code</th>
-                                <th>Delivery</th>
-                                <th>Year</th>
-                                <th>Split Count</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for course in courses_missing_split %}
-                            <tr>
-                                <td class="ps-3 fw-medium">{{ course.module_code }}</td>
-                                <td>
-                                    <span class="badge {% if course.delivery_mode == 'f2f' %}bg-success{% elif course.delivery_mode == 'online' %}bg-primary{% else %}bg-warning text-dark{% endif %}">
-                                        {{ course.delivery_mode }}
-                                    </span>
-                                </td>
-                                <td>Y{{ course.year_level }}</td>
-                                <td><span class="text-danger small">Not set</span></td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                {% set open_items = needs_attention | selectattr('count', 'gt', 0) | list %}
+                {% if open_items %}
+                <ul class="list-group list-group-flush">
+                    {% for item in open_items %}
+                    <li class="list-group-item px-3 border-0 border-start border-danger border-3 bg-white bg-opacity-50">
+                        <a href="{{ item.href }}" class="d-flex justify-content-between align-items-center text-decoration-none text-dark">
+                            <span><i class="bi {{ item.icon }} me-2 text-danger"></i>{{ item.label }}</span>
+                            <span class="badge bg-danger">{{ item.count }}</span>
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
                 {% else %}
-                    <div class="text-center text-muted py-4">
-                        <i class="bi bi-check-circle fs-4 text-success d-block mb-2"></i>
-                        All f2f courses have a split count set.
-                    </div>
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-check-circle fs-4 text-success d-block mb-2"></i>
+                    Nothing needs attention right now.
+                </div>
                 {% endif %}
             </div>
         </div>
     </div>
 
-    <!-- System status -->
-    <div class="col-lg-6">
-        <div class="card glass-card animate-in h-100">
+    <div class="col-lg-6 d-flex flex-column gap-3">
+
+        <!-- System status -->
+        <div class="card glass-card animate-in">
             <div class="card-header bg-transparent border-bottom fw-semibold">
                 <i class="bi bi-activity text-primary me-2"></i>
                 System Status
             </div>
             <div class="card-body">
+                {% set generated_count = kpis | length %}
+                {% set published_count = kpis | selectattr('is_published') | list | length %}
                 <ul class="list-group list-group-flush">
                     <li class="list-group-item bg-transparent px-0 d-flex justify-content-between align-items-center">
                         <span><i class="bi bi-table me-2 text-muted"></i>Timetable generated</span>
+                        {% if generated_count > 0 %}
+                        <span class="badge bg-success">{{ generated_count }}/3 trimesters</span>
+                        {% else %}
                         <span class="badge bg-secondary">Not yet</span>
+                        {% endif %}
                     </li>
                     <li class="list-group-item bg-transparent px-0 d-flex justify-content-between align-items-center">
                         <span><i class="bi bi-megaphone me-2 text-muted"></i>Timetable published</span>
+                        {% if published_count > 0 %}
+                        <span class="badge {% if published_count == generated_count %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ published_count }}/{{ generated_count }} trimesters</span>
+                        {% else %}
                         <span class="badge bg-secondary">Not yet</span>
-                    </li>
-                    <li class="list-group-item d-flex justify-content-between align-items-center
-                                {% if stats.open_flags > 0 %}px-3 border-0 border-start border-danger border-3 bg-white bg-opacity-50 rounded-2{% else %}bg-transparent px-0{% endif %}">
-                        <span>
-                            <i class="bi bi-flag-fill me-2 {% if stats.open_flags > 0 %}text-danger{% else %}text-muted{% endif %}"></i>
-                            Open conflict flags
-                        </span>
-                        <span class="badge {% if stats.open_flags > 0 %}bg-danger nav-flag-badge-inline{% else %}bg-success{% endif %}"
-                              style="{% if stats.open_flags > 0 %}position: static; font-size: 0.85rem; padding: 0.35em 0.65em; animation: pulseBadge 2s ease-in-out infinite;{% endif %}">
-                            {{ stats.open_flags }}
-                        </span>
-                    </li>
-                    <li class="list-group-item bg-transparent px-0 d-flex justify-content-between align-items-center">
-                        <a href="{{ url_for('admin.declarations') }}" class="text-decoration-none text-dark">
-                            <i class="bi bi-clock-history me-2 text-muted"></i>Pending availability declarations
-                        </a>
-                        <a href="{{ url_for('admin.declarations') }}">
-                            <span class="badge {% if stats.pending_declarations > 0 %}bg-warning text-dark{% else %}bg-success{% endif %}">
-                                {{ stats.pending_declarations }}
-                            </span>
-                        </a>
+                        {% endif %}
                     </li>
                 </ul>
             </div>
         </div>
+
+        <!-- Recent activity -->
+        <div class="card glass-card animate-in flex-grow-1">
+            <div class="card-header bg-transparent border-bottom fw-semibold">
+                <i class="bi bi-clock-history text-primary me-2"></i>
+                Recent Activity
+            </div>
+            <div class="card-body p-0">
+                {% if recent_activity %}
+                <ul class="list-group list-group-flush">
+                    {% for a in recent_activity %}
+                    <li class="list-group-item bg-transparent px-3 small">
+                        <div class="d-flex justify-content-between">
+                            <span>
+                                <strong>{{ a.user.name if a.user else 'Someone' }}</strong>
+                                edited <strong>{{ a.module_code or '-' }}</strong>
+                                ({{ a.session_type or '' }}) - {{ a.week_label or 'a week' }}
+                            </span>
+                            <span class="text-muted">{{ a.timestamp.strftime('%d %b, %I:%M %p') }}</span>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-inbox fs-4 d-block mb-2"></i>
+                    No manual timetable edits yet.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
     </div>
 
 </div>

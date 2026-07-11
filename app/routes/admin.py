@@ -140,40 +140,78 @@ def dashboard():
         'pending_declarations':  AvailabilityDeclaration.query.filter_by(status='pending').count(),
     }
 
-    # KPIs - computed from the most recently generated trimester
-    kpis = None
-    latest_row = db.session.query(TimetableEntry.trimester)\
-        .order_by(TimetableEntry.trimester.desc()).first()
-    if latest_row:
-        tri = latest_row[0]
+    # Per-trimester status - real data, not a placeholder. Every trimester
+    # that has ANY TimetableEntry row is "generated"; every one where at
+    # least one entry is_published is "published". Room utilisation is
+    # "how much of the room inventory actually gets used", not room-slot
+    # combos vs the full room x timeslot universe (that denominator made a
+    # perfectly normal week look like 0.7% utilised - found 2026-07-11).
+    from app.models.solve_run import SolveRun
+    total_active_rooms = Room.query.filter_by(is_active=True).count()
+    trimester_status = []
+    all_trimesters = sorted({
+        t[0] for t in db.session.query(TimetableEntry.trimester).distinct().all()
+    })
+    for tri in all_trimesters:
         sessions_scheduled = db.session.query(TimetableEntry.class_session_id)\
             .filter(TimetableEntry.trimester == tri).distinct().count()
-        used_room_slots = db.session.query(
-            TimetableEntry.room_id, TimetableEntry.timeslot_id
-        ).filter(
-            TimetableEntry.trimester == tri,
-            TimetableEntry.room_id.isnot(None)
-        ).distinct().count()
-        total_active_rooms = Room.query.filter_by(is_active=True).count()
-        total_timeslots = db.session.query(TimeSlot).count()
-        room_util = round(used_room_slots / (total_active_rooms * total_timeslots) * 100, 1) \
-            if total_active_rooms and total_timeslots else 0
+        rooms_used = db.session.query(TimetableEntry.room_id)\
+            .filter(TimetableEntry.trimester == tri, TimetableEntry.room_id.isnot(None))\
+            .distinct().count()
+        room_util = round(rooms_used / total_active_rooms * 100, 1) if total_active_rooms else 0
         profs_covered = db.session.query(ClassSessionProfessor.professor_id)\
             .join(TimetableEntry, TimetableEntry.class_session_id == ClassSessionProfessor.session_id)\
             .filter(TimetableEntry.trimester == tri).distinct().count()
-        kpis = {
-            'trimester':           tri,
-            'sessions_scheduled':  sessions_scheduled,
-            'room_util_pct':       room_util,
-            'profs_covered':       profs_covered,
-            'hard_conflicts':      0,
-        }
+        is_published = db.session.query(TimetableEntry.id)\
+            .filter(TimetableEntry.trimester == tri, TimetableEntry.is_published.is_(True)).first() is not None
+        solve_row = SolveRun.query.filter_by(trimester=tri).first()
+        trimester_status.append({
+            'trimester':          tri,
+            'sessions_scheduled': sessions_scheduled,
+            'room_util_pct':      room_util,
+            'profs_covered':      profs_covered,
+            'is_published':       is_published,
+            'generated_at':       solve_row.created_at if solve_row else None,
+        })
+
+    kpis = trimester_status  # renamed conceptually to "per-trimester KPIs" - see template
+
+    # Needs Attention - one consolidated list instead of scattering the same
+    # kind of information (things that need admin action) across several
+    # always-visible cards, most of which show nothing most of the time.
+    from app.engine.checker import get_blocking_issues
+    from app.models.class_session_professor import ClassSessionProfessor as _CSP
+    no_prof_count = ClassSession.query.filter(
+        ~sa_exists().where(_CSP.session_id == ClassSession.id)
+    ).count()
+    blockers, _warnings = get_blocking_issues()
+    needs_attention = [
+        {'label': 'Courses missing a split count', 'count': stats['courses_missing_split'],
+         'href': url_for('admin.courses'), 'icon': 'bi-diagram-2'},
+        {'label': 'Classes with no professor assigned', 'count': no_prof_count,
+         'href': url_for('admin.system_info'), 'icon': 'bi-person-x'},
+        {'label': 'Blocking issues (generation would fail)', 'count': len(blockers),
+         'href': url_for('admin.timetable'), 'icon': 'bi-exclamation-octagon'},
+        {'label': 'Open conflict flags', 'count': stats['open_flags'],
+         'href': url_for('admin.timetable_flags'), 'icon': 'bi-flag'},
+        {'label': 'Pending availability declarations', 'count': stats['pending_declarations'],
+         'href': url_for('admin.declarations'), 'icon': 'bi-clock-history'},
+    ]
+
+    # Recent Activity - manual timetable edits made through the admin UI
+    # (bulk/script-driven changes don't go through here, so this reflects
+    # what a human deliberately changed, not every DB write).
+    recent_activity = (AuditLog.query
+                        .order_by(AuditLog.timestamp.desc())
+                        .limit(8).all())
 
     return render_template(
         'admin/dashboard.html',
         stats=stats,
         courses_missing_split=courses_missing_split,
         kpis=kpis,
+        needs_attention=needs_attention,
+        recent_activity=recent_activity,
     )
 
 
