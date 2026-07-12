@@ -13,11 +13,11 @@
     </a>
 </div>
 
-<!-- Building filter -->
-<div class="mb-3 d-flex flex-wrap gap-2">
+<!-- Building filter (server-side - kept for the toggle/delete hidden-input trick) -->
+<div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
     <a href="{{ url_for('admin.rooms') }}"
        class="btn btn-sm {% if not active_building %}btn-dark{% else %}btn-outline-secondary{% endif %}">
-        All
+        All Buildings
     </a>
     {% for b in buildings %}
     <a href="{{ url_for('admin.rooms', building=b) }}"
@@ -25,6 +25,27 @@
         {{ b }}
     </a>
     {% endfor %}
+</div>
+
+<!-- Search + Type/Status filters (client-side, layered on top of the building filter above) -->
+<div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+    <input type="text" id="room-search" class="form-control form-control-sm" style="max-width:220px;"
+           placeholder="Search room code…" oninput="applyRoomFilters()">
+
+    <div class="btn-group btn-group-sm" role="group" aria-label="Type filter">
+        <button class="btn btn-outline-secondary active" data-filter="type" data-value="all" onclick="setRoomFilter('type','all',this)">All Types</button>
+        <button class="btn btn-outline-secondary" data-filter="type" data-value="lecture" onclick="setRoomFilter('type','lecture',this)">Lecture</button>
+        <button class="btn btn-outline-secondary" data-filter="type" data-value="lab" onclick="setRoomFilter('type','lab',this)">Lab</button>
+        <button class="btn btn-outline-secondary" data-filter="type" data-value="seminar" onclick="setRoomFilter('type','seminar',this)">Seminar</button>
+    </div>
+
+    <div class="btn-group btn-group-sm" role="group" aria-label="Status filter">
+        <button class="btn btn-outline-secondary active" data-filter="status" data-value="all" onclick="setRoomFilter('status','all',this)">All Status</button>
+        <button class="btn btn-outline-secondary" data-filter="status" data-value="active" onclick="setRoomFilter('status','active',this)">Active</button>
+        <button class="btn btn-outline-secondary" data-filter="status" data-value="inactive" onclick="setRoomFilter('status','inactive',this)">Inactive</button>
+    </div>
+
+    <span id="room-count" class="text-muted small ms-1"></span>
 </div>
 
 <div class="card border-0 shadow-sm">
@@ -42,7 +63,9 @@
             </thead>
             <tbody>
                 {% for room in rooms %}
-                <tr class="{% if not room.is_active %}table-secondary text-muted{% endif %}">
+                <tr class="{% if not room.is_active %}table-secondary text-muted{% endif %}"
+                    data-type="{{ room.room_type }}"
+                    data-status="{{ 'active' if room.is_active else 'inactive' }}">
                     <td class="ps-4 fw-medium">{{ room.room_code }}</td>
                     <td>{{ room.building }}</td>
                     <td>
@@ -100,5 +123,41 @@
         </table>
     </div>
 </div>
+
+<script>
+var roomActiveFilters = { type: 'all', status: 'all' };
+
+function setRoomFilter(type, value, btn) {
+    roomActiveFilters[type] = value;
+    btn.closest('.btn-group').querySelectorAll('.btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    applyRoomFilters();
+}
+
+function applyRoomFilters() {
+    var q = document.getElementById('room-search').value.toLowerCase();
+    var rows = document.querySelectorAll('tbody tr');
+    var visible = 0;
+
+    rows.forEach(function(row) {
+        var typeMatch = roomActiveFilters.type === 'all' || row.dataset.type === roomActiveFilters.type;
+        var statusMatch = roomActiveFilters.status === 'all' || row.dataset.status === roomActiveFilters.status;
+        var searchMatch = !q || row.textContent.toLowerCase().includes(q);
+        var show = typeMatch && statusMatch && searchMatch;
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+
+    var total = document.querySelectorAll('tbody tr').length;
+    var countEl = document.getElementById('room-count');
+    if (countEl) {
+        countEl.textContent = (visible === total) ? (total + ' rooms') : (visible + ' of ' + total + ' rooms');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (document.getElementById('room-search')) applyRoomFilters();
+});
+</script>
 
 {% endblock %}

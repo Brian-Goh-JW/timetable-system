@@ -13,6 +13,20 @@
     </a>
 </div>
 
+<!-- Search + Filters -->
+<div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+    <input type="text" id="prof-search" class="form-control form-control-sm" style="max-width:260px;"
+           placeholder="Search name, email, or staff ID…" oninput="applyProfFilters()">
+
+    <div class="btn-group btn-group-sm" role="group" aria-label="Assignment filter">
+        <button class="btn btn-outline-secondary active" data-filter="assigned" data-value="all" onclick="setProfFilter('assigned','all',this)">All</button>
+        <button class="btn btn-outline-secondary" data-filter="assigned" data-value="yes" onclick="setProfFilter('assigned','yes',this)">Has Sessions</button>
+        <button class="btn btn-outline-secondary" data-filter="assigned" data-value="no" onclick="setProfFilter('assigned','no',this)">No Sessions</button>
+    </div>
+
+    <span id="prof-count" class="text-muted small ms-1"></span>
+</div>
+
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
         {% if professors %}
@@ -29,13 +43,13 @@
             </thead>
             <tbody>
                 {% for prof in professors %}
-                <tr>
+                {% set session_count = prof.class_sessions | length %}
+                <tr data-assigned="{{ 'yes' if session_count > 0 else 'no' }}">
                     <td class="ps-4 fw-medium">{{ prof.user.name }}</td>
                     <td class="text-muted">{{ prof.user.email }}</td>
                     <td>{{ prof.staff_id }}</td>
                     <td>{{ prof.department }}</td>
                     <td>
-                        {% set session_count = prof.class_sessions | length %}
                         {% if session_count == 0 %}
                             <span class="text-muted small">None assigned</span>
                         {% else %}
@@ -65,5 +79,40 @@
         {% endif %}
     </div>
 </div>
+
+<script>
+var profActiveFilters = { assigned: 'all' };
+
+function setProfFilter(type, value, btn) {
+    profActiveFilters[type] = value;
+    btn.closest('.btn-group').querySelectorAll('.btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    applyProfFilters();
+}
+
+function applyProfFilters() {
+    var q = document.getElementById('prof-search').value.toLowerCase();
+    var rows = document.querySelectorAll('tbody tr');
+    var visible = 0;
+
+    rows.forEach(function(row) {
+        var assignedMatch = profActiveFilters.assigned === 'all' || row.dataset.assigned === profActiveFilters.assigned;
+        var searchMatch = !q || row.textContent.toLowerCase().includes(q);
+        var show = assignedMatch && searchMatch;
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+
+    var total = document.querySelectorAll('tbody tr').length;
+    var countEl = document.getElementById('prof-count');
+    if (countEl) {
+        countEl.textContent = (visible === total) ? (total + ' professors') : (visible + ' of ' + total + ' professors');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (document.getElementById('prof-search')) applyProfFilters();
+});
+</script>
 
 {% endblock %}

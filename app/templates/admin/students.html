@@ -13,6 +13,39 @@
     </a>
 </div>
 
+{% if students %}
+{% set programmes = students | selectattr('student_group') | map(attribute='student_group.programme.code') | unique | sort | list %}
+{% set years = students | selectattr('student_group') | map(attribute='student_group.year_level') | unique | sort | list %}
+
+<!-- Search + Programme/Year/Assigned filters -->
+<div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+    <input type="text" id="student-search" class="form-control form-control-sm" style="max-width:240px;"
+           placeholder="Search name or email…" oninput="applyStudentFilters()">
+
+    <div class="btn-group btn-group-sm" role="group" aria-label="Programme filter">
+        <button class="btn btn-outline-secondary active" data-filter="programme" data-value="all" onclick="setStudentFilter('programme','all',this)">All Programmes</button>
+        {% for p in programmes %}
+        <button class="btn btn-outline-secondary" data-filter="programme" data-value="{{ p }}" onclick="setStudentFilter('programme','{{ p }}',this)">{{ p }}</button>
+        {% endfor %}
+    </div>
+
+    <div class="btn-group btn-group-sm" role="group" aria-label="Year filter">
+        <button class="btn btn-outline-secondary active" data-filter="year" data-value="all" onclick="setStudentFilter('year','all',this)">All Years</button>
+        {% for y in years %}
+        <button class="btn btn-outline-secondary" data-filter="year" data-value="{{ y }}" onclick="setStudentFilter('year','{{ y }}',this)">Year {{ y }}</button>
+        {% endfor %}
+    </div>
+
+    <div class="btn-group btn-group-sm" role="group" aria-label="Assignment filter">
+        <button class="btn btn-outline-secondary active" data-filter="assigned" data-value="all" onclick="setStudentFilter('assigned','all',this)">All</button>
+        <button class="btn btn-outline-secondary" data-filter="assigned" data-value="yes" onclick="setStudentFilter('assigned','yes',this)">Assigned</button>
+        <button class="btn btn-outline-secondary" data-filter="assigned" data-value="no" onclick="setStudentFilter('assigned','no',this)">Not Assigned</button>
+    </div>
+
+    <span id="student-count" class="text-muted small ms-1"></span>
+</div>
+{% endif %}
+
 <div class="card border-0 shadow-sm">
     <div class="card-body p-0">
         {% if students %}
@@ -27,7 +60,9 @@
             </thead>
             <tbody>
                 {% for s in students %}
-                <tr>
+                <tr data-programme="{{ s.student_group.programme.code if s.student_group else '' }}"
+                    data-year="{{ s.student_group.year_level if s.student_group else '' }}"
+                    data-assigned="{{ 'yes' if s.student_group else 'no' }}">
                     <td class="ps-4 fw-medium">{{ s.name }}</td>
                     <td class="text-muted">{{ s.email }}</td>
                     <td>
@@ -70,5 +105,43 @@
         {% endif %}
     </div>
 </div>
+
+<script>
+var studentActiveFilters = { programme: 'all', year: 'all', assigned: 'all' };
+
+function setStudentFilter(type, value, btn) {
+    studentActiveFilters[type] = value;
+    btn.closest('.btn-group').querySelectorAll('.btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    applyStudentFilters();
+}
+
+function applyStudentFilters() {
+    var searchEl = document.getElementById('student-search');
+    var q = searchEl ? searchEl.value.toLowerCase() : '';
+    var rows = document.querySelectorAll('tbody tr');
+    var visible = 0;
+
+    rows.forEach(function(row) {
+        var progMatch = studentActiveFilters.programme === 'all' || row.dataset.programme === studentActiveFilters.programme;
+        var yearMatch = studentActiveFilters.year === 'all' || row.dataset.year === studentActiveFilters.year;
+        var assignedMatch = studentActiveFilters.assigned === 'all' || row.dataset.assigned === studentActiveFilters.assigned;
+        var searchMatch = !q || row.textContent.toLowerCase().includes(q);
+        var show = progMatch && yearMatch && assignedMatch && searchMatch;
+        row.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+
+    var total = rows.length;
+    var countEl = document.getElementById('student-count');
+    if (countEl) {
+        countEl.textContent = (visible === total) ? (total + ' students') : (visible + ' of ' + total + ' students');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (document.getElementById('student-search')) applyStudentFilters();
+});
+</script>
 
 {% endblock %}

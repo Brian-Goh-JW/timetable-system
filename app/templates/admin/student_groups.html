@@ -14,8 +14,35 @@
 </div>
 
 {% if groups %}
+    {% set programmes = groups | map(attribute='programme.code') | unique | sort | list %}
+    {% set years = groups | map(attribute='year_level') | unique | sort | list %}
+
+    <!-- Search + Programme/Year filters -->
+    <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+        <input type="text" id="group-search" class="form-control form-control-sm" style="max-width:240px;"
+               placeholder="Search group label…" oninput="applyGroupFilters()">
+
+        <div class="btn-group btn-group-sm" role="group" aria-label="Programme filter">
+            <button class="btn btn-outline-secondary active" data-filter="programme" data-value="all" onclick="setGroupFilter('programme','all',this)">All Programmes</button>
+            {% for p in programmes %}
+            <button class="btn btn-outline-secondary" data-filter="programme" data-value="{{ p }}" onclick="setGroupFilter('programme','{{ p }}',this)">{{ p }}</button>
+            {% endfor %}
+        </div>
+
+        <div class="btn-group btn-group-sm" role="group" aria-label="Year filter">
+            <button class="btn btn-outline-secondary active" data-filter="year" data-value="all" onclick="setGroupFilter('year','all',this)">All Years</button>
+            {% for y in years %}
+            <button class="btn btn-outline-secondary" data-filter="year" data-value="{{ y }}" onclick="setGroupFilter('year','{{ y }}',this)">Year {{ y }}</button>
+            {% endfor %}
+        </div>
+
+        <span id="group-count" class="text-muted small ms-1"></span>
+    </div>
+
     {% for group in groups %}
-    <div class="card border-0 shadow-sm mb-3">
+    <div class="card border-0 shadow-sm mb-3 group-card"
+         data-programme="{{ group.programme.code }}"
+         data-year="{{ group.year_level }}">
         <div class="card-body">
 
             <!-- Parent group header -->
@@ -129,5 +156,42 @@
         </div>
     </div>
 {% endif %}
+
+<script>
+var groupActiveFilters = { programme: 'all', year: 'all' };
+
+function setGroupFilter(type, value, btn) {
+    groupActiveFilters[type] = value;
+    btn.closest('.btn-group').querySelectorAll('.btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    applyGroupFilters();
+}
+
+function applyGroupFilters() {
+    var searchEl = document.getElementById('group-search');
+    var q = searchEl ? searchEl.value.toLowerCase() : '';
+    var cards = document.querySelectorAll('.group-card');
+    var visible = 0;
+
+    cards.forEach(function(card) {
+        var progMatch = groupActiveFilters.programme === 'all' || card.dataset.programme === groupActiveFilters.programme;
+        var yearMatch = groupActiveFilters.year === 'all' || card.dataset.year === groupActiveFilters.year;
+        var searchMatch = !q || card.textContent.toLowerCase().includes(q);
+        var show = progMatch && yearMatch && searchMatch;
+        card.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+
+    var total = cards.length;
+    var countEl = document.getElementById('group-count');
+    if (countEl) {
+        countEl.textContent = (visible === total) ? (total + ' groups') : (visible + ' of ' + total + ' groups');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (document.getElementById('group-search')) applyGroupFilters();
+});
+</script>
 
 {% endblock %}

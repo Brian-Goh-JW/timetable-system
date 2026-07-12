@@ -1659,11 +1659,44 @@ _SOFT_STAT_MAP = {
     'S-lec-lab': lambda s: (f"{s.get('lec_lab_ordered', 0)} correctly ordered", 0),
 }
 
+# Maps each soft constraint's id to its live numeric priority weight, read
+# straight off the solver module so the Scoring Matrix can never drift from
+# what the solver actually optimises for.
+_SOFT_WEIGHT_MAP = {
+    'S-avail':   lambda sv: sv.WEIGHT_AVAILABILITY,
+    'S-pref-ts': lambda sv: sv.WEIGHT_PREFERRED_TS,
+    'S-hist':    lambda sv: sv.WEIGHT_HISTORICAL,
+    'S1':        lambda sv: sv.WEIGHT_MODE_SWITCH_PROF,
+    'S2':        lambda sv: sv.WEIGHT_MODE_SWITCH_GROUP,
+    'S3':        lambda sv: sv.WEIGHT_PROF_IDLE_GAP,
+    'S8':        lambda sv: sv.WEIGHT_GROUP_BACKTOBACK_HOURS,
+    'S5':        lambda sv: sv.WEIGHT_DAY_CLUSTER,
+    'S6':        lambda sv: sv.WEIGHT_ROOM_UTIL,
+    'S7':        lambda sv: sv.WEIGHT_EXTREMAL_SLOT,
+    'S9':        lambda sv: sv.WEIGHT_LATE_END,
+    'S10':       lambda sv: sv.WEIGHT_ROOM_BEST_FIT,
+    'S11':       lambda sv: sv.WEIGHT_CONSISTENT_VENUE,
+    'S-lec-tut': lambda sv: sv.WEIGHT_LEC_TUT_ORDER,
+    'S-lec-lab': lambda sv: sv.WEIGHT_LEC_LAB_ORDER,
+}
+
+# Rules whose "result" is informational (a count with no pass/fail meaning,
+# e.g. day-spread instances or wasted seats) rather than a true violation -
+# these never cost score points even though they have a number attached.
+_SOFT_INFORMATIONAL_IDS = {'S5', 'S10', 'S-pref-ts', 'S-lec-tut', 'S-lec-lab'}
+
+# Points deducted from the Optimised Score per violation of a soft rule -
+# must match the constant used in timetable_report()'s score calculation
+# (score = 100 - soft_total_violations * this).
+POINTS_PER_SOFT_VIOLATION = 2
+
 
 def _build_constraint_summary(stats):
     """Post-generation breakdown: how many of each constraint were actually
     applied/violated in the given solve() stats, reusing the exact same
-    rule text as System Info so the two pages never disagree."""
+    rule text as System Info so the two pages never disagree. Also powers
+    the Scoring Matrix on the Scheduling Report page (hard_groups/soft
+    rows carry live weight + points-impact for full transparency)."""
     if not stats:
         return None
     from app.engine import solver as sv
@@ -1683,7 +1716,15 @@ def _build_constraint_summary(stats):
             soft_rule_count += 1
             result_text, violated = fn(stats)
             total_violations += violated
-            rows.append({'id': r['id'], 'title': r['title'], 'result': result_text, 'violated': violated})
+            weight_fn = _SOFT_WEIGHT_MAP.get(r['id'])
+            informational = r['id'] in _SOFT_INFORMATIONAL_IDS
+            points = 0 if informational else violated * POINTS_PER_SOFT_VIOLATION
+            rows.append({
+                'id': r['id'], 'title': r['title'], 'result': result_text, 'violated': violated,
+                'weight': weight_fn(sv) if weight_fn else None,
+                'informational': informational,
+                'points': points,
+            })
         if rows:
             soft_groups.append({'category': group['category'], 'icon': group['icon'],
                                  'color': group['color'], 'rows': rows})
@@ -1698,8 +1739,10 @@ def _build_constraint_summary(stats):
         'hard_rule_count': hard_rule_count,
         'hard_applied': hard_applied,
         'hard_dropped': hard_dropped,
+        'hard_groups': ref['hard'],
         'soft_rule_count': soft_rule_count,
         'soft_total_violations': total_violations,
+        'soft_total_points': total_violations * POINTS_PER_SOFT_VIOLATION,
         'soft_groups': soft_groups,
     }
 
@@ -3319,10 +3362,11 @@ def timetable_report():
     soft_total = constraint_summary['soft_total_violations'] if constraint_summary else 0
     preference_problems = len(stats.get('preferred_violations', []))
     # Self-defined scoring, disclosed on the page - not an official metric.
-    # -2 points per soft-constraint violation, floor 0. Hard constraints can
-    # never be violated (the solve would have failed), so that term is
-    # always -0.
-    score = max(0, 100 - soft_total * 2)
+    # POINTS_PER_SOFT_VIOLATION points per soft-constraint violation, floor 0.
+    # Hard constraints can never be violated (the solve would have failed),
+    # so that term is always -0. Full per-rule breakdown (weight + points
+    # impact) is in constraint_summary, rendered as the Scoring Matrix below.
+    score = max(0, 100 - soft_total * POINTS_PER_SOFT_VIOLATION)
 
     report = {
         'trimester': trimester,
@@ -3350,6 +3394,7 @@ def timetable_report():
             'hard_conflicts': 0,
             'soft_violations': soft_total,
             'preference_problems': preference_problems,
+            'points_per_violation': POINTS_PER_SOFT_VIOLATION,
         },
         'breakdown': {
             'source': source_rows,
@@ -3873,6 +3918,25 @@ def timetable_export_template2():
         m = re.match(r'AY\d{4}-T(\d)', trimester_filter)
         if m:
             tri_int = int(m.group(1))
+
+    # Validation gate: genuine blocking issues (e.g. quiz-overlap) always stop
+    # the export outright - an export built on top of them would just carry
+    # the same problem into Ms. Yang's system. Warnings (missing data that
+    # doesn't break scheduling logic) don't block, but require an explicit
+    # confirm click rather than exporting silently.
+    from app.engine.checker import get_blocking_issues as _get_blocking_issues
+    _blockers, _warnings = _get_blocking_issues(trimester_num=tri_int)
+    if _blockers:
+        flash(
+            f'Export blocked - {len(_blockers)} issue(s) must be fixed first: '
+            + '; '.join(_blockers[:3]) + (f' (+{len(_blockers) - 3} more)' if len(_blockers) > 3 else ''),
+            'danger'
+        )
+        return redirect(url_for('admin.timetable', trimester=trimester_filter))
+
+    if _warnings and request.args.get('confirmed') != '1':
+        return render_template('admin/export_confirm.html',
+                               trimester=trimester_filter, warnings=_warnings)
 
     # Load sessions with all relationships eager-loaded
     q = (

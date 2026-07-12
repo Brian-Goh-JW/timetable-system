@@ -205,14 +205,15 @@
                 <table class="table table-sm mb-2 small">
                     <tbody>
                         <tr><td>Hard conflicts</td><td class="text-end text-success">-{{ report.score.hard_conflicts }}</td></tr>
-                        <tr><td>Soft constraint violations</td><td class="text-end {% if report.score.soft_violations > 0 %}text-warning{% else %}text-success{% endif %}">-{{ report.score.soft_violations * 2 }}</td></tr>
+                        <tr><td>Soft constraint violations</td><td class="text-end {% if report.score.soft_violations > 0 %}text-warning{% else %}text-success{% endif %}">-{{ report.score.soft_violations * report.score.points_per_violation }}</td></tr>
                         <tr><td>Preference declarations overridden</td><td class="text-end {% if report.score.preference_problems > 0 %}text-warning{% else %}text-success{% endif %}">{{ report.score.preference_problems }}</td></tr>
                     </tbody>
                 </table>
                 <div class="small text-muted" style="font-size:0.72rem;">
-                    <i class="bi bi-info-circle me-1"></i>Self-defined score, not an official metric: 100 points minus 2
-                    for every soft-constraint violation, floor 0. Hard constraints can never be violated - the
-                    generation would have failed outright otherwise.
+                    <i class="bi bi-info-circle me-1"></i>Self-defined score, not an official metric: 100 points minus
+                    {{ report.score.points_per_violation }} for every soft-constraint violation, floor 0. Hard
+                    constraints can never be violated - the generation would have failed outright otherwise.
+                    <a href="#scoring-matrix" class="ms-1">See the full breakdown below &darr;</a>
                 </div>
                 {% endif %}
             </div>
@@ -249,34 +250,105 @@
 </div>
 
 {% if report.constraint_summary %}
-<div class="card glass-card animate-in mb-3">
+<div class="card glass-card animate-in mb-3" id="scoring-matrix">
     <div class="card-header bg-transparent border-bottom fw-semibold">
-        <i class="bi bi-diagram-3 me-2 text-muted"></i>Soft Constraint Detail
+        <i class="bi bi-grid-3x3-gap me-2 text-muted"></i>Scoring Matrix
+        <span class="text-muted small fw-normal ms-2">Every rule this trimester was checked against, and how it affected the score above</span>
     </div>
     <div class="card-body">
-        <div class="row">
-            {% for group in report.constraint_summary.soft_groups %}
-            <div class="col-md-6 mb-3">
-                <div class="fw-semibold small text-muted mb-1">
-                    <i class="bi {{ group.icon }} me-1"></i>{{ group.category }}
-                </div>
-                <table class="table table-sm mb-0">
+
+        <div class="alert alert-light border small mb-4">
+            <strong>How this works:</strong> Every generated timetable is checked against
+            {{ report.constraint_summary.hard_rule_count }} <strong>hard constraints</strong> (must always
+            pass - if even one couldn't be satisfied, generation fails outright rather than produce a
+            broken schedule) and {{ report.constraint_summary.soft_rule_count }} <strong>soft constraints</strong>
+            (weighted trade-offs the solver balances against each other while searching for the best
+            schedule it can find). Because a completed schedule can never actually violate a hard
+            constraint, those aren't scored - they're shown below as a pass/fail checklist instead.
+            The Optimised Score above is built entirely from the soft constraints: each violation costs
+            {{ report.score.points_per_violation }} point{{ 's' if report.score.points_per_violation != 1 }},
+            and each rule's <strong>priority</strong> is the weight the solver itself uses internally to
+            decide which trade-offs to make when it can't honour every soft preference at once - a higher
+            priority means the solver fights harder not to break that rule.
+        </div>
+
+        <!-- Hard constraints - compact pass/fail checklist, no per-run number needed since a -->
+        <!-- completed schedule has satisfied every one of them by definition -->
+        <div class="fw-semibold small text-uppercase text-muted mb-2 d-flex align-items-center gap-2">
+            Hard Constraints
+            <span class="badge bg-success">{{ report.constraint_summary.hard_rule_count }}/{{ report.constraint_summary.hard_rule_count }} satisfied</span>
+        </div>
+        <div class="row mb-4">
+            {% for group in report.constraint_summary.hard_groups %}
+            <div class="col-md-6 mb-2">
+                <div class="small text-muted mb-1"><i class="bi {{ group.icon }} me-1"></i>{{ group.category }}</div>
+                <ul class="list-unstyled small mb-2">
+                    {% for r in group.rows %}
+                    <li class="mb-1">
+                        <i class="bi bi-check-circle-fill text-success me-1"></i>
+                        <span class="text-muted" style="font-size:0.7rem;">{{ r.id }}</span> {{ r.title }}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Soft constraints - the actual scoring matrix: priority weight, live result, points impact -->
+        <div class="fw-semibold small text-uppercase text-muted mb-2 d-flex align-items-center gap-2">
+            Soft Constraints
+            <span class="badge {% if report.constraint_summary.soft_total_violations > 0 %}bg-warning text-dark{% else %}bg-success{% endif %}">
+                -{{ report.constraint_summary.soft_total_points }} points total
+            </span>
+        </div>
+        {% for group in report.constraint_summary.soft_groups %}
+        <div class="mb-3">
+            <div class="small text-muted mb-1"><i class="bi {{ group.icon }} me-1"></i>{{ group.category }}</div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 align-middle">
+                    <thead>
+                        <tr class="text-muted" style="font-size:0.72rem;">
+                            <th style="width:38%;">Rule</th>
+                            <th style="width:14%;">Priority</th>
+                            <th style="width:28%;">This Run</th>
+                            <th class="text-end" style="width:20%;">Score Impact</th>
+                        </tr>
+                    </thead>
                     <tbody>
                         {% for r in group.rows %}
                         <tr>
-                            <td class="ps-0 small" style="width:62%;">{{ r.title }}</td>
-                            <td class="text-end pe-0">
+                            <td class="small">
+                                <span class="text-muted" style="font-size:0.7rem;">{{ r.id }}</span> {{ r.title }}
+                            </td>
+                            <td>
+                                {% if r.weight is not none %}
+                                <span class="badge bg-secondary" title="Solver priority weight">{{ r.weight }}</span>
+                                {% else %}
+                                <span class="text-muted small">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
                                 <span class="badge {% if r.violated > 0 %}bg-warning text-dark{% else %}bg-success{% endif %}" style="font-weight:400; white-space:normal;">
                                     {{ r.result }}
                                 </span>
+                            </td>
+                            <td class="text-end small {% if r.points > 0 %}text-warning{% else %}text-success{% endif %}">
+                                {% if r.informational %}
+                                    <span class="text-muted">no penalty</span>
+                                {% elif r.points > 0 %}
+                                    -{{ r.points }}
+                                {% else %}
+                                    0
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            {% endfor %}
         </div>
+        {% endfor %}
+
     </div>
 </div>
 {% endif %}

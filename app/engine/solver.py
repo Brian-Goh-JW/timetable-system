@@ -460,18 +460,33 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     inst_blocked = _institutional_blocked_indices(timeslots)
 
     compat_slots = {}   # session.id → [timeslot indices]
+    no_timeslot_warnings = []   # sessions with genuinely zero matching time slots
     for s in sessions:
         compat = [i for i, ts in enumerate(timeslots) if _slot_compatible(ts, s)]
         # Remove institutionally blocked slots unless the session has a fixed pin there
         if not s.fixed_timeslot_id:
             compat = [i for i in compat if i not in inst_blocked]
         if not compat:
-            return False, (
-                f'No compatible time slots for {s.course.module_code} '
-                f'({s.session_type}, {s.duration_hours}h). '
-                f'Check session type and duration.'
-            ), {}
+            # A session with zero matching time slots is a DATA gap (nothing
+            # of the right length/day exists yet), not a scheduling conflict -
+            # skip it and keep going rather than fail the whole trimester, the
+            # same way a no-compatible-room session is already handled below
+            # (found 2026-07-11: one such session used to abort 500+ others).
+            no_timeslot_warnings.append(
+                f'{s.course.module_code} ({s.session_type}, {s.duration_hours}h) - '
+                f'no time slot of this length exists in the system - skipped.'
+            )
+            continue
         compat_slots[s.id] = compat
+
+    if no_timeslot_warnings:
+        sessions = [s for s in sessions if s.id in compat_slots]
+
+    if not sessions:
+        return False, (
+            'No sessions could be scheduled - none have a compatible time slot. '
+            'Check the Timeslots page.'
+        ), {}
 
     # Combined enrollment for sessions linked via a SharedModuleGroup (Common
     # Modules / Programme Grouping) - room must fit ALL linked programmes'
@@ -1227,6 +1242,8 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         'sessions_async_skipped'    : len(async_sessions),
         'sessions_no_room_skipped'  : len(no_room_warnings),
         'no_room_warnings'          : no_room_warnings,
+        'sessions_no_timeslot_skipped': len(no_timeslot_warnings),
+        'no_timeslot_warnings'      : no_timeslot_warnings,
         'teaching_weeks'            : len(non_break_weeks),
         'entries_created'           : entries,
         'entries_skipped_ph'        : skipped_ph,

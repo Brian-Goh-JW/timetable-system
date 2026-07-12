@@ -302,6 +302,38 @@
             </div>
         </div>
 
+        <!-- Sessions skipped due to a data gap (not a scheduling conflict) -
+             these used to abort the whole generation; now the rest of the
+             trimester still generates and these are called out clearly here
+             instead of being silently dropped (found 2026-07-11). -->
+        {% set skipped_sessions = (stats.no_timeslot_warnings or []) + (stats.no_room_warnings or []) %}
+        {% if skipped_sessions %}
+        <div class="card glass-card animate-in mt-3 border-0 border-start border-warning border-3">
+            <div class="card-header bg-transparent border-bottom fw-semibold text-warning">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                Sessions Skipped - Needs a Data Fix
+                <span class="badge bg-warning text-dark ms-1">{{ skipped_sessions | length }}</span>
+            </div>
+            <div class="card-body small">
+                <p class="text-muted mb-2">
+                    These classes have no valid option to be placed anywhere in the current
+                    system - not a scheduling conflict, but missing setup data (a time slot
+                    of the right length, or a room big/right enough). Everything else in this
+                    trimester generated normally; fix the data below and re-generate to include
+                    these too.
+                </p>
+                <ul class="mb-0 ps-3">
+                    {% for w in stats.no_timeslot_warnings %}
+                    <li>{{ w }} <span class="text-muted">- add a matching time slot.</span></li>
+                    {% endfor %}
+                    {% for w in stats.no_room_warnings %}
+                    <li>{{ w }} <a href="{{ url_for('admin.rooms') }}">- check Rooms</a>.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Conflict report -->
         {% set violations = stats.preferred_violations %}
         {% if violations %}

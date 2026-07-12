@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Confirm Export - SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0 fw-semibold">Confirm Template 2 Export</h4>
+        <small class="text-muted">{{ trimester }}</small>
+    </div>
+</div>
+
+<div class="card glass-card animate-in border-0 border-start border-warning border-3 mb-3">
+    <div class="card-header bg-transparent border-bottom fw-semibold text-warning">
+        <i class="bi bi-exclamation-triangle me-2"></i>
+        {{ warnings | length }} Warning{{ 's' if warnings | length != 1 }} Found
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">
+            These don't stop the timetable from working, but may mean some rows in the export
+            are missing information (e.g. a professor or day/time). Review them below - if
+            they're expected (already-known gaps), you can export anyway.
+        </p>
+        <ul class="mb-0 ps-3 small">
+            {% for w in warnings %}
+            <li class="mb-1">{{ w }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+
+<div class="d-flex gap-2">
+    <a href="{{ url_for('admin.timetable_export_template2', trimester=trimester, confirmed='1') }}"
+       class="btn text-white" style="background-color:#c0272d;">
+        <i class="bi bi-file-earmark-spreadsheet me-1"></i>Export Anyway
+    </a>
+    <a href="{{ url_for('admin.timetable', trimester=trimester) }}" class="btn btn-outline-secondary">
+        Cancel
+    </a>
+</div>
+
+{% endblock %}
