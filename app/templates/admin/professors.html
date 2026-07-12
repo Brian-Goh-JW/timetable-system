@@ -8,9 +8,53 @@
         <h4 class="mb-0 fw-semibold">Professors</h4>
         <small class="text-muted">Manage professor accounts and profiles</small>
     </div>
-    <a href="{{ url_for('admin.professor_add') }}" class="btn text-white" style="background-color:#c0272d;">
-        <i class="bi bi-plus-lg me-1"></i>Add Professor
-    </a>
+    <div class="d-flex gap-2">
+        <div class="btn-group">
+            <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                <i class="bi bi-file-earmark-spreadsheet me-1"></i>Import / Export
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" href="{{ url_for('admin.professor_export') }}">
+                    <i class="bi bi-download me-1"></i>Download Current Data (Excel)
+                </a></li>
+                <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#profImportModal">
+                    <i class="bi bi-upload me-1"></i>Upload &amp; Import...
+                </a></li>
+            </ul>
+        </div>
+        <a href="{{ url_for('admin.professor_add') }}" class="btn text-white" style="background-color:#c0272d;">
+            <i class="bi bi-plus-lg me-1"></i>Add Professor
+        </a>
+    </div>
+</div>
+
+<!-- Import modal -->
+<div class="modal fade" id="profImportModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="POST" action="{{ url_for('admin.professor_import') }}" enctype="multipart/form-data">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Import Professors from Excel</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted">
+                        Upload a file downloaded from <strong>Download Current Data</strong> above, with your
+                        edits made inside it. Rows are matched by Staff ID - existing IDs update that
+                        professor, new IDs create one. If anything in the file fails validation, nothing is
+                        imported and you'll see exactly what to fix.
+                    </p>
+                    <input type="file" name="file" accept=".xlsx,.xls" class="form-control" required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn text-white" style="background-color:#c0272d;">
+                        <i class="bi bi-upload me-1"></i>Import
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
 </div>
 
 <!-- Search + Filters -->

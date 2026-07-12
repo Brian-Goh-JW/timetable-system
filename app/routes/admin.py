@@ -375,6 +375,173 @@ def professor_edit(professor_id):
 
 
 # ---------------------------------------------------------------------------
+# Professors - page-level Import / Export (additive to the CRUD above, not a
+# replacement - the download carries every current professor, not a blank
+# template, so bulk edits happen "in place" in Excel before re-uploading.
+# Reference implementation for the same pattern on other entity pages.
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/professors/export')
+@login_required
+def professor_export():
+    import io
+    import openpyxl
+    from openpyxl.styles import Font
+    from flask import send_file
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Professors'
+    headers = ['Staff ID', 'Name', 'Email', 'Department', 'Temporary Password (new staff only)']
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    for p in Professor.query.join(Professor.user).order_by(User.name).all():
+        ws.append([p.staff_id, p.user.name, p.user.email, p.department, ''])
+
+    for i, width in enumerate([14, 28, 32, 24, 32], start=1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
+
+    notes = wb.create_sheet('Read Me')
+    notes.append(['How to use this file'])
+    notes['A1'].font = Font(bold=True, size=13)
+    for line in [
+        '',
+        'To update an existing professor: edit their row directly (matched by Staff ID - '
+        'don\'t change it unless you mean to). Leave "Temporary Password" blank to keep their '
+        'current password.',
+        'To add a new professor: add a new row with a Staff ID that doesn\'t already exist. '
+        '"Temporary Password" is required for new rows.',
+        'To remove a professor: delete them from the Professors page directly - this import '
+        'never deletes anyone, even if you remove their row here.',
+        'If any row fails validation, nothing in this file is imported - fix the error and '
+        're-upload the whole file.',
+    ]:
+        notes.append([line])
+    notes.column_dimensions['A'].width = 100
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, download_name='professors.xlsx', as_attachment=True,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@admin_bp.route('/professors/import', methods=['POST'])
+@login_required
+def professor_import():
+    import pandas as pd
+
+    file = request.files.get('file')
+    if not file or not file.filename.endswith(('.xlsx', '.xls')):
+        flash('Please upload a valid Excel file (.xlsx or .xls).', 'danger')
+        return redirect(url_for('admin.professors'))
+
+    try:
+        df = pd.read_excel(file, sheet_name='Professors', dtype=str).fillna('')
+    except Exception as e:
+        flash(f'Could not read file: {e}', 'danger')
+        return redirect(url_for('admin.professors'))
+
+    df.columns = df.columns.str.strip().str.lower()
+    required_cols = {'staff id', 'name', 'email', 'department'}
+    missing = required_cols - set(df.columns)
+    if missing:
+        flash(f'Missing column(s): {", ".join(sorted(missing))}. Re-download the template and try again.', 'danger')
+        return redirect(url_for('admin.professors'))
+
+    existing_by_staff_id = {p.staff_id: p for p in Professor.query.join(Professor.user).all()}
+    existing_by_email = {p.user.email.lower(): p for p in Professor.query.join(Professor.user).all()}
+
+    rows = []
+    errors = []
+    seen_staff_ids = {}
+    seen_emails = {}
+
+    for i, row in df.iterrows():
+        excel_row = i + 2  # header is row 1
+        staff_id = row.get('staff id', '').strip()
+        name = row.get('name', '').strip()
+        email = row.get('email', '').strip().lower()
+        department = row.get('department', '').strip()
+        temp_password = row.get('temporary password (new staff only)', '').strip()
+
+        if not staff_id and not name and not email and not department:
+            continue  # fully blank row - skip silently
+
+        row_errors = []
+        if not staff_id:   row_errors.append('Staff ID is required')
+        if not name:       row_errors.append('Name is required')
+        if not email:      row_errors.append('Email is required')
+        elif '@' not in email:
+            row_errors.append('Email looks invalid')
+        if not department: row_errors.append('Department is required')
+
+        if staff_id:
+            if staff_id in seen_staff_ids:
+                row_errors.append(f'Staff ID also used on row {seen_staff_ids[staff_id]}')
+            else:
+                seen_staff_ids[staff_id] = excel_row
+        if email:
+            if email in seen_emails:
+                row_errors.append(f'Email also used on row {seen_emails[email]}')
+            else:
+                seen_emails[email] = excel_row
+
+        existing_prof = existing_by_staff_id.get(staff_id) if staff_id else None
+        is_new = existing_prof is None
+
+        if email:
+            email_owner = existing_by_email.get(email)
+            if email_owner and (is_new or email_owner.id != existing_prof.id):
+                row_errors.append(f'Email is already used by another professor ({email_owner.staff_id})')
+
+        if is_new and not temp_password:
+            row_errors.append('Temporary Password is required for a new Staff ID')
+
+        if row_errors:
+            errors.append(f'Row {excel_row} (Staff ID "{staff_id or "?"}"): ' + '; '.join(row_errors))
+            continue
+
+        rows.append({
+            'excel_row': excel_row, 'staff_id': staff_id, 'name': name, 'email': email,
+            'department': department, 'temp_password': temp_password,
+            'is_new': is_new, 'existing': existing_prof,
+        })
+
+    if errors:
+        flash(f'Import rejected - {len(errors)} problem(s) found. Nothing was changed.', 'danger')
+        for e in errors[:15]:
+            flash(e, 'warning')
+        if len(errors) > 15:
+            flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
+        return redirect(url_for('admin.professors'))
+
+    created = updated = 0
+    for r in rows:
+        if r['is_new']:
+            user = User(name=r['name'], email=r['email'], role='professor')
+            user.set_password(r['temp_password'])
+            db.session.add(user)
+            db.session.flush()
+            db.session.add(Professor(user_id=user.id, staff_id=r['staff_id'], department=r['department']))
+            created += 1
+        else:
+            prof = r['existing']
+            prof.user.name = r['name']
+            prof.user.email = r['email']
+            prof.department = r['department']
+            if r['temp_password']:
+                prof.user.set_password(r['temp_password'])
+            updated += 1
+
+    db.session.commit()
+    flash(f'Import complete - {created} professor(s) added, {updated} updated.', 'success')
+    return redirect(url_for('admin.professors'))
+
+
+# ---------------------------------------------------------------------------
 # Students
 # ---------------------------------------------------------------------------
 
