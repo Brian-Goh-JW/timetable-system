@@ -572,41 +572,47 @@
         {% if view_mode == 'weekly' and active_trimester and entries %}
 
         <!-- Week navigator -->
-        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
-            {% if prev_week_num %}
-            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=prev_week_num, prog=prog_filter or None, source=source or None) }}"
-               class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-chevron-left"></i> Wk {{ prev_week_num }}
-            </a>
-            {% else %}
-            <button class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-chevron-left"></i></button>
-            {% endif %}
-
-            <span class="fw-semibold">
-                Week {{ week_number }}
-                {% if current_cal_week and current_cal_week.start_date %}
-                    &nbsp;·&nbsp;
-                    <span class="text-muted fw-normal">
-                        {{ current_cal_week.start_date.strftime('%d %b') }} – {{ current_cal_week.end_date.strftime('%d %b %Y') }}
-                    </span>
+        <div class="filter-bar d-flex align-items-center gap-3 mb-3 flex-wrap">
+            <div class="btn-group action-dropdown">
+                {% if prev_week_num %}
+                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=prev_week_num, prog=prog_filter or None, source=source or None) }}"
+                   class="btn btn-sm" title="Previous week">
+                    <i class="bi bi-chevron-left"></i>
+                </a>
+                {% else %}
+                <button class="btn btn-sm" disabled><i class="bi bi-chevron-left"></i></button>
                 {% endif %}
-                {% if current_cal_week and current_cal_week.is_term_break %}
-                    <span class="badge bg-warning text-dark ms-1">Term Break</span>
-                {% endif %}
-            </span>
+            </div>
 
-            {% if next_week_num %}
-            <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=next_week_num, prog=prog_filter or None, source=source or None) }}"
-               class="btn btn-sm btn-outline-secondary">
-                Wk {{ next_week_num }} <i class="bi bi-chevron-right"></i>
-            </a>
-            {% else %}
-            <button class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-chevron-right"></i></button>
-            {% endif %}
+            <div class="d-flex align-items-center gap-2">
+                <span class="icon-chip icon-chip-blue"><i class="bi bi-calendar-week"></i></span>
+                <span class="fw-semibold">
+                    Week {{ week_number }}
+                    {% if current_cal_week and current_cal_week.start_date %}
+                        <span class="text-muted fw-normal small ms-1">
+                            {{ current_cal_week.start_date.strftime('%d %b') }} – {{ current_cal_week.end_date.strftime('%d %b %Y') }}
+                        </span>
+                    {% endif %}
+                    {% if current_cal_week and current_cal_week.is_term_break %}
+                        <span class="badge bg-warning text-dark ms-1">Term Break</span>
+                    {% endif %}
+                </span>
+            </div>
+
+            <div class="btn-group action-dropdown">
+                {% if next_week_num %}
+                <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=next_week_num, prog=prog_filter or None, source=source or None) }}"
+                   class="btn btn-sm" title="Next week">
+                    <i class="bi bi-chevron-right"></i>
+                </a>
+                {% else %}
+                <button class="btn btn-sm" disabled><i class="bi bi-chevron-right"></i></button>
+                {% endif %}
+            </div>
 
             <!-- Week jump dropdown -->
             <div class="ms-auto">
-                <select class="form-select form-select-sm" style="width:auto;"
+                <select class="form-select form-select-sm select-glass" style="width:auto;"
                         onchange="window.location=this.value">
                     {% for cw in calendar_weeks %}
                     <option value="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=cw.week_number, prog=prog_filter or None, source=source or None) }}"
