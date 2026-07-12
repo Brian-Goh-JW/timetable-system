@@ -3729,6 +3729,7 @@ def timetable():
     from app.engine.checker import get_blocking_issues
     from app.engine.solver import solve
     from datetime import date
+    from collections import defaultdict
 
     issues, issue_warnings = get_blocking_issues()
     result   = None
@@ -4010,8 +4011,7 @@ def timetable():
     view_mode = 'list' if trimester.endswith('-all') else request.args.get('view', 'list')
     week_number     = request.args.get('week', 1, type=int)
     calendar_weeks  = []
-    period_slots    = []
-    week_grid       = {d: {} for d in DAYS_ALL}
+    hour_grid       = []
     current_cal_week = None
     prev_week_num   = None
     next_week_num   = None
@@ -4031,11 +4031,6 @@ def timetable():
         next_week_num    = all_week_nums[current_idx + 1] if current_idx < len(all_week_nums) - 1 else None
         current_cal_week = next((cw for cw in calendar_weeks if cw.week_number == week_number), None)
 
-        period_slots = (TimeSlot.query
-                        .filter_by(day_of_week='Monday')
-                        .order_by(TimeSlot.start_time, TimeSlot.end_time, TimeSlot.period_label)
-                        .all())
-
         wq = (TimetableEntry.query
               .join(TimetableEntry.class_session)
               .join(TimetableEntry.timeslot)
@@ -4054,13 +4049,44 @@ def timetable():
                                 if e.class_session.course.programme
                                 and e.class_session.course.programme.code == prog_filter]
 
-        # Store a list per cell so multiple sessions in the same slot all appear
-        week_grid = {day: {ts.period_label: [] for ts in period_slots} for day in DAYS_ALL}
+        # Continuous hourly time-axis grid, not one row per named period -
+        # lab periods (e.g. "Lab PM2" 13:00-15:00) run longer than lecture
+        # periods (e.g. "P2" 12:00-14:00) but start at the same clock time,
+        # so a period-label-per-row layout made adjacent rows look like
+        # separate non-overlapping blocks when they actually overlapped in
+        # real time (found 2026-07-12, Brian: "why is lab PM2 a time?").
+        # Rows are now real clock hours; a session spans `rowspan` rows
+        # (its real duration), and each day column tracks how many hours
+        # are still covered by an earlier rowspan so those rows don't get
+        # a second cell.
+        all_slot_hours = TimeSlot.query.all()
+        min_hour = min((ts.start_time.hour for ts in all_slot_hours), default=9)
+        max_hour = max((ts.end_time.hour for ts in all_slot_hours), default=18)
+
+        entries_by_day_hour = {day: defaultdict(list) for day in DAYS_ALL}
         for entry in week_entries_raw:
             d = entry.timeslot.day_of_week
-            p = entry.timeslot.period_label
-            if d in week_grid and p in week_grid[d]:
-                week_grid[d][p].append(entry)
+            if d in entries_by_day_hour:
+                entries_by_day_hour[d][entry.timeslot.start_time.hour].append(entry)
+
+        occupied_until = {day: min_hour for day in DAYS_ALL}
+        for h in range(min_hour, max_hour):
+            row = {'hour': h, 'label': f'{h:02d}:00', 'end_label': f'{h + 1:02d}:00', 'cells': {}}
+            for day in DAYS_ALL:
+                if occupied_until[day] > h:
+                    row['cells'][day] = None   # covered by an earlier rowspan - render nothing here
+                    continue
+                day_entries = entries_by_day_hour[day].get(h, [])
+                if day_entries:
+                    span = max(1, max(
+                        e.timeslot.end_time.hour - e.timeslot.start_time.hour for e in day_entries
+                    ))
+                    row['cells'][day] = {'rowspan': span, 'entries': day_entries}
+                    occupied_until[day] = h + span
+                else:
+                    row['cells'][day] = {'rowspan': 1, 'entries': []}
+                    occupied_until[day] = h + 1
+            hour_grid.append(row)
 
     # Year levels available in this trimester (for filter buttons)
     year_levels = sorted(set(
@@ -4099,8 +4125,7 @@ def timetable():
                            current_cal_week=current_cal_week,
                            prev_week_num=prev_week_num,
                            next_week_num=next_week_num,
-                           period_slots=period_slots,
-                           week_grid=week_grid,
+                           hour_grid=hour_grid,
                            days_all=DAYS_ALL,
                            year_levels=year_levels,
                            programmes=programmes,

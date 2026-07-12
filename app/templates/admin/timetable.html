@@ -666,21 +666,24 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% if period_slots %}
-                        {% for ts in period_slots %}
+                        {% if hour_grid %}
+                        {% for row in hour_grid %}
                         <tr style="min-height: 80px; vertical-align: top;">
-                            <!-- Period label cell -->
+                            <!-- Hour label cell -->
                             <td class="text-center bg-light border-end p-1" style="font-size:0.72rem; vertical-align: middle;">
-                                <div class="fw-semibold">{{ ts.period_label }}</div>
-                                <div class="text-muted">{{ ts.start_time.strftime('%H:%M') }}</div>
+                                <div class="fw-semibold">{{ row.label }}</div>
                                 <div class="text-muted">–</div>
-                                <div class="text-muted">{{ ts.end_time.strftime('%H:%M') }}</div>
+                                <div class="text-muted">{{ row.end_label }}</div>
                             </td>
-                            <!-- Day cells - each cell may contain multiple sessions (e.g. split groups) -->
+                            <!-- Day cells - rowspan covers the real duration of whatever starts here;
+                                 a column already covered by an earlier row's rowspan gets no <td> at all -->
                             {% for day in days_all %}
-                            {% set cell_entries = week_grid[day][ts.period_label] if ts.period_label in week_grid[day] else [] %}
-                            <td class="p-1 {% if day in ['Saturday','Sunday'] %}bg-light{% endif %}" style="vertical-align: top;">
-                                {% for entry in cell_entries %}
+                            {% set cell = row.cells[day] %}
+                            {% if cell is not none %}
+                            <td class="p-1 {% if day in ['Saturday','Sunday'] %}bg-light{% endif %}"
+                                style="vertical-align: top;"
+                                {% if cell.rowspan > 1 %}rowspan="{{ cell.rowspan }}"{% endif %}>
+                                {% for entry in cell.entries %}
                                 {% set stype = entry.class_session.session_type %}
                                 {% set is_online = entry.class_session.delivery_mode == 'online' %}
                                 {% set yr = entry.class_session.course.year_level %}
@@ -725,6 +728,7 @@
                                 </div>
                                 {% endfor %}
                             </td>
+                            {% endif %}
                             {% endfor %}
                         </tr>
                         {% endfor %}
