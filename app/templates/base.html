@@ -284,7 +284,7 @@
                                 request.endpoint.startswith('admin.room')
                             ) %}
                             {% set tools_active = request.endpoint in ('admin.declarations', 'admin.timetable_flags',
-                                'admin.data_import', 'admin.audit_log', 'admin.system_info')
+                                'admin.data_import', 'admin.audit_log', 'admin.system_info', 'admin.constraint_settings')
                                 or (request.endpoint and 'event' in request.endpoint) %}
 
                             <li class="nav-item">
@@ -336,6 +336,8 @@
                                            href="{{ url_for('admin.events') }}"><i class="bi bi-calendar-event"></i> Events</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.data_import' %}active{% endif %}"
                                            href="{{ url_for('admin.data_import') }}"><i class="bi bi-upload"></i> Import</a></li>
+                                    <li><a class="dropdown-item {% if request.endpoint == 'admin.constraint_settings' %}active{% endif %}"
+                                           href="{{ url_for('admin.constraint_settings') }}"><i class="bi bi-sliders"></i> Constraint Settings</a></li>
                                     <li><hr class="dropdown-divider"></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.audit_log' %}active{% endif %}"
                                            href="{{ url_for('admin.audit_log') }}"><i class="bi bi-clock-history"></i> Audit Log</a></li>

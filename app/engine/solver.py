@@ -64,6 +64,47 @@ LONG_SESSION_THRESHOLD_HOURS   = 4      # visibility only: single session > this
 # (per Ms. Yang's requirements doc - these two are the only ones named).
 UNIWIDE_DAY_SEPARATED_MODULES = {'UCS1001', 'UDE2222'}
 
+# Soft constraint id -> its default weight above. Single source of truth for
+# get_effective_soft_weights() below and for admin.py's Scoring Matrix -
+# every soft constraint the objective actually uses must have an entry here.
+SOFT_CONSTRAINT_DEFAULTS = {
+    'S-avail':   WEIGHT_AVAILABILITY,
+    'S-pref-ts': WEIGHT_PREFERRED_TS,
+    'S-hist':    WEIGHT_HISTORICAL,
+    'S1':        WEIGHT_MODE_SWITCH_PROF,
+    'S2':        WEIGHT_MODE_SWITCH_GROUP,
+    'S3':        WEIGHT_PROF_IDLE_GAP,
+    'S8':        WEIGHT_GROUP_BACKTOBACK_HOURS,
+    'S5':        WEIGHT_DAY_CLUSTER,
+    'S6':        WEIGHT_ROOM_UTIL,
+    'S7':        WEIGHT_EXTREMAL_SLOT,
+    'S9':        WEIGHT_LATE_END,
+    'S10':       WEIGHT_ROOM_BEST_FIT,
+    'S11':       WEIGHT_CONSISTENT_VENUE,
+    'S-lec-tut': WEIGHT_LEC_TUT_ORDER,
+    'S-lec-lab': WEIGHT_LEC_LAB_ORDER,
+}
+
+
+def get_effective_soft_weights():
+    """Live per-constraint weight for this solve, honouring any admin
+    override/on-off toggle stored in SolverSetting (Admin Tools > Constraint
+    Settings). Falls back to SOFT_CONSTRAINT_DEFAULTS for anything with no
+    row yet. A disabled constraint always resolves to 0 - since every one of
+    these is a soft (objective-only) term, a weight of 0 is functionally
+    identical to skipping it entirely, and keeps the stored weight_override
+    intact for whenever it's re-enabled."""
+    from app.models.solver_setting import SolverSetting
+    weights = dict(SOFT_CONSTRAINT_DEFAULTS)
+    for row in SolverSetting.query.all():
+        if row.constraint_id not in weights:
+            continue
+        if not row.enabled:
+            weights[row.constraint_id] = 0
+        elif row.weight_override is not None:
+            weights[row.constraint_id] = row.weight_override
+    return weights
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -581,6 +622,11 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     # 4. Build CP-SAT model
     model = cp_model.CpModel()
 
+    # Live soft-constraint weights (admin overrides from Admin Tools >
+    # Constraint Settings, falling back to solver.py's own defaults). A
+    # weight of 0 means the constraint is disabled for this run.
+    W = get_effective_soft_weights()
+
     slot_vars = {
         s.id: model.NewIntVarFromDomain(
             cp_model.Domain.FromValues(compat_slots[s.id]),
@@ -961,34 +1007,37 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             extremal_cost_vars.append(is_extr)
 
     # Soft constraint M - mode-switch avoidance, professor (S1)
-    # Weight WEIGHT_MODE_SWITCH_PROF: penalise adjacent-slot Online<->F2F transitions
-    # for the same professor on the same day.
+    # Weight W['S1']: penalise adjacent-slot Online<->F2F transitions for the
+    # same professor on the same day. Skipped entirely (not just zero-weighted)
+    # when disabled - these are among the most expensive constraint blocks to
+    # build (pairwise per entity), so an admin turning one off should also
+    # get the solve-time benefit, not just a neutral objective term.
     adjacent_next = _build_adjacency_map(timeslots)
     mode_switch_prof_vars = _mode_switch_penalties(
         model, by_prof, adjacent_next, compat_slots, _get_slot_at, tag='prof'
-    )
+    ) if W['S1'] > 0 else []
 
     # Soft constraint N - mode-switch avoidance, student group (S2)
-    # Weight WEIGHT_MODE_SWITCH_GROUP: same as above, keyed by student group.
+    # Weight W['S2']: same as above, keyed by student group.
     mode_switch_grp_vars = _mode_switch_penalties(
         model, grp_to_sessions, adjacent_next, compat_slots, _get_slot_at, tag='grp'
-    )
+    ) if W['S2'] > 0 else []
 
     # Soft constraint O - professor idle-gap avoidance (S3)
-    # Weight WEIGHT_PROF_IDLE_GAP: penalise > PROF_IDLE_GAP_THRESHOLD_HOURS of idle time
+    # Weight W['S3']: penalise > PROF_IDLE_GAP_THRESHOLD_HOURS of idle time
     # between a professor's first and last class on a given day.
     prof_idle_gap_vars = _prof_idle_gap_penalties(
         model, by_prof, day_var_map, slot_vars, compat_slots, timeslots,
         EARLIEST_HOUR, LATEST_HOUR, threshold_hours=PROF_IDLE_GAP_THRESHOLD_HOURS,
-    )
+    ) if W['S3'] > 0 else []
 
-    # Soft constraint P - group back-to-back stacking avoidance
-    # Weight WEIGHT_GROUP_BACKTOBACK_HOURS: penalise a student group having a zero-gap
-    # run of classes reaching GROUP_BACKTOBACK_LIMIT_HOURS+1 hours or more in a day.
+    # Soft constraint P - group back-to-back stacking avoidance (S8)
+    # Weight W['S8']: penalise a student group having a zero-gap run of
+    # classes reaching GROUP_BACKTOBACK_LIMIT_HOURS+1 hours or more in a day.
     group_backtoback_vars = _group_backtoback_penalties(
         model, grp_to_sessions, compat_slots, _get_slot_at, timeslots,
         EARLIEST_HOUR, LATEST_HOUR, limit_hours=GROUP_BACKTOBACK_LIMIT_HOURS,
-    )
+    ) if W['S8'] > 0 else []
 
     # Soft constraint Q - room utilisation (S6)
     # Weight WEIGHT_ROOM_UTIL: penalise f2f sessions placed in a room where
@@ -1053,8 +1102,12 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                             penalties.append(viol)
         return penalties
 
-    consistent_venue_prof_vars = _consistent_venue_penalties(by_prof, 'profvenue')
-    consistent_venue_grp_vars  = _consistent_venue_penalties(grp_to_sessions, 'grpvenue')
+    if W['S11'] > 0:
+        consistent_venue_prof_vars = _consistent_venue_penalties(by_prof, 'profvenue')
+        consistent_venue_grp_vars  = _consistent_venue_penalties(grp_to_sessions, 'grpvenue')
+    else:
+        consistent_venue_prof_vars = []
+        consistent_venue_grp_vars  = []
 
     # Combined objective (minimise):
     #   availability violations  → weight 100  (highest - never violate if possible)
@@ -1069,37 +1122,37 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     #   day clustering miss      → weight 1    (tiebreaker: fewer campus days per group)
     obj_terms = []
     for pv, *_ in penalty_vars:
-        obj_terms.append(WEIGHT_AVAILABILITY * pv)
+        obj_terms.append(W['S-avail'] * pv)
     for not_pref in pref_ts_cost_vars:
-        obj_terms.append(WEIGHT_PREFERRED_TS * not_pref)
+        obj_terms.append(W['S-pref-ts'] * not_pref)
     for not_hist, *_ in hist_penalty_vars:
-        obj_terms.append(WEIGHT_HISTORICAL * not_hist)
+        obj_terms.append(W['S-hist'] * not_hist)
     for iv in late_end_cost_vars:
-        obj_terms.append(WEIGHT_LATE_END * iv)
+        obj_terms.append(W['S9'] * iv)
     for v in mode_switch_prof_vars:
-        obj_terms.append(WEIGHT_MODE_SWITCH_PROF * v)
+        obj_terms.append(W['S1'] * v)
     for v in mode_switch_grp_vars:
-        obj_terms.append(WEIGHT_MODE_SWITCH_GROUP * v)
+        obj_terms.append(W['S2'] * v)
     for v in prof_idle_gap_vars:
-        obj_terms.append(WEIGHT_PROF_IDLE_GAP * v)
+        obj_terms.append(W['S3'] * v)
     for v in group_backtoback_vars:
-        obj_terms.append(WEIGHT_GROUP_BACKTOBACK_HOURS * v)
+        obj_terms.append(W['S8'] * v)
     for wrong in lec_tut_cost_vars:
-        obj_terms.append(WEIGHT_LEC_TUT_ORDER * wrong)
+        obj_terms.append(W['S-lec-tut'] * wrong)
     for wrong in lec_lab_cost_vars:
-        obj_terms.append(WEIGHT_LEC_LAB_ORDER * wrong)
+        obj_terms.append(W['S-lec-lab'] * wrong)
     for v in room_util_cost_vars:
-        obj_terms.append(WEIGHT_ROOM_UTIL * v)
+        obj_terms.append(W['S6'] * v)
     for wv in room_best_fit_cost_vars:
-        obj_terms.append(WEIGHT_ROOM_BEST_FIT * wv)
+        obj_terms.append(W['S10'] * wv)
     for v in consistent_venue_prof_vars:
-        obj_terms.append(WEIGHT_CONSISTENT_VENUE * v)
+        obj_terms.append(W['S11'] * v)
     for v in consistent_venue_grp_vars:
-        obj_terms.append(WEIGHT_CONSISTENT_VENUE * v)
+        obj_terms.append(W['S11'] * v)
     for iv in extremal_cost_vars:
-        obj_terms.append(WEIGHT_EXTREMAL_SLOT * iv)
+        obj_terms.append(W['S7'] * iv)
     for dv in cluster_cost_vars:
-        obj_terms.append(WEIGHT_DAY_CLUSTER * dv)
+        obj_terms.append(W['S5'] * dv)
 
     if obj_terms:
         model.Minimize(sum(obj_terms))

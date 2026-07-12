@@ -16,3 +16,4 @@ from app.models.audit_log import AuditLog
 from app.models.event import Event
 from app.models.shared_module_group import SharedModuleGroup
 from app.models.solve_run import SolveRun
+from app.models.solver_setting import SolverSetting

@@ -1659,27 +1659,6 @@ _SOFT_STAT_MAP = {
     'S-lec-lab': lambda s: (f"{s.get('lec_lab_ordered', 0)} correctly ordered", 0),
 }
 
-# Maps each soft constraint's id to its live numeric priority weight, read
-# straight off the solver module so the Scoring Matrix can never drift from
-# what the solver actually optimises for.
-_SOFT_WEIGHT_MAP = {
-    'S-avail':   lambda sv: sv.WEIGHT_AVAILABILITY,
-    'S-pref-ts': lambda sv: sv.WEIGHT_PREFERRED_TS,
-    'S-hist':    lambda sv: sv.WEIGHT_HISTORICAL,
-    'S1':        lambda sv: sv.WEIGHT_MODE_SWITCH_PROF,
-    'S2':        lambda sv: sv.WEIGHT_MODE_SWITCH_GROUP,
-    'S3':        lambda sv: sv.WEIGHT_PROF_IDLE_GAP,
-    'S8':        lambda sv: sv.WEIGHT_GROUP_BACKTOBACK_HOURS,
-    'S5':        lambda sv: sv.WEIGHT_DAY_CLUSTER,
-    'S6':        lambda sv: sv.WEIGHT_ROOM_UTIL,
-    'S7':        lambda sv: sv.WEIGHT_EXTREMAL_SLOT,
-    'S9':        lambda sv: sv.WEIGHT_LATE_END,
-    'S10':       lambda sv: sv.WEIGHT_ROOM_BEST_FIT,
-    'S11':       lambda sv: sv.WEIGHT_CONSISTENT_VENUE,
-    'S-lec-tut': lambda sv: sv.WEIGHT_LEC_TUT_ORDER,
-    'S-lec-lab': lambda sv: sv.WEIGHT_LEC_LAB_ORDER,
-}
-
 # Rules whose "result" is informational (a count with no pass/fail meaning,
 # e.g. day-spread instances or wasted seats) rather than a true violation -
 # these never cost score points even though they have a number attached.
@@ -1703,6 +1682,7 @@ def _build_constraint_summary(stats):
     from app.models.shared_module_group import SharedModuleGroup
 
     ref = _build_constraints_reference(sv, SharedModuleGroup.query.count())
+    live_weights = sv.get_effective_soft_weights()
 
     soft_groups = []
     total_violations = 0
@@ -1716,12 +1696,11 @@ def _build_constraint_summary(stats):
             soft_rule_count += 1
             result_text, violated = fn(stats)
             total_violations += violated
-            weight_fn = _SOFT_WEIGHT_MAP.get(r['id'])
             informational = r['id'] in _SOFT_INFORMATIONAL_IDS
             points = 0 if informational else violated * POINTS_PER_SOFT_VIOLATION
             rows.append({
                 'id': r['id'], 'title': r['title'], 'result': result_text, 'violated': violated,
-                'weight': weight_fn(sv) if weight_fn else None,
+                'weight': live_weights.get(r['id']),
                 'informational': informational,
                 'points': points,
             })
@@ -2192,6 +2171,72 @@ def system_info():
                            assumption_groups=assumption_groups,
                            data_gap_groups=data_gap_groups,
                            changelog_groups=changelog_groups)
+
+
+# ---------------------------------------------------------------------------
+# Constraint Settings - admin on/off + priority override for soft constraints
+# only (hard constraints stay fixed - they exist to guarantee a usable
+# schedule and are never adjustable). Confirmed with Brian 2026-07-11.
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/constraint-settings', methods=['GET', 'POST'])
+@login_required
+def constraint_settings():
+    from app.engine import solver as sv
+    from app.models.solver_setting import SolverSetting
+    from app.models.shared_module_group import SharedModuleGroup
+
+    existing = {row.constraint_id: row for row in SolverSetting.query.all()}
+
+    if request.method == 'POST':
+        for cid in sv.SOFT_CONSTRAINT_DEFAULTS:
+            enabled = request.form.get(f'enabled_{cid}') == 'on'
+            weight_raw = request.form.get(f'weight_{cid}', '').strip()
+
+            row = existing.get(cid)
+            if not row:
+                row = SolverSetting(constraint_id=cid)
+                db.session.add(row)
+
+            row.enabled = enabled
+            if weight_raw == '':
+                row.weight_override = None
+            else:
+                try:
+                    row.weight_override = max(0, int(weight_raw))
+                except ValueError:
+                    row.weight_override = None
+
+        db.session.commit()
+        flash('Constraint settings saved - they take effect the next time a trimester is generated.', 'success')
+        return redirect(url_for('admin.constraint_settings'))
+
+    ref = _build_constraints_reference(sv, SharedModuleGroup.query.count())
+
+    rows_by_category = []
+    for group in ref['soft']:
+        rows = []
+        for r in group['rows']:
+            cid = r['id']
+            if cid not in sv.SOFT_CONSTRAINT_DEFAULTS:
+                continue  # S4 - covered by S8, no independent weight
+            row = existing.get(cid)
+            default = sv.SOFT_CONSTRAINT_DEFAULTS[cid]
+            rows.append({
+                'id': cid,
+                'title': r['title'],
+                'default': default,
+                'enabled': row.enabled if row else True,
+                'weight_override': row.weight_override if row else None,
+                'effective_weight': (0 if row and not row.enabled
+                                      else (row.weight_override if row and row.weight_override is not None else default)),
+                'is_customised': row is not None,
+            })
+        if rows:
+            rows_by_category.append({'category': group['category'], 'icon': group['icon'],
+                                      'color': group['color'], 'rows': rows})
+
+    return render_template('admin/constraint_settings.html', rows_by_category=rows_by_category)
 
 
 # ---------------------------------------------------------------------------

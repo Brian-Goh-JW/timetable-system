@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% block title %}Constraint Settings - SIT Timetable{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h4 class="mb-0 fw-semibold">Constraint Settings</h4>
+        <small class="text-muted">Turn soft (preference) constraints on or off, or change how strongly the solver weighs them</small>
+    </div>
+    <a href="{{ url_for('admin.system_info') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-info-circle me-1"></i>Full Constraint Reference
+    </a>
+</div>
+
+<div class="alert alert-light border small mb-4">
+    <strong>Only soft constraints can be changed here.</strong> Hard constraints (e.g. no double-booked
+    rooms, no classes on public holidays) always stay on - they exist to guarantee every generated
+    schedule is actually usable, so making them optional isn't offered. Soft constraints are trade-offs:
+    turning one off means the solver stops trying to honour it at all; raising its priority means the
+    solver will sacrifice other, lower-priority preferences to protect it when they conflict. Changes
+    take effect on the <strong>next</strong> timetable generation - they don't retroactively change an
+    already-generated trimester.
+</div>
+
+<form method="POST">
+    {% for group in rows_by_category %}
+    <div class="card glass-card animate-in mb-3">
+        <div class="card-header bg-transparent border-bottom fw-semibold">
+            <i class="bi {{ group.icon }} me-2 text-muted"></i>{{ group.category }}
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3" style="width:8%;">On</th>
+                        <th style="width:46%;">Rule</th>
+                        <th style="width:16%;">Default Priority</th>
+                        <th style="width:20%;">Custom Priority</th>
+                        <th class="pe-3" style="width:10%;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in group.rows %}
+                    <tr>
+                        <td class="ps-3">
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" role="switch"
+                                       name="enabled_{{ r.id }}" id="enabled_{{ r.id }}"
+                                       {% if r.enabled %}checked{% endif %}>
+                            </div>
+                        </td>
+                        <td class="small">
+                            <span class="text-muted" style="font-size:0.7rem;">{{ r.id }}</span> {{ r.title }}
+                        </td>
+                        <td>
+                            <span class="badge bg-secondary">{{ r.default }}</span>
+                        </td>
+                        <td>
+                            <input type="number" min="0" class="form-control form-control-sm"
+                                   style="max-width:100px;" name="weight_{{ r.id }}"
+                                   placeholder="{{ r.default }}"
+                                   value="{{ r.weight_override if r.weight_override is not none else '' }}">
+                        </td>
+                        <td class="pe-3">
+                            {% if r.is_customised %}
+                            <span class="badge bg-warning text-dark">Customised</span>
+                            {% else %}
+                            <span class="badge bg-light text-muted border">Default</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+
+    <button type="submit" class="btn text-white" style="background-color:#c0272d;">
+        <i class="bi bi-check-lg me-1"></i>Save Settings
+    </button>
+</form>
+
+{% endblock %}
