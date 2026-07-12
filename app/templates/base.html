@@ -211,6 +211,68 @@
             color: #94a3b8 !important;
         }
 
+        /* Glass action-dropdown buttons (Import/Export, Export, Reports, etc.) -
+           consistent across every admin list page, not just Timetable. */
+        .action-dropdown .btn {
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            color: #334155;
+            font-weight: 500;
+            box-shadow: 0 2px 8px rgba(31, 38, 135, 0.06);
+            transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+        }
+        .action-dropdown .btn:hover,
+        .action-dropdown .btn.show {
+            background: #fff;
+            box-shadow: 0 4px 14px rgba(31, 38, 135, 0.14);
+            color: #1e293b;
+        }
+        .action-dropdown .btn:active { transform: translateY(1px); }
+        .icon-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 22px; height: 22px;
+            border-radius: 7px;
+            margin-right: 6px;
+            color: #fff;
+            font-size: 0.72rem;
+            vertical-align: -5px;
+        }
+        .icon-chip-blue   { background: linear-gradient(135deg, #93c5fd, #2563eb); }
+        .icon-chip-purple { background: linear-gradient(135deg, #d8b4fe, #9333ea); }
+        .icon-chip-green  { background: linear-gradient(135deg, #86efac, #16a34a); }
+        .icon-chip-red    { background: linear-gradient(135deg, #ff9a9a, #c0272d); }
+        .icon-chip-amber  { background: linear-gradient(135deg, #fde68a, #f59e0b); }
+        .action-dropdown .dropdown-menu {
+            border: none;
+            box-shadow: 0 8px 28px rgba(31, 38, 135, 0.16);
+            border-radius: 12px;
+            padding: 8px;
+            min-width: 260px;
+        }
+        .action-dropdown .dropdown-item {
+            border-radius: 8px;
+            padding: 8px 10px;
+            display: flex;
+            align-items: flex-start;
+        }
+        .action-dropdown .dropdown-item:hover { background: rgba(37, 99, 235, 0.07); }
+        .action-dropdown .dropdown-item .item-text { display: flex; flex-direction: column; }
+
+        /* Filter/search bar wrapper - the light glass strip that search boxes
+           and segmented-toggle filter chips sit inside on every list page. */
+        .filter-bar {
+            background: rgba(255, 255, 255, 0.55);
+            border-radius: 12px;
+            padding: 8px 12px;
+            box-shadow: 0 2px 8px rgba(31, 38, 135, 0.06);
+        }
+        .filter-bar .form-control {
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid rgba(15, 23, 42, 0.08);
+        }
+
         @keyframes fadeInUp {
             from { opacity: 0; transform: translateY(16px); }
             to   { opacity: 1; transform: translateY(0); }

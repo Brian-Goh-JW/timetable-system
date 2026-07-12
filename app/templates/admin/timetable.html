@@ -397,32 +397,46 @@
     <div class="col-lg-9">
         <div class="d-flex justify-content-end gap-2 mb-2">
             {% if active_trimester and active_trimester[-4:] != '-all' %}
-            <div class="btn-group">
-                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
-                    <i class="bi bi-download me-1"></i>Export
+            <div class="btn-group action-dropdown">
+                <button type="button" class="btn btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                    <span class="icon-chip icon-chip-blue"><i class="bi bi-download"></i></span>Export
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
                     <li><a class="dropdown-item" href="{{ url_for('admin.timetable_export', trimester=active_trimester) }}">
-                        <i class="bi bi-grid-3x3 me-1"></i>Weekly Grid (Excel)
-                        <div class="small text-muted" style="font-size:0.72rem;">Colour-coded, printable - one sheet per week</div>
+                        <span class="icon-chip icon-chip-green"><i class="bi bi-grid-3x3"></i></span>
+                        <span class="item-text">
+                            <span class="fw-medium">Weekly Grid (Excel)</span>
+                            <span class="text-muted" style="font-size:0.72rem;">Colour-coded, printable - one sheet per week</span>
+                        </span>
                     </a></li>
                     <li><a class="dropdown-item" href="{{ url_for('admin.timetable_export_template2', trimester=active_trimester) }}">
-                        <i class="bi bi-file-earmark-spreadsheet me-1"></i>Template 2 (SIT Upload)
-                        <div class="small text-muted" style="font-size:0.72rem;">Official flat-row format for submission</div>
+                        <span class="icon-chip icon-chip-red"><i class="bi bi-file-earmark-spreadsheet"></i></span>
+                        <span class="item-text">
+                            <span class="fw-medium">Template 2 (SIT Upload)</span>
+                            <span class="text-muted" style="font-size:0.72rem;">Official flat-row format for submission</span>
+                        </span>
                     </a></li>
                 </ul>
             </div>
             {% endif %}
-            <div class="btn-group">
-                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
-                    <i class="bi bi-graph-up me-1"></i>Reports
+            <div class="btn-group action-dropdown">
+                <button type="button" class="btn btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                    <span class="icon-chip icon-chip-purple"><i class="bi bi-graph-up"></i></span>Reports
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end">
                     <li><a class="dropdown-item" href="{{ url_for('admin.timetable_similarity', ay=active_trimester[:6] if active_trimester and active_trimester[:2]=='AY' else '') }}">
-                        <i class="bi bi-bar-chart me-1"></i>Similarity Report
+                        <span class="icon-chip icon-chip-blue"><i class="bi bi-bar-chart"></i></span>
+                        <span class="item-text">
+                            <span class="fw-medium">Similarity Report</span>
+                            <span class="text-muted" style="font-size:0.72rem;">How closely this AY matches last year's slots</span>
+                        </span>
                     </a></li>
                     <li><a class="dropdown-item" href="{{ url_for('admin.timetable_report', trimester=active_trimester if active_trimester and active_trimester[:2]=='AY' and '-all' not in active_trimester else '') }}">
-                        <i class="bi bi-clipboard-data me-1"></i>Scheduling Report
+                        <span class="icon-chip icon-chip-amber"><i class="bi bi-clipboard-data"></i></span>
+                        <span class="item-text">
+                            <span class="fw-medium">Scheduling Report</span>
+                            <span class="text-muted" style="font-size:0.72rem;">Scoring matrix and generation breakdown</span>
+                        </span>
                     </a></li>
                 </ul>
             </div>

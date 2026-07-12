@@ -9,16 +9,24 @@
         <small class="text-muted">{{ rooms | length }} room(s) shown</small>
     </div>
     <div class="d-flex gap-2">
-        <div class="btn-group">
-            <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
-                <i class="bi bi-file-earmark-spreadsheet me-1"></i>Import / Export
+        <div class="btn-group action-dropdown">
+            <button type="button" class="btn dropdown-toggle" data-bs-toggle="dropdown">
+                <span class="icon-chip icon-chip-blue"><i class="bi bi-file-earmark-spreadsheet"></i></span>Import / Export
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
                 <li><a class="dropdown-item" href="{{ url_for('admin.room_export') }}">
-                    <i class="bi bi-download me-1"></i>Download Current Data (Excel)
+                    <span class="icon-chip icon-chip-green"><i class="bi bi-download"></i></span>
+                    <span class="item-text">
+                        <span class="fw-medium">Download Current Data</span>
+                        <span class="text-muted" style="font-size:0.72rem;">Every room, ready to edit and re-upload</span>
+                    </span>
                 </a></li>
                 <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#roomImportModal">
-                    <i class="bi bi-upload me-1"></i>Upload &amp; Import...
+                    <span class="icon-chip icon-chip-red"><i class="bi bi-upload"></i></span>
+                    <span class="item-text">
+                        <span class="fw-medium">Upload &amp; Import</span>
+                        <span class="text-muted" style="font-size:0.72rem;">Apply bulk changes from an edited file</span>
+                    </span>
                 </a></li>
             </ul>
         </div>
@@ -58,35 +66,35 @@
 </div>
 
 <!-- Building filter (server-side - kept for the toggle/delete hidden-input trick) -->
-<div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
-    <a href="{{ url_for('admin.rooms') }}"
-       class="btn btn-sm {% if not active_building %}btn-dark{% else %}btn-outline-secondary{% endif %}">
-        All Buildings
-    </a>
-    {% for b in buildings %}
-    <a href="{{ url_for('admin.rooms', building=b) }}"
-       class="btn btn-sm {% if active_building == b %}btn-dark{% else %}btn-outline-secondary{% endif %}">
-        {{ b }}
-    </a>
-    {% endfor %}
+<div class="filter-bar mb-3 d-flex flex-wrap gap-2 align-items-center">
+    <div class="btn-group btn-group-sm segmented-toggle">
+        <a href="{{ url_for('admin.rooms') }}" class="btn {% if not active_building %}active{% endif %}">
+            All Buildings
+        </a>
+        {% for b in buildings %}
+        <a href="{{ url_for('admin.rooms', building=b) }}" class="btn {% if active_building == b %}active{% endif %}">
+            {{ b }}
+        </a>
+        {% endfor %}
+    </div>
 </div>
 
 <!-- Search + Type/Status filters (client-side, layered on top of the building filter above) -->
-<div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+<div class="filter-bar mb-3 d-flex flex-wrap gap-2 align-items-center">
     <input type="text" id="room-search" class="form-control form-control-sm" style="max-width:220px;"
            placeholder="Search room code…" oninput="applyRoomFilters()">
 
-    <div class="btn-group btn-group-sm" role="group" aria-label="Type filter">
-        <button class="btn btn-outline-secondary active" data-filter="type" data-value="all" onclick="setRoomFilter('type','all',this)">All Types</button>
-        <button class="btn btn-outline-secondary" data-filter="type" data-value="lecture" onclick="setRoomFilter('type','lecture',this)">Lecture</button>
-        <button class="btn btn-outline-secondary" data-filter="type" data-value="lab" onclick="setRoomFilter('type','lab',this)">Lab</button>
-        <button class="btn btn-outline-secondary" data-filter="type" data-value="seminar" onclick="setRoomFilter('type','seminar',this)">Seminar</button>
+    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Type filter">
+        <button class="btn active" data-filter="type" data-value="all" onclick="setRoomFilter('type','all',this)">All Types</button>
+        <button class="btn" data-filter="type" data-value="lecture" onclick="setRoomFilter('type','lecture',this)">Lecture</button>
+        <button class="btn" data-filter="type" data-value="lab" onclick="setRoomFilter('type','lab',this)">Lab</button>
+        <button class="btn" data-filter="type" data-value="seminar" onclick="setRoomFilter('type','seminar',this)">Seminar</button>
     </div>
 
-    <div class="btn-group btn-group-sm" role="group" aria-label="Status filter">
-        <button class="btn btn-outline-secondary active" data-filter="status" data-value="all" onclick="setRoomFilter('status','all',this)">All Status</button>
-        <button class="btn btn-outline-secondary" data-filter="status" data-value="active" onclick="setRoomFilter('status','active',this)">Active</button>
-        <button class="btn btn-outline-secondary" data-filter="status" data-value="inactive" onclick="setRoomFilter('status','inactive',this)">Inactive</button>
+    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Status filter">
+        <button class="btn active" data-filter="status" data-value="all" onclick="setRoomFilter('status','all',this)">All Status</button>
+        <button class="btn" data-filter="status" data-value="active" onclick="setRoomFilter('status','active',this)">Active</button>
+        <button class="btn" data-filter="status" data-value="inactive" onclick="setRoomFilter('status','inactive',this)">Inactive</button>
     </div>
 
     <span id="room-count" class="text-muted small ms-1"></span>

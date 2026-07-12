@@ -18,28 +18,28 @@
 {% set years = students | selectattr('student_group') | map(attribute='student_group.year_level') | unique | sort | list %}
 
 <!-- Search + Programme/Year/Assigned filters -->
-<div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
+<div class="filter-bar mb-3 d-flex flex-wrap gap-2 align-items-center">
     <input type="text" id="student-search" class="form-control form-control-sm" style="max-width:240px;"
            placeholder="Search name or email…" oninput="applyStudentFilters()">
 
-    <div class="btn-group btn-group-sm" role="group" aria-label="Programme filter">
-        <button class="btn btn-outline-secondary active" data-filter="programme" data-value="all" onclick="setStudentFilter('programme','all',this)">All Programmes</button>
+    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Programme filter">
+        <button class="btn active" data-filter="programme" data-value="all" onclick="setStudentFilter('programme','all',this)">All Programmes</button>
         {% for p in programmes %}
-        <button class="btn btn-outline-secondary" data-filter="programme" data-value="{{ p }}" onclick="setStudentFilter('programme','{{ p }}',this)">{{ p }}</button>
+        <button class="btn" data-filter="programme" data-value="{{ p }}" onclick="setStudentFilter('programme','{{ p }}',this)">{{ p }}</button>
         {% endfor %}
     </div>
 
-    <div class="btn-group btn-group-sm" role="group" aria-label="Year filter">
-        <button class="btn btn-outline-secondary active" data-filter="year" data-value="all" onclick="setStudentFilter('year','all',this)">All Years</button>
+    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Year filter">
+        <button class="btn active" data-filter="year" data-value="all" onclick="setStudentFilter('year','all',this)">All Years</button>
         {% for y in years %}
-        <button class="btn btn-outline-secondary" data-filter="year" data-value="{{ y }}" onclick="setStudentFilter('year','{{ y }}',this)">Year {{ y }}</button>
+        <button class="btn" data-filter="year" data-value="{{ y }}" onclick="setStudentFilter('year','{{ y }}',this)">Year {{ y }}</button>
         {% endfor %}
     </div>
 
-    <div class="btn-group btn-group-sm" role="group" aria-label="Assignment filter">
-        <button class="btn btn-outline-secondary active" data-filter="assigned" data-value="all" onclick="setStudentFilter('assigned','all',this)">All</button>
-        <button class="btn btn-outline-secondary" data-filter="assigned" data-value="yes" onclick="setStudentFilter('assigned','yes',this)">Assigned</button>
-        <button class="btn btn-outline-secondary" data-filter="assigned" data-value="no" onclick="setStudentFilter('assigned','no',this)">Not Assigned</button>
+    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Assignment filter">
+        <button class="btn active" data-filter="assigned" data-value="all" onclick="setStudentFilter('assigned','all',this)">All</button>
+        <button class="btn" data-filter="assigned" data-value="yes" onclick="setStudentFilter('assigned','yes',this)">Assigned</button>
+        <button class="btn" data-filter="assigned" data-value="no" onclick="setStudentFilter('assigned','no',this)">Not Assigned</button>
     </div>
 
     <span id="student-count" class="text-muted small ms-1"></span>
