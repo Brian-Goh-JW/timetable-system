@@ -15,6 +15,10 @@ class Course(db.Model):
     total_hours = db.Column(db.Integer, nullable=False)                     # total contact hours for trimester
     remarks = db.Column(db.Text, nullable=True)                             # raw remarks from Excel, Admin reference only
     split_count = db.Column(db.Integer, nullable=True)                      # Admin-set f2f sub-group count; NULL blocks scheduler
+    official_year_range = db.Column(db.String(20), nullable=True)           # e.g. 'Year 2-4' - SIT catalog info only,
+                                                                              # admin self-input, never read by the solver
+                                                                              # (a module's scheduling year_level above can
+                                                                              # differ from its official catalog span)
 
     programme = db.relationship('Programme', backref='courses')
 

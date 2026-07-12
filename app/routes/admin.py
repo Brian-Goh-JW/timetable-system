@@ -235,6 +235,7 @@ def course_edit(course_id):
         title = request.form.get('title', '').strip()
         remarks = request.form.get('remarks', '').strip()
         split_count_raw = request.form.get('split_count', '').strip()
+        official_year_range = request.form.get('official_year_range', '').strip()
 
         # Validate
         if not title:
@@ -257,6 +258,7 @@ def course_edit(course_id):
         course.title = title
         course.remarks = remarks or None
         course.split_count = split_count
+        course.official_year_range = official_year_range or None
         db.session.commit()
 
         flash(f'{course.module_code} updated successfully.', 'success')
@@ -287,7 +289,7 @@ def course_export():
     ws = wb.active
     ws.title = 'Courses'
     headers = ['Module Code', 'Programme Code', 'Trimester', 'Year Level', 'Title',
-              'Delivery Mode', 'Split Count', 'Remarks']
+              'Delivery Mode', 'Split Count', 'Official Year Range', 'Remarks']
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True)
@@ -296,9 +298,9 @@ def course_export():
         Course.year_level, Course.module_code).all()
     for c in all_courses:
         ws.append([c.module_code, c.programme.code, c.trimester, c.year_level, c.title,
-                  c.delivery_mode, c.split_count, c.remarks or ''])
+                  c.delivery_mode, c.split_count, c.official_year_range or '', c.remarks or ''])
 
-    for i, width in enumerate([16, 16, 12, 12, 34, 14, 14, 40], start=1):
+    for i, width in enumerate([16, 16, 12, 12, 34, 14, 14, 20, 40], start=1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
 
     notes = wb.create_sheet('Read Me')
@@ -306,10 +308,12 @@ def course_export():
     notes['A1'].font = Font(bold=True, size=13)
     for line in [
         '',
-        'This import can only update Title, Split Count, and Remarks - the same fields '
-        'the Edit Course page lets you change. Module Code, Programme Code, Trimester, '
-        'Year Level, and Delivery Mode are shown for context (they\'re how rows are '
-        'matched) but can\'t be changed here.',
+        'This import can only update Title, Split Count, Official Year Range, and Remarks '
+        '- the same fields the Edit Course page lets you change. Module Code, Programme '
+        'Code, Trimester, Year Level, and Delivery Mode are shown for context (they\'re '
+        'how rows are matched) but can\'t be changed here.',
+        'Official Year Range is a reference note only (e.g. "Year 2-4", from SIT\'s own '
+        'module catalog) - it never affects scheduling, which always uses Year Level.',
         'Rows are matched by Module Code + Programme Code + Trimester together - the '
         'same module code can legitimately appear more than once (different programmes '
         'or trimesters), so all three must match an existing course.',
@@ -346,7 +350,8 @@ def course_import():
         return redirect(url_for('admin.courses'))
 
     df.columns = df.columns.str.strip().str.lower()
-    required_cols = {'module code', 'programme code', 'trimester', 'title', 'split count', 'remarks'}
+    required_cols = {'module code', 'programme code', 'trimester', 'title', 'split count',
+                     'official year range', 'remarks'}
     missing = required_cols - set(df.columns)
     if missing:
         flash(f'Missing column(s): {", ".join(sorted(missing))}. Re-download the template and try again.', 'danger')
@@ -368,6 +373,7 @@ def course_import():
         tri_raw = row.get('trimester', '').strip()
         title = row.get('title', '').strip()
         split_raw = row.get('split count', '').strip()
+        official_year_range = row.get('official year range', '').strip()
         remarks = row.get('remarks', '').strip()
 
         if not module_code and not prog_code and not title:
@@ -415,7 +421,8 @@ def course_import():
 
         rows.append({
             'excel_row': excel_row, 'existing': existing_course,
-            'title': title, 'split_count': split_count, 'remarks': remarks or None,
+            'title': title, 'split_count': split_count,
+            'official_year_range': official_year_range or None, 'remarks': remarks or None,
         })
 
     if errors:
@@ -431,6 +438,7 @@ def course_import():
         course = r['existing']
         course.title = r['title']
         course.split_count = r['split_count']
+        course.official_year_range = r['official_year_range']
         course.remarks = r['remarks']
         updated += 1
 
@@ -2434,6 +2442,9 @@ def system_info():
     sv_shared_group_count = SharedModuleGroup.query.count()
     constraints = _build_constraints_reference(sv, sv_shared_group_count)
 
+    total_course_count = Course.query.count()
+    courses_with_year_range = Course.query.filter(Course.official_year_range.isnot(None)).count()
+
     # ---- Assumptions / self-input data disclosure ------------------------
     _has_session = sa_exists().where(ClassSession.course_id == Course.id)
     courses_missing_split = Course.query.filter(
@@ -2807,6 +2818,15 @@ def system_info():
             {'label': 'Room size for shared classes', 'value': 'Big enough for every programme combined',
              'note': 'When several programmes share one class, the room chosen must fit everyone from all of '
                      'those programmes together - this isn\'t from any uploaded file, it\'s what made sense to us.'},
+        ]},
+        {'category': 'Course Reference Data', 'icon': 'bi-journal-bookmark', 'color': 'blue', 'kind': 'value', 'rows': [
+            {'label': 'Official (SIT catalog) year range per module', 'value': f'{courses_with_year_range}/{total_course_count} filled in',
+             'note': 'A module can legitimately span several years in SIT\'s own module catalog (sit.edu.sg) '
+                     'even though it\'s only scheduled here for one specific year - Year Level (used for '
+                     'scheduling) and Official Year Range (this field) are two different things and are not '
+                     'always the same number. This is admin-entered reference text with no automated source - '
+                     'it is never read by the solver and has no effect on scheduling. Editable on each course\'s '
+                     'Edit page or in bulk via the Courses page\'s Import/Export.'},
         ]},
     ]
 

@@ -36,9 +36,10 @@
                     <p class="small text-muted">
                         Upload a file downloaded from <strong>Download Current Data</strong> above, with your
                         edits made inside it. Rows are matched by Module Code + Programme Code + Trimester
-                        together, and only Title, Split Count, and Remarks can be changed - the same fields
-                        the Edit Course page allows. New courses can't be created this way. If anything in
-                        the file fails validation, nothing is imported and you'll see exactly what to fix.
+                        together, and only Title, Split Count, Official Year Range, and Remarks can be
+                        changed - the same fields the Edit Course page allows. New courses can't be created
+                        this way. If anything in the file fails validation, nothing is imported and you'll
+                        see exactly what to fix.
                     </p>
                     <input type="file" name="file" accept=".xlsx,.xls" class="form-control" required>
                 </div>
@@ -110,7 +111,14 @@
                             {{ course.title }}
                         {% endif %}
                     </td>
-                    <td>Y{{ course.year_level }}</td>
+                    <td>
+                        Y{{ course.year_level }}
+                        {% if course.official_year_range %}
+                        <div class="text-muted" style="font-size:0.7rem;" title="Official SIT catalog year range - reference only, not used for scheduling">
+                            catalog: {{ course.official_year_range }}
+                        </div>
+                        {% endif %}
+                    </td>
                     <td>
                         {% if course.trimester %}
                             <span class="badge bg-secondary">Tri {{ course.trimester }}</span>

@@ -77,7 +77,7 @@
                     {% endif %}
 
                     <!-- Remarks -->
-                    <div class="mb-4">
+                    <div class="mb-3">
                         <label for="remarks" class="form-label fw-medium">Remarks</label>
                         <textarea
                             class="form-control"
@@ -86,6 +86,27 @@
                             rows="3"
                             placeholder="Optional notes (imported from Excel, editable here)"
                         >{{ course.remarks or '' }}</textarea>
+                    </div>
+
+                    <!-- Official year range (SIT catalog reference, display-only) -->
+                    <div class="mb-4">
+                        <label for="official_year_range" class="form-label fw-medium">
+                            Official Year Range <span class="text-muted fw-normal">(optional)</span>
+                        </label>
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="official_year_range"
+                            name="official_year_range"
+                            value="{{ course.official_year_range or '' }}"
+                            placeholder="e.g. Year 2-4"
+                        >
+                        <div class="form-text">
+                            The module's official year span per SIT's own module catalog (sit.edu.sg) - a
+                            module can legitimately be offered across several years even though it's only
+                            scheduled here for Year {{ course.year_level }}. Reference only - this never
+                            affects scheduling.
+                        </div>
                     </div>
 
                     <div class="d-flex gap-2">
