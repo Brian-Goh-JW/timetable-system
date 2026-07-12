@@ -214,6 +214,8 @@
         /* Glass action-dropdown buttons (Import/Export, Export, Reports, etc.) -
            consistent across every admin list page, not just Timetable. */
         .action-dropdown .btn {
+            display: inline-flex;
+            align-items: center;
             background: rgba(255, 255, 255, 0.7);
             border: 1px solid rgba(15, 23, 42, 0.08);
             color: #334155;
@@ -229,6 +231,7 @@
         }
         .action-dropdown .btn:active { transform: translateY(1px); }
         .icon-chip {
+            flex-shrink: 0;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -237,7 +240,7 @@
             margin-right: 6px;
             color: #fff;
             font-size: 0.72rem;
-            vertical-align: -5px;
+            line-height: 1;
         }
         .icon-chip-blue   { background: linear-gradient(135deg, #93c5fd, #2563eb); }
         .icon-chip-purple { background: linear-gradient(135deg, #d8b4fe, #9333ea); }
@@ -255,7 +258,7 @@
             border-radius: 8px;
             padding: 8px 10px;
             display: flex;
-            align-items: flex-start;
+            align-items: center;
         }
         .action-dropdown .dropdown-item:hover { background: rgba(37, 99, 235, 0.07); }
         .action-dropdown .dropdown-item .item-text { display: flex; flex-direction: column; }
