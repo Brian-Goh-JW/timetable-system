@@ -266,6 +266,180 @@ def course_edit(course_id):
 
 
 # ---------------------------------------------------------------------------
+# Courses - page-level Import / Export (same pattern as Professors/Rooms/
+# Student Groups above). Scoped to exactly what the Edit form already
+# supports - Title, Remarks, Split Count - since that's the only thing a
+# single Course can be edited to on this page; there's no "Add Course" form
+# either (courses are only ever created via bulk import: Template 1 or the
+# existing Admin Tools > Import modules importer), so new-row creation isn't
+# offered here - matching rows must already exist.
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/courses/export')
+@login_required
+def course_export():
+    import io
+    import openpyxl
+    from openpyxl.styles import Font
+    from flask import send_file
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Courses'
+    headers = ['Module Code', 'Programme Code', 'Trimester', 'Year Level', 'Title',
+              'Delivery Mode', 'Split Count', 'Remarks']
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    all_courses = Course.query.join(Course.programme).order_by(
+        Course.year_level, Course.module_code).all()
+    for c in all_courses:
+        ws.append([c.module_code, c.programme.code, c.trimester, c.year_level, c.title,
+                  c.delivery_mode, c.split_count, c.remarks or ''])
+
+    for i, width in enumerate([16, 16, 12, 12, 34, 14, 14, 40], start=1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
+
+    notes = wb.create_sheet('Read Me')
+    notes.append(['How to use this file'])
+    notes['A1'].font = Font(bold=True, size=13)
+    for line in [
+        '',
+        'This import can only update Title, Split Count, and Remarks - the same fields '
+        'the Edit Course page lets you change. Module Code, Programme Code, Trimester, '
+        'Year Level, and Delivery Mode are shown for context (they\'re how rows are '
+        'matched) but can\'t be changed here.',
+        'Rows are matched by Module Code + Programme Code + Trimester together - the '
+        'same module code can legitimately appear more than once (different programmes '
+        'or trimesters), so all three must match an existing course.',
+        'New courses can\'t be created through this import - courses are only ever '
+        'created through a full bulk import (Template 1, or Admin Tools > Import), '
+        'since a course needs its class sessions set up at the same time.',
+        'Split Count can be left blank to clear it. If any row fails validation, nothing '
+        'in this file is imported - fix the error and re-upload the whole file.',
+    ]:
+        notes.append([line])
+    notes.column_dimensions['A'].width = 100
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, download_name='courses.xlsx', as_attachment=True,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@admin_bp.route('/courses/import', methods=['POST'])
+@login_required
+def course_import():
+    import pandas as pd
+
+    file = request.files.get('file')
+    if not file or not file.filename.endswith(('.xlsx', '.xls')):
+        flash('Please upload a valid Excel file (.xlsx or .xls).', 'danger')
+        return redirect(url_for('admin.courses'))
+
+    try:
+        df = pd.read_excel(file, sheet_name='Courses', dtype=str).fillna('')
+    except Exception as e:
+        flash(f'Could not read file: {e}', 'danger')
+        return redirect(url_for('admin.courses'))
+
+    df.columns = df.columns.str.strip().str.lower()
+    required_cols = {'module code', 'programme code', 'trimester', 'title', 'split count', 'remarks'}
+    missing = required_cols - set(df.columns)
+    if missing:
+        flash(f'Missing column(s): {", ".join(sorted(missing))}. Re-download the template and try again.', 'danger')
+        return redirect(url_for('admin.courses'))
+
+    programmes_by_code = {p.code: p for p in Programme.query.all()}
+    existing_by_key = {}
+    for c in Course.query.join(Course.programme).all():
+        existing_by_key[(c.module_code, c.programme.code, c.trimester)] = c
+
+    rows = []
+    errors = []
+    seen_keys = {}
+
+    for i, row in df.iterrows():
+        excel_row = i + 2
+        module_code = row.get('module code', '').strip().upper()
+        prog_code = row.get('programme code', '').strip().upper()
+        tri_raw = row.get('trimester', '').strip()
+        title = row.get('title', '').strip()
+        split_raw = row.get('split count', '').strip()
+        remarks = row.get('remarks', '').strip()
+
+        if not module_code and not prog_code and not title:
+            continue  # fully blank row
+
+        row_errors = []
+        if not module_code: row_errors.append('Module Code is required')
+        if not prog_code:   row_errors.append('Programme Code is required')
+        if prog_code and prog_code not in programmes_by_code:
+            row_errors.append(f'Programme Code "{prog_code}" was not found')
+        if not title:       row_errors.append('Title is required')
+
+        trimester = None
+        if tri_raw:
+            try:
+                trimester = int(tri_raw)
+            except ValueError:
+                row_errors.append('Trimester must be a number (1, 2, or 3)')
+
+        split_count = None
+        if split_raw:
+            try:
+                split_count = int(split_raw)
+                if split_count < 1:
+                    raise ValueError
+            except ValueError:
+                row_errors.append('Split Count must be blank or a whole number of 1 or more')
+
+        key = (module_code, prog_code, trimester)
+        if key in seen_keys:
+            row_errors.append(f'Same Module Code + Programme Code + Trimester also used on row {seen_keys[key]}')
+        else:
+            seen_keys[key] = excel_row
+
+        existing_course = existing_by_key.get(key)
+        if existing_course is None:
+            row_errors.append(
+                'No matching course found for this Module Code + Programme Code + Trimester - '
+                'new courses can\'t be created through this import'
+            )
+
+        if row_errors:
+            errors.append(f'Row {excel_row} ({module_code or "?"}): ' + '; '.join(row_errors))
+            continue
+
+        rows.append({
+            'excel_row': excel_row, 'existing': existing_course,
+            'title': title, 'split_count': split_count, 'remarks': remarks or None,
+        })
+
+    if errors:
+        flash(f'Import rejected - {len(errors)} problem(s) found. Nothing was changed.', 'danger')
+        for e in errors[:15]:
+            flash(e, 'warning')
+        if len(errors) > 15:
+            flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
+        return redirect(url_for('admin.courses'))
+
+    updated = 0
+    for r in rows:
+        course = r['existing']
+        course.title = r['title']
+        course.split_count = r['split_count']
+        course.remarks = r['remarks']
+        updated += 1
+
+    db.session.commit()
+    flash(f'Import complete - {updated} course(s) updated.', 'success')
+    return redirect(url_for('admin.courses'))
+
+
+# ---------------------------------------------------------------------------
 # Professors
 # ---------------------------------------------------------------------------
 
@@ -794,6 +968,170 @@ def room_delete(room_id):
 
 
 # ---------------------------------------------------------------------------
+# Rooms - page-level Import / Export (same pattern as Professors above:
+# additive to CRUD, download carries all current data, whole-file validation).
+# ---------------------------------------------------------------------------
+
+ROOM_TYPES = ('lecture', 'lab', 'seminar')
+
+
+@admin_bp.route('/rooms/export')
+@login_required
+def room_export():
+    import io
+    import openpyxl
+    from openpyxl.styles import Font
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from flask import send_file
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Rooms'
+    headers = ['Room Code', 'Building', 'Room Type', 'Capacity', 'Active']
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    all_rooms = Room.query.order_by(Room.building, Room.room_code).all()
+    for r in all_rooms:
+        ws.append([r.room_code, r.building, r.room_type, r.capacity, 'Yes' if r.is_active else 'No'])
+
+    for i, width in enumerate([16, 18, 14, 12, 10], start=1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
+
+    # Real dropdowns - Room Type and Active are genuinely closed sets in this
+    # system (unlike e.g. a professor's Department, which is free text).
+    last_row = max(ws.max_row, 2) + 200   # headroom for new rows
+    dv_type = DataValidation(type='list', formula1=f'"{",".join(ROOM_TYPES)}"', allow_blank=False)
+    dv_type.add(f'C2:C{last_row}')
+    ws.add_data_validation(dv_type)
+    dv_active = DataValidation(type='list', formula1='"Yes,No"', allow_blank=False)
+    dv_active.add(f'E2:E{last_row}')
+    ws.add_data_validation(dv_active)
+
+    notes = wb.create_sheet('Read Me')
+    notes.append(['How to use this file'])
+    notes['A1'].font = Font(bold=True, size=13)
+    for line in [
+        '',
+        'To update an existing room: edit its row directly (matched by Room Code - '
+        'don\'t change it unless you mean to).',
+        'To add a new room: add a new row with a Room Code that doesn\'t already exist.',
+        'To remove a room: delete or deactivate it from the Rooms page directly - this '
+        'import never deletes anyone, even if you remove their row here.',
+        'Room Type and Active are dropdowns - pick from the list, don\'t type a custom value.',
+        'If any row fails validation, nothing in this file is imported - fix the error and '
+        're-upload the whole file.',
+    ]:
+        notes.append([line])
+    notes.column_dimensions['A'].width = 100
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, download_name='rooms.xlsx', as_attachment=True,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@admin_bp.route('/rooms/import', methods=['POST'])
+@login_required
+def room_import():
+    import pandas as pd
+
+    file = request.files.get('file')
+    if not file or not file.filename.endswith(('.xlsx', '.xls')):
+        flash('Please upload a valid Excel file (.xlsx or .xls).', 'danger')
+        return redirect(url_for('admin.rooms'))
+
+    try:
+        df = pd.read_excel(file, sheet_name='Rooms', dtype=str).fillna('')
+    except Exception as e:
+        flash(f'Could not read file: {e}', 'danger')
+        return redirect(url_for('admin.rooms'))
+
+    df.columns = df.columns.str.strip().str.lower()
+    required_cols = {'room code', 'building', 'room type', 'capacity', 'active'}
+    missing = required_cols - set(df.columns)
+    if missing:
+        flash(f'Missing column(s): {", ".join(sorted(missing))}. Re-download the template and try again.', 'danger')
+        return redirect(url_for('admin.rooms'))
+
+    existing_by_code = {r.room_code: r for r in Room.query.all()}
+
+    rows = []
+    errors = []
+    seen_codes = {}
+
+    for i, row in df.iterrows():
+        excel_row = i + 2
+        code = row.get('room code', '').strip().upper()
+        building = row.get('building', '').strip().upper()
+        room_type = row.get('room type', '').strip().lower()
+        capacity_raw = row.get('capacity', '').strip()
+        active_raw = row.get('active', '').strip().lower()
+
+        if not code and not building and not room_type and not capacity_raw:
+            continue  # fully blank row
+
+        row_errors = []
+        if not code:      row_errors.append('Room Code is required')
+        if not building:  row_errors.append('Building is required')
+        if room_type not in ROOM_TYPES:
+            row_errors.append(f'Room Type must be one of {", ".join(ROOM_TYPES)}')
+        capacity = None
+        try:
+            capacity = int(capacity_raw)
+            if capacity < 1:
+                raise ValueError
+        except ValueError:
+            row_errors.append('Capacity must be a whole number of 1 or more')
+        if active_raw not in ('yes', 'no'):
+            row_errors.append('Active must be Yes or No')
+
+        if code:
+            if code in seen_codes:
+                row_errors.append(f'Room Code also used on row {seen_codes[code]}')
+            else:
+                seen_codes[code] = excel_row
+
+        if row_errors:
+            errors.append(f'Row {excel_row} (Room Code "{code or "?"}"): ' + '; '.join(row_errors))
+            continue
+
+        rows.append({
+            'excel_row': excel_row, 'code': code, 'building': building, 'room_type': room_type,
+            'capacity': capacity, 'is_active': active_raw == 'yes',
+            'existing': existing_by_code.get(code),
+        })
+
+    if errors:
+        flash(f'Import rejected - {len(errors)} problem(s) found. Nothing was changed.', 'danger')
+        for e in errors[:15]:
+            flash(e, 'warning')
+        if len(errors) > 15:
+            flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
+        return redirect(url_for('admin.rooms'))
+
+    created = updated = 0
+    for r in rows:
+        if r['existing']:
+            room = r['existing']
+            room.building = r['building']
+            room.room_type = r['room_type']
+            room.capacity = r['capacity']
+            room.is_active = r['is_active']
+            updated += 1
+        else:
+            db.session.add(Room(room_code=r['code'], building=r['building'], room_type=r['room_type'],
+                                capacity=r['capacity'], is_active=r['is_active']))
+            created += 1
+
+    db.session.commit()
+    flash(f'Import complete - {created} room(s) added, {updated} updated.', 'success')
+    return redirect(url_for('admin.rooms'))
+
+
+# ---------------------------------------------------------------------------
 # Student Groups
 # ---------------------------------------------------------------------------
 
@@ -971,6 +1309,196 @@ def student_group_delete(group_id):
     db.session.delete(group)
     db.session.commit()
     flash(f'Group {label} deleted.', 'success')
+    return redirect(url_for('admin.student_groups'))
+
+
+# ---------------------------------------------------------------------------
+# Student Groups - page-level Import / Export (same pattern as Professors/
+# Rooms above). Scoped to match exactly what the CRUD already supports:
+# only Intake Size can be changed for an existing group (top-level or
+# sub-group), and only new TOP-LEVEL groups can be created - sub-groups
+# still have to go through "Generate Sub-groups" on the page itself, since
+# that's what keeps their auto-numbered labels and split sizes consistent.
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/student-groups/export')
+@login_required
+def student_group_export():
+    import io
+    import openpyxl
+    from openpyxl.styles import Font
+    from flask import send_file
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Student Groups'
+    headers = ['Group Label', 'Programme Code', 'Year Level', 'Intake Size', 'Parent Group Label']
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    all_groups = StudentGroup.query.join(StudentGroup.programme).order_by(
+        StudentGroup.year_level, StudentGroup.group_label).all()
+    for g in all_groups:
+        ws.append([g.group_label, g.programme.code, g.year_level, g.intake_size,
+                  g.parent.group_label if g.parent else ''])
+
+    for i, width in enumerate([20, 16, 12, 14, 20], start=1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
+
+    notes = wb.create_sheet('Read Me')
+    notes.append(['How to use this file'])
+    notes['A1'].font = Font(bold=True, size=13)
+    for line in [
+        '',
+        'To update an existing group\'s Intake Size: edit that row directly (matched by '
+        'Group Label). Programme Code, Year Level, and Parent Group Label are shown for '
+        'context but can\'t be changed here - they\'re read-only once a group is created.',
+        'To add a new top-level group: add a new row with a Group Label that doesn\'t '
+        'already exist, leave Parent Group Label blank, and set Programme Code + Year '
+        'Level - Group Label must exactly match the auto-generated form '
+        '"<Programme Code>-Y<Year Level>" (e.g. DSC-Y2), the same way the Add Group page '
+        'generates it.',
+        'Sub-groups (e.g. DSC-Y2-A) can\'t be created through this import - use '
+        '"Generate Sub-groups" on the Student Groups page instead, so split sizes and '
+        'lettering stay consistent.',
+        'If any row fails validation, nothing in this file is imported - fix the error and '
+        're-upload the whole file.',
+    ]:
+        notes.append([line])
+    notes.column_dimensions['A'].width = 100
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(output, download_name='student_groups.xlsx', as_attachment=True,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@admin_bp.route('/student-groups/import', methods=['POST'])
+@login_required
+def student_group_import():
+    import pandas as pd
+
+    file = request.files.get('file')
+    if not file or not file.filename.endswith(('.xlsx', '.xls')):
+        flash('Please upload a valid Excel file (.xlsx or .xls).', 'danger')
+        return redirect(url_for('admin.student_groups'))
+
+    try:
+        df = pd.read_excel(file, sheet_name='Student Groups', dtype=str).fillna('')
+    except Exception as e:
+        flash(f'Could not read file: {e}', 'danger')
+        return redirect(url_for('admin.student_groups'))
+
+    df.columns = df.columns.str.strip().str.lower()
+    required_cols = {'group label', 'programme code', 'year level', 'intake size', 'parent group label'}
+    missing = required_cols - set(df.columns)
+    if missing:
+        flash(f'Missing column(s): {", ".join(sorted(missing))}. Re-download the template and try again.', 'danger')
+        return redirect(url_for('admin.student_groups'))
+
+    existing_by_label = {g.group_label: g for g in StudentGroup.query.all()}
+    programmes_by_code = {p.code: p for p in Programme.query.all()}
+
+    rows = []
+    errors = []
+    seen_labels = {}
+
+    for i, row in df.iterrows():
+        excel_row = i + 2
+        label = row.get('group label', '').strip().upper()
+        prog_code = row.get('programme code', '').strip().upper()
+        year_raw = row.get('year level', '').strip()
+        intake_raw = row.get('intake size', '').strip()
+        parent_label = row.get('parent group label', '').strip().upper()
+
+        if not label and not prog_code and not year_raw and not intake_raw:
+            continue  # fully blank row
+
+        row_errors = []
+        if not label:
+            row_errors.append('Group Label is required')
+        if label in seen_labels:
+            row_errors.append(f'Group Label also used on row {seen_labels.get(label)}')
+        elif label:
+            seen_labels[label] = excel_row
+
+        intake_size = None
+        try:
+            intake_size = int(intake_raw)
+            if intake_size < 1:
+                raise ValueError
+        except ValueError:
+            row_errors.append('Intake Size must be a whole number of 1 or more')
+
+        existing_group = existing_by_label.get(label) if label else None
+
+        if existing_group is None:
+            # New group - top-level only, label must be the auto-generated form
+            if parent_label:
+                row_errors.append(
+                    'Sub-groups can\'t be created via import - use "Generate Sub-groups" '
+                    'on the Student Groups page for a new sub-group'
+                )
+            if not prog_code or prog_code not in programmes_by_code:
+                row_errors.append(f'Programme Code "{prog_code}" was not found')
+            year_level = None
+            try:
+                year_level = int(year_raw)
+                if year_level < 1:
+                    raise ValueError
+            except ValueError:
+                row_errors.append('Year Level must be a whole number of 1 or more')
+
+            if prog_code in programmes_by_code and year_level:
+                expected_label = f'{prog_code}-Y{year_level}'
+                if label != expected_label:
+                    row_errors.append(
+                        f'Group Label should be "{expected_label}" for Programme {prog_code} '
+                        f'Year {year_level} - labels are auto-generated, not freely chosen'
+                    )
+
+            if row_errors:
+                errors.append(f'Row {excel_row} (Group Label "{label or "?"}"): ' + '; '.join(row_errors))
+                continue
+
+            rows.append({
+                'excel_row': excel_row, 'is_new': True, 'label': label,
+                'programme_id': programmes_by_code[prog_code].id, 'year_level': year_level,
+                'intake_size': intake_size,
+            })
+        else:
+            if row_errors:
+                errors.append(f'Row {excel_row} (Group Label "{label}"): ' + '; '.join(row_errors))
+                continue
+            rows.append({
+                'excel_row': excel_row, 'is_new': False, 'existing': existing_group,
+                'intake_size': intake_size,
+            })
+
+    if errors:
+        flash(f'Import rejected - {len(errors)} problem(s) found. Nothing was changed.', 'danger')
+        for e in errors[:15]:
+            flash(e, 'warning')
+        if len(errors) > 15:
+            flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
+        return redirect(url_for('admin.student_groups'))
+
+    created = updated = 0
+    for r in rows:
+        if r['is_new']:
+            db.session.add(StudentGroup(
+                programme_id=r['programme_id'], year_level=r['year_level'],
+                group_label=r['label'], intake_size=r['intake_size'], parent_id=None,
+            ))
+            created += 1
+        else:
+            r['existing'].intake_size = r['intake_size']
+            updated += 1
+
+    db.session.commit()
+    flash(f'Import complete - {created} group(s) added, {updated} updated.', 'success')
     return redirect(url_for('admin.student_groups'))
 
 
