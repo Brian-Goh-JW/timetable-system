@@ -2367,10 +2367,15 @@ _SOFT_STAT_MAP = {
 # these never cost score points even though they have a number attached.
 _SOFT_INFORMATIONAL_IDS = {'S5', 'S10', 'S-pref-ts', 'S-lec-tut', 'S-lec-lab'}
 
-# Points deducted from the Optimised Score per violation of a soft rule -
-# must match the constant used in timetable_report()'s score calculation
-# (score = 100 - soft_total_violations * this).
-POINTS_PER_SOFT_VIOLATION = 2
+# Optimised Score calibration (see timetable_report()'s score calculation).
+# Each violation is weighted by the rule's own solver priority (not a flat
+# points-per-violation) - "ends late" (weight 15) costs more than "not the
+# snuggest room fit" (weight 2). SCORE_CEILING_AVG_PENALTY is the average
+# weighted-penalty-per-session at which the score reaches 0 - chosen from
+# real observed data across all 3 trimesters (2026-07-12: T1 averaged 7.15,
+# T2 4.24, T3 1.87 per session), so a ceiling of 15 gives genuine spread
+# instead of every trimester this size instantly flooring to 0.
+SCORE_CEILING_AVG_PENALTY = 15
 
 
 def _build_constraint_summary(stats):
@@ -2389,6 +2394,7 @@ def _build_constraint_summary(stats):
 
     soft_groups = []
     total_violations = 0
+    total_points = 0
     soft_rule_count = 0
     for group in ref['soft']:
         rows = []
@@ -2400,7 +2406,9 @@ def _build_constraint_summary(stats):
             result_text, violated = fn(stats)
             total_violations += violated
             informational = r['id'] in _SOFT_INFORMATIONAL_IDS
-            points = 0 if informational else violated * POINTS_PER_SOFT_VIOLATION
+            weight = live_weights.get(r['id']) or 0
+            points = 0 if informational else violated * weight
+            total_points += points
             rows.append({
                 'id': r['id'], 'title': r['title'], 'result': result_text, 'violated': violated,
                 'weight': live_weights.get(r['id']),
@@ -2424,7 +2432,7 @@ def _build_constraint_summary(stats):
         'hard_groups': ref['hard'],
         'soft_rule_count': soft_rule_count,
         'soft_total_violations': total_violations,
-        'soft_total_points': total_violations * POINTS_PER_SOFT_VIOLATION,
+        'soft_total_points': total_points,
         'soft_groups': soft_groups,
     }
 
@@ -4260,13 +4268,21 @@ def timetable_report():
         historical_match = f'{hist_honoured}/{hist_honoured + hist_changed}'
 
     soft_total = constraint_summary['soft_total_violations'] if constraint_summary else 0
+    soft_total_points = constraint_summary['soft_total_points'] if constraint_summary else 0
     preference_problems = len(stats.get('preferred_violations', []))
     # Self-defined scoring, disclosed on the page - not an official metric.
-    # POINTS_PER_SOFT_VIOLATION points per soft-constraint violation, floor 0.
-    # Hard constraints can never be violated (the solve would have failed),
-    # so that term is always -0. Full per-rule breakdown (weight + points
-    # impact) is in constraint_summary, rendered as the Scoring Matrix below.
-    score = max(0, 100 - soft_total * POINTS_PER_SOFT_VIOLATION)
+    # Each violation is weighted by its own solver priority (see
+    # SCORE_CEILING_AVG_PENALTY), then averaged per session so a large
+    # trimester with more sessions to check isn't unfairly penalised versus
+    # a small one - a flat "-N points per violation" used to floor every
+    # trimester this size straight to 0, unable to tell a decent schedule
+    # from a bad one (found 2026-07-12). Hard constraints can never be
+    # violated (the solve would have failed), so that term is always -0.
+    # Full per-rule breakdown (weight + points impact) is in
+    # constraint_summary, rendered as the Scoring Matrix below.
+    sessions_count = len(sessions) or 1
+    avg_weighted_penalty = soft_total_points / sessions_count
+    score = round(max(0, 100 * (1 - avg_weighted_penalty / SCORE_CEILING_AVG_PENALTY)))
 
     report = {
         'trimester': trimester,
@@ -4278,7 +4294,6 @@ def timetable_report():
             'rooms_used': rooms_used,
             'staff_assigned': staff_assigned,
             'teaching_weeks': teaching_weeks,
-            'historical_match': historical_match,
             'soft_violations': soft_total,
         },
         'overview': {
@@ -4287,14 +4302,23 @@ def timetable_report():
             'student_groups': student_groups_covered,
             'hard_rule_count': constraint_summary['hard_rule_count'] if constraint_summary else None,
             'soft_rule_count': constraint_summary['soft_rule_count'] if constraint_summary else None,
+            # "Backbone match" (kept-vs-changed slot vs last year/DSC's real
+            # timetable) isn't a universal quality metric - only DSC has a
+            # real submitted schedule to match against, everyone else is
+            # compared to the solver's own prior output. Shown here as
+            # context, not a top-level score tile, and only when there's
+            # actually something to report.
+            'historical_match': historical_match,
         },
         'score': {
             'available': solve_row is not None,
             'value': score,
             'hard_conflicts': 0,
             'soft_violations': soft_total,
+            'soft_total_points': soft_total_points,
+            'avg_weighted_penalty': round(avg_weighted_penalty, 2),
+            'ceiling': SCORE_CEILING_AVG_PENALTY,
             'preference_problems': preference_problems,
-            'points_per_violation': POINTS_PER_SOFT_VIOLATION,
         },
         'breakdown': {
             'source': source_rows,

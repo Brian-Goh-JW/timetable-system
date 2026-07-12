@@ -95,38 +95,32 @@
 </div>
 
 <!-- Stat tiles -->
-<div class="row g-3 mb-3 stagger">
-    <div class="col-6 col-md-4 col-lg-2">
+<div class="row g-3 mb-3 stagger row-cols-2 row-cols-md-4">
+    <div class="col">
         <div class="card glass-card animate-in stat-tile h-100">
             <div class="stat-value">{{ report.tiles.sessions_scheduled }}</div>
             <div class="stat-label">Sessions</div>
         </div>
     </div>
-    <div class="col-6 col-md-4 col-lg-2">
+    <div class="col">
         <div class="card glass-card animate-in stat-tile h-100">
             <div class="stat-value">{{ report.tiles.rooms_used }}</div>
             <div class="stat-label">Rooms Used</div>
         </div>
     </div>
-    <div class="col-6 col-md-4 col-lg-2">
+    <div class="col">
         <div class="card glass-card animate-in stat-tile h-100">
             <div class="stat-value">{{ report.tiles.staff_assigned }}</div>
             <div class="stat-label">Staff Assigned</div>
         </div>
     </div>
-    <div class="col-6 col-md-4 col-lg-2">
+    <div class="col">
         <div class="card glass-card animate-in stat-tile h-100">
             <div class="stat-value">{{ report.tiles.teaching_weeks }}</div>
             <div class="stat-label">Teaching Weeks</div>
         </div>
     </div>
-    <div class="col-6 col-md-4 col-lg-2">
-        <div class="card glass-card animate-in stat-tile h-100">
-            <div class="stat-value">{{ report.tiles.historical_match or '-' }}</div>
-            <div class="stat-label">Backbone Match</div>
-        </div>
-    </div>
-    <div class="col-6 col-md-4 col-lg-2">
+    <div class="col">
         <div class="card glass-card animate-in stat-tile h-100">
             {% if report.score.available %}
             <div class="stat-value {% if report.tiles.soft_violations > 0 %}text-warning{% else %}text-success{% endif %}">
@@ -169,6 +163,14 @@
                     <dd class="col-6">{{ report.overview.modules }}</dd>
                     <dt class="col-6 text-muted">Student groups covered</dt>
                     <dd class="col-6">{{ report.overview.student_groups }}</dd>
+                    {% if report.overview.historical_match %}
+                    <dt class="col-6 text-muted">
+                        Historical slot match
+                        <i class="bi bi-info-circle text-muted" style="font-size:0.7rem;"
+                           title="How many sessions landed in the same slot as last year's equivalent trimester (or DSC's real submitted timetable, where that applies). Not a universal quality signal - most programmes have no real timetable to match against, only the solver's own prior output."></i>
+                    </dt>
+                    <dd class="col-6">{{ report.overview.historical_match }}</dd>
+                    {% endif %}
                 </dl>
             </div>
         </div>
@@ -205,14 +207,28 @@
                 <table class="table table-sm mb-2 small">
                     <tbody>
                         <tr><td>Hard conflicts</td><td class="text-end text-success">-{{ report.score.hard_conflicts }}</td></tr>
-                        <tr><td>Soft constraint violations</td><td class="text-end {% if report.score.soft_violations > 0 %}text-warning{% else %}text-success{% endif %}">-{{ report.score.soft_violations * report.score.points_per_violation }}</td></tr>
+                        <tr>
+                            <td>Soft violations, weighted by priority</td>
+                            <td class="text-end {% if report.score.soft_total_points > 0 %}text-warning{% else %}text-success{% endif %}">
+                                {{ report.score.soft_total_points }} pts ({{ report.score.soft_violations }} violation{{ 's' if report.score.soft_violations != 1 }})
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>Average weighted penalty per session</td>
+                            <td class="text-end {% if report.score.avg_weighted_penalty > 0 %}text-warning{% else %}text-success{% endif %}">
+                                {{ report.score.avg_weighted_penalty }} / {{ report.score.ceiling }}
+                            </td>
+                        </tr>
                         <tr><td>Preference declarations overridden</td><td class="text-end {% if report.score.preference_problems > 0 %}text-warning{% else %}text-success{% endif %}">{{ report.score.preference_problems }}</td></tr>
                     </tbody>
                 </table>
                 <div class="small text-muted" style="font-size:0.72rem;">
-                    <i class="bi bi-info-circle me-1"></i>Self-defined score, not an official metric: 100 points minus
-                    {{ report.score.points_per_violation }} for every soft-constraint violation, floor 0. Hard
-                    constraints can never be violated - the generation would have failed outright otherwise.
+                    <i class="bi bi-info-circle me-1"></i>Self-defined score, not an official metric: each violation
+                    is weighted by that rule's own solver priority (e.g. ending late costs more than a slightly
+                    under-sized room), averaged across every session so a large trimester isn't penalised just for
+                    having more sessions to check, then scaled so an average weighted penalty of
+                    {{ report.score.ceiling }} per session reaches 0. Hard constraints can never be violated - the
+                    generation would have failed outright otherwise.
                     <a href="#scoring-matrix" class="ms-1">See the full breakdown below &darr;</a>
                 </div>
                 {% endif %}
@@ -266,10 +282,12 @@
             schedule it can find). Because a completed schedule can never actually violate a hard
             constraint, those aren't scored - they're shown below as a pass/fail checklist instead.
             The Optimised Score above is built entirely from the soft constraints: each violation costs
-            {{ report.score.points_per_violation }} point{{ 's' if report.score.points_per_violation != 1 }},
-            and each rule's <strong>priority</strong> is the weight the solver itself uses internally to
-            decide which trade-offs to make when it can't honour every soft preference at once - a higher
-            priority means the solver fights harder not to break that rule.
+            points equal to that rule's own <strong>priority</strong> - the same weight the solver itself
+            uses internally to decide which trade-offs to make when it can't honour every soft preference
+            at once, so "ends late" (priority 15) costs far more than "not the snuggest room fit" (priority
+            2). Those weighted points are averaged across every session, then scaled so an average of
+            {{ report.score.ceiling }} points per session brings the score to 0 - a higher priority rule
+            being broken pulls the score down faster than a low-priority one.
         </div>
 
         <!-- Hard constraints - compact pass/fail checklist, no per-run number needed since a -->
