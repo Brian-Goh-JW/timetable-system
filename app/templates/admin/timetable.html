@@ -397,23 +397,35 @@
     <div class="col-lg-9">
         <div class="d-flex justify-content-end gap-2 mb-2">
             {% if active_trimester and active_trimester[-4:] != '-all' %}
-            <a href="{{ url_for('admin.timetable_export', trimester=active_trimester) }}"
-               class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-download me-1"></i>Export Excel
-            </a>
-            <a href="{{ url_for('admin.timetable_export_template2', trimester=active_trimester) }}"
-               class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-file-earmark-spreadsheet me-1"></i>Export Template 2
-            </a>
+            <div class="btn-group">
+                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                    <i class="bi bi-download me-1"></i>Export
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="{{ url_for('admin.timetable_export', trimester=active_trimester) }}">
+                        <i class="bi bi-grid-3x3 me-1"></i>Weekly Grid (Excel)
+                        <div class="small text-muted" style="font-size:0.72rem;">Colour-coded, printable - one sheet per week</div>
+                    </a></li>
+                    <li><a class="dropdown-item" href="{{ url_for('admin.timetable_export_template2', trimester=active_trimester) }}">
+                        <i class="bi bi-file-earmark-spreadsheet me-1"></i>Template 2 (SIT Upload)
+                        <div class="small text-muted" style="font-size:0.72rem;">Official flat-row format for submission</div>
+                    </a></li>
+                </ul>
+            </div>
             {% endif %}
-            <a href="{{ url_for('admin.timetable_similarity', ay=active_trimester[:6] if active_trimester and active_trimester[:2]=='AY' else '') }}"
-               class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-bar-chart me-1"></i>Similarity Report
-            </a>
-            <a href="{{ url_for('admin.timetable_report', trimester=active_trimester if active_trimester and active_trimester[:2]=='AY' and '-all' not in active_trimester else '') }}"
-               class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-clipboard-data me-1"></i>Scheduling Report
-            </a>
+            <div class="btn-group">
+                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                    <i class="bi bi-graph-up me-1"></i>Reports
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="{{ url_for('admin.timetable_similarity', ay=active_trimester[:6] if active_trimester and active_trimester[:2]=='AY' else '') }}">
+                        <i class="bi bi-bar-chart me-1"></i>Similarity Report
+                    </a></li>
+                    <li><a class="dropdown-item" href="{{ url_for('admin.timetable_report', trimester=active_trimester if active_trimester and active_trimester[:2]=='AY' and '-all' not in active_trimester else '') }}">
+                        <i class="bi bi-clipboard-data me-1"></i>Scheduling Report
+                    </a></li>
+                </ul>
+            </div>
         </div>
 
         <!-- Filter bar - all dropdowns -->
