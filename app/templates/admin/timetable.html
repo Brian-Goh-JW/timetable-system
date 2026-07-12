@@ -1,6 +1,20 @@
 {% extends 'base.html' %}
 {% block title %}Timetable - SIT Timetable{% endblock %}
 
+{% block extra_head %}
+<style>
+    /* Amber highlight for rows that violate a soft (preference) constraint -
+       see _compute_soft_violations() in admin.py. Never used for hard
+       constraints, since a completed schedule can't violate one. */
+    .soft-violation-row { background: rgba(245, 158, 11, 0.09) !important; }
+    .soft-violation-row:hover { background: rgba(245, 158, 11, 0.18) !important; }
+    .soft-violation-badge {
+        cursor: help;
+        background: linear-gradient(135deg, #fde68a, #f59e0b) !important;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 {% set is_bb_view = (source == 'bb') %}
 
@@ -754,7 +768,9 @@
                     </thead>
                     <tbody>
                         {% for e in entries %}
-                        <tr data-year="{{ e.class_session.course.year_level }}">
+                        {% set row_violations = soft_violations.get(e.id, []) %}
+                        <tr data-year="{{ e.class_session.course.year_level }}"
+                            class="{% if row_violations %}soft-violation-row{% endif %}">
                             {% if active_trimester and active_trimester[-4:] == '-all' %}
                             <td class="ps-3">
                                 {% set tnum = e.trimester[-1] %}
@@ -797,6 +813,12 @@
                                 {% if e.is_backbone %}<span class="badge bg-primary">Backbone</span>{% endif %}
                                 {% if e.is_published %}<span class="badge bg-success">Published</span>
                                 {% else %}<span class="badge bg-secondary">Draft</span>{% endif %}
+                                {% if row_violations %}
+                                <span class="badge soft-violation-badge text-dark"
+                                      title="{{ row_violations | join('; ') }}">
+                                    <i class="bi bi-exclamation-triangle"></i> {{ row_violations | length }}
+                                </span>
+                                {% endif %}
                             </td>
                             <td>
                                 <a href="{{ url_for('admin.timetable_session_weeks', trimester=active_trimester, session_id=e.class_session_id) }}"

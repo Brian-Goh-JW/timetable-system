@@ -3612,6 +3612,113 @@ def solver_status(task_id):
     })
 
 
+def _compute_soft_violations(entries, trimester):
+    """For each entry (already deduplicated to one row per session), work
+    out which soft constraints its placement violates - reusing the same
+    rule definitions as solver.py/the Scoring Matrix so this view can never
+    disagree with them. Returns {entry.id: [reason, ...]}, used to amber-
+    highlight rows on the Timetable List view (Brian, 2026-07-12: "different
+    color for different constraints... red if hard, yellow for soft").
+
+    Scoped to checks that are meaningful on a single row without having to
+    replicate the solver's exact CP-SAT sliding-window math: ends-after-
+    cutoff, first/last slot of the day, an under-filled room, an adjacent-
+    slot mode switch or room change for the same professor/group, and a
+    preferred-availability declaration the solver had to override (read
+    from this trimester's persisted solve stats). Professor idle-gap and
+    group back-to-back stacking (S3/S8) aren't included yet - flagging
+    those correctly needs the same multi-session daily-span logic
+    solver.py uses, which doesn't reduce cleanly to a per-row check; a
+    future pass could add them. Hard constraints are deliberately not
+    checked here - a completed schedule can't violate one (see the Scoring
+    Matrix's own explainer), so there's nothing to flag red for a normal
+    generated row. A genuinely conflicting manually-edited row would show
+    up via the existing Flags/blocking-issues machinery instead.
+    """
+    from app.engine import solver as sv
+    from collections import defaultdict
+    from app.models.timeslot import TimeSlot
+
+    violations = {e.id: [] for e in entries}
+    if not entries:
+        return violations
+
+    def _add(entry_id, reason):
+        if reason not in violations[entry_id]:
+            violations[entry_id].append(reason)
+
+    # ---- Ends after the preferred cutoff (S9) ----
+    cutoff_label = sv.LATE_END_CUTOFF.strftime('%H:%M')
+    for e in entries:
+        if e.timeslot.end_time > sv.LATE_END_CUTOFF:
+            _add(e.id, f'Ends after {cutoff_label}')
+
+    # ---- First/last slot of the day (S7) - global slot catalog, cheap ----
+    day_starts = defaultdict(list)
+    for ts in TimeSlot.query.all():
+        day_starts[ts.day_of_week].append((ts.start_time, ts.id))
+    extremal_ts_ids = set()
+    for lst in day_starts.values():
+        lst.sort()
+        extremal_ts_ids.add(lst[0][1])
+        extremal_ts_ids.add(lst[-1][1])
+    for e in entries:
+        if e.timeslot_id in extremal_ts_ids and e.class_session.student_group_id:
+            _add(e.id, 'First or last class slot of the day for this group')
+
+    # ---- Room under target utilisation (S6) ----
+    threshold_pct = int(sv.ROOM_UTIL_THRESHOLD * 100)
+    for e in entries:
+        if e.room_id and e.room and e.class_session.student_group:
+            group_size = e.class_session.student_group.intake_size
+            if e.room.capacity and (group_size / e.room.capacity) < sv.ROOM_UTIL_THRESHOLD:
+                pct = round(100 * group_size / e.room.capacity)
+                _add(e.id, f'Room only {pct}% full (target {threshold_pct}%+)')
+
+    # ---- Adjacent-slot mode switch / room change, same professor or group (S1/S2/S11) ----
+    def _adjacent(a, b):
+        return a.timeslot.day_of_week == b.timeslot.day_of_week and (
+            a.timeslot.end_time == b.timeslot.start_time or b.timeslot.end_time == a.timeslot.start_time
+        )
+
+    by_prof = defaultdict(list)
+    by_group = defaultdict(list)
+    for e in entries:
+        for prof_id in e.class_session.all_professor_ids:
+            by_prof[prof_id].append(e)
+        if e.class_session.student_group_id:
+            by_group[e.class_session.student_group_id].append(e)
+
+    def _check_adjacency(groups, subject):
+        for lst in groups.values():
+            for i in range(len(lst)):
+                for j in range(len(lst)):
+                    if i == j or not _adjacent(lst[i], lst[j]):
+                        continue
+                    ei, ej = lst[i], lst[j]
+                    if not sv._weeks_overlap(ei.class_session, ej.class_session):
+                        continue  # never actually adjacent in real calendar time
+                    if ei.class_session.delivery_mode != ej.class_session.delivery_mode:
+                        _add(ei.id, f'Back-to-back online/in-person switch ({subject})')
+                    elif ei.room_id and ej.room_id and ei.room_id != ej.room_id:
+                        _add(ei.id, f'Different room than the adjacent class ({subject})')
+
+    _check_adjacency(by_prof, 'same professor')
+    _check_adjacency(by_group, 'same group')
+
+    # ---- Preferred-availability declaration overridden (S-avail) ----
+    stats = _load_solve_run(trimester)
+    for pv in (stats or {}).get('preferred_violations', []):
+        sid = pv.get('class_session_id')
+        ts_id = pv.get('timeslot_id')
+        prof_name = pv.get('professor', 'The assigned professor')
+        for e in entries:
+            if e.class_session_id == sid and e.timeslot_id == ts_id:
+                _add(e.id, f'{prof_name} asked to avoid this slot')
+
+    return violations
+
+
 # ---------------------------------------------------------------------------
 # Timetable - generate and view
 # ---------------------------------------------------------------------------
@@ -3969,12 +4076,20 @@ def timetable():
     display_stats = stats or _load_solve_run(trimester)
     constraint_summary = _build_constraint_summary(display_stats)
 
+    # Per-row soft-constraint highlighting - List view only for now (Weekly's
+    # grid cells are too small for a useful multi-line tooltip yet).
+    soft_violations = (
+        _compute_soft_violations(unique_entries, trimester)
+        if view_mode == 'list' and unique_entries else {}
+    )
+
     return render_template('admin/timetable.html',
                            issues=issues,
                            issue_warnings=issue_warnings,
                            trimesters=trimesters,
                            active_trimester=trimester,
                            entries=unique_entries,
+                           soft_violations=soft_violations,
                            stats=display_stats,
                            constraint_summary=constraint_summary,
                            result=result,

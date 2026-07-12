@@ -283,8 +283,12 @@ def _mode_switch_penalties(model, entity_to_sessions, adjacent_next, compat_slot
     """Soft constraints S1 (professor) / S2 (student group): penalise an Online<->F2F
     delivery-mode switch landing in two temporally-adjacent slots for the same entity.
     Returns a list of BoolVars (each = 1 iff that specific adjacency violation occurs).
-    Only a one-directional implication is needed since these BoolVars are only ever used
-    as objective terms - the solver will never set one to 1 gratuitously.
+    Fully reified both ways (viol==1 iff both slots are actually assigned) - a
+    one-directional `OnlyEnforceIf(viol)` alone lets the solver always choose
+    viol=0 for free since nothing then requires it to be 1 even when the real
+    assignment satisfies the condition, which made this constraint silently
+    inert (found 2026-07-12: a real generated schedule had 120 unpenalised
+    mode-switches while this reported 0).
     """
     penalties = []
     for entity_id, sess_list in entity_to_sessions.items():
@@ -300,14 +304,16 @@ def _mode_switch_penalties(model, entity_to_sessions, adjacent_next, compat_slot
                 si, sj = sess_list[i], sess_list[j]
                 if si.delivery_mode == sj.delivery_mode:
                     continue
+                if not _weeks_overlap(si, sj):
+                    continue  # never actually adjacent in real calendar time
                 # si immediately before sj
                 for idx_i in compat_slots[si.id]:
                     for idx_j in adjacent_next.get(idx_i, ()):
                         if idx_j in compat_slots[sj.id]:
+                            a, b = get_slot_at(si.id, idx_i), get_slot_at(sj.id, idx_j)
                             viol = model.NewBoolVar(f'{tag}_modesw_{si.id}_{idx_i}_{sj.id}_{idx_j}')
-                            model.AddBoolAnd(
-                                [get_slot_at(si.id, idx_i), get_slot_at(sj.id, idx_j)]
-                            ).OnlyEnforceIf(viol)
+                            model.AddBoolAnd([a, b]).OnlyEnforceIf(viol)
+                            model.AddBoolOr([a.Not(), b.Not()]).OnlyEnforceIf(viol.Not())
                             penalties.append(viol)
     return penalties
 
@@ -374,8 +380,12 @@ def _prof_idle_gap_penalties(model, by_prof, day_var_map, slot_vars, compat_slot
             idle = model.NewIntVar(-200, 30, f's3_idle_{prof_id}_{day_name}')
             model.Add(idle == span - total_contact)
 
+            # Fully reified both ways so is_violated actually tracks idle >
+            # threshold rather than the solver being free to always pick 0
+            # (found 2026-07-12 - see _mode_switch_penalties for the same bug).
             is_violated = model.NewBoolVar(f's3_viol_{prof_id}_{day_name}')
             model.Add(idle > threshold_hours).OnlyEnforceIf([is_violated, any_two_on_day])
+            model.Add(idle <= threshold_hours).OnlyEnforceIf([is_violated.Not(), any_two_on_day])
             model.Add(is_violated == 0).OnlyEnforceIf(any_two_on_day.Not())
             penalties.append(is_violated)
     return penalties
@@ -419,7 +429,10 @@ def _group_backtoback_penalties(model, grp_to_sessions, compat_slots, get_slot_a
                     continue  # window not fully reachable - skip
                 window_sum = sum(occupied[h] for h in window_hours)
                 violated = model.NewBoolVar(f'btb_viol_{grp_id}_{day}_{window_start}')
+                # Fully reified both ways (same fix as the mode-switch/idle-gap
+                # bug, 2026-07-12) so `violated` actually tracks window_sum > w.
                 model.Add(window_sum > w).OnlyEnforceIf(violated)
+                model.Add(window_sum <= w).OnlyEnforceIf(violated.Not())
                 penalties.append(violated)
     return penalties
 
@@ -1077,6 +1090,10 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     # professor or same group). Weight WEIGHT_CONSISTENT_VENUE: reuses the same
     # adjacency map as the mode-switch constraints.
     def _consistent_venue_penalties(entity_to_sessions, tag):
+        # both_here and viol are fully reified both ways (same fix as the
+        # mode-switch/idle-gap/back-to-back bug, 2026-07-12) - a one-directional
+        # OnlyEnforceIf(viol) alone left the solver free to always pick 0,
+        # making this constraint silently inert regardless of the real layout.
         penalties = []
         for entity_id, sess_list in entity_to_sessions.items():
             f2f_sess = [s for s in sess_list if s.delivery_mode == 'f2f' and s.id in room_vars]
@@ -1086,19 +1103,22 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                     if i == j:
                         continue
                     si, sj = f2f_sess[i], f2f_sess[j]
+                    if not _weeks_overlap(si, sj):
+                        continue  # never actually adjacent in real calendar time
                     for idx_i in compat_slots[si.id]:
                         for idx_j in adjacent_next.get(idx_i, ()):
                             if idx_j not in compat_slots[sj.id]:
                                 continue
+                            a, b = _get_slot_at(si.id, idx_i), _get_slot_at(sj.id, idx_j)
                             both_here = model.NewBoolVar(f'{tag}_venueadj_{si.id}_{idx_i}_{sj.id}_{idx_j}')
-                            model.AddBoolAnd(
-                                [_get_slot_at(si.id, idx_i), _get_slot_at(sj.id, idx_j)]
-                            ).OnlyEnforceIf(both_here)
+                            model.AddBoolAnd([a, b]).OnlyEnforceIf(both_here)
+                            model.AddBoolOr([a.Not(), b.Not()]).OnlyEnforceIf(both_here.Not())
                             diff_room = model.NewBoolVar(f'{tag}_diffroom_{si.id}_{sj.id}_{idx_i}_{idx_j}')
                             model.Add(room_vars[si.id] != room_vars[sj.id]).OnlyEnforceIf(diff_room)
                             model.Add(room_vars[si.id] == room_vars[sj.id]).OnlyEnforceIf(diff_room.Not())
                             viol = model.NewBoolVar(f'{tag}_venueviol_{si.id}_{idx_i}_{sj.id}_{idx_j}')
                             model.AddBoolAnd([both_here, diff_room]).OnlyEnforceIf(viol)
+                            model.AddBoolOr([both_here.Not(), diff_room.Not()]).OnlyEnforceIf(viol.Not())
                             penalties.append(viol)
         return penalties
 
@@ -1161,10 +1181,13 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     cp_solver = cp_model.CpSolver()
     cp_solver.parameters.max_time_in_seconds = 180
     cp_solver.parameters.num_search_workers  = 8
-    # Accept a solution within 2% of provably optimal rather than always chasing the
+    # Accept a solution within 5% of provably optimal rather than always chasing the
     # full time budget - the added soft-constraint complexity makes "optimal" and
-    # "very good" practically indistinguishable, this just returns sooner.
-    cp_solver.parameters.relative_gap_limit  = 0.02
+    # "very good" practically indistinguishable, this just returns sooner. Loosened
+    # from 2% on 2026-07-12 after fully reifying S1/S2/S3/S8/S11 (see the fix notes
+    # on those functions) roughly doubled their constraint count and made proving
+    # a tight bound much slower for the same schedule quality.
+    cp_solver.parameters.relative_gap_limit  = 0.05
 
     status = cp_solver.Solve(model)
 
