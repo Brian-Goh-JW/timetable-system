@@ -2,12 +2,6 @@
 {% block title %}Import Data - SIT Timetable{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h4 class="mb-0 fw-semibold">Import Data</h4>
-        <small class="text-muted">Bulk-add or update rooms, professors, and modules via Excel</small>
-    </div>
-</div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
 {% for cat, msg in messages %}

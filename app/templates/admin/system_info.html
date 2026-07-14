@@ -104,10 +104,6 @@
 {% set gap_flagged = data_gap_groups | map(attribute='rows') | sum(start=[]) | selectattr('count', 'defined') | selectattr('count', 'gt', 0) | list | length %}
 {% set changelog_count = changelog_groups | map(attribute='rows') | map('length') | sum %}
 
-<div class="mb-3">
-    <h4 class="mb-0 fw-semibold">System Info</h4>
-</div>
-
 <div class="card glass-card mb-4">
     <div class="card-body">
         <div class="row g-3 small">

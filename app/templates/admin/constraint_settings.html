@@ -10,11 +10,7 @@
 
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h4 class="mb-0 fw-semibold">Constraint Settings</h4>
-        <small class="text-muted">Turn soft (preference) constraints on or off, or change how strongly the solver weighs them</small>
-    </div>
+<div class="d-flex justify-content-end align-items-center mb-4">
     <a href="{{ url_for('admin.system_info') }}" class="btn btn-sm btn-outline-secondary">
         <i class="bi bi-info-circle me-1"></i>Full Constraint Reference
     </a>

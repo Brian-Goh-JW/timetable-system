@@ -3,18 +3,6 @@
 
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h4 class="mb-0 fw-semibold">Class Timetable</h4>
-        <small class="text-muted">
-            {% if selected_group %}
-                Showing schedule for <strong>{{ selected_group.group_label }}</strong>
-            {% else %}
-                Your cohort group has not been assigned yet
-            {% endif %}
-        </small>
-    </div>
-</div>
 
 <!-- Trimester tabs -->
 {% if trimesters %}

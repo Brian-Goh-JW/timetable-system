@@ -3,11 +3,7 @@
 
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h4 class="mb-0 fw-semibold">Audit Log</h4>
-        <small class="text-muted">Record of all manual timetable edits</small>
-    </div>
+<div class="d-flex justify-content-end align-items-center mb-4">
     <div class="d-flex align-items-center gap-2">
         <span class="badge bg-secondary fs-6">{{ logs | length }} entries</span>
         <a href="{{ url_for('admin.audit_log_export', trimester=active_trimester) }}"

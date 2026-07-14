@@ -3,11 +3,7 @@
 
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-        <h4 class="mb-0 fw-semibold">Students</h4>
-        <small class="text-muted">Manage student accounts and group assignments</small>
-    </div>
+<div class="d-flex justify-content-end align-items-center mb-4">
     <a href="{{ url_for('admin.student_add') }}" class="btn text-white" style="background-color:#c0272d;">
         <i class="bi bi-plus-lg me-1"></i>Add Student
     </a>
