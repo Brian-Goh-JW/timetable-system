@@ -2997,44 +2997,21 @@ def constraint_settings():
 # Data Import / Export
 # ---------------------------------------------------------------------------
 
+SESSION_TYPES = ('lecture', 'lab', 'seminar', 'tutorial', 'lectorial', 'workshop', 'quiz')
+SESSION_DELIVERY_MODES = ('f2f', 'online')
+COURSE_DELIVERY_MODES = ('f2f', 'online', 'hybrid')
+
+
 @admin_bp.route('/import', methods=['GET', 'POST'])
 @login_required
 def data_import():
     import io, pandas as pd
-    from flask import Response, send_file
-    from app.models.user import User
-    from werkzeug.security import generate_password_hash
+    from flask import send_file
 
     results = {}   # {type: {'created': n, 'updated': n, 'errors': [...]}}
 
     # ── Template downloads ──────────────────────────────────────────────────
     download = request.args.get('download', '')
-    if download == 'rooms':
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            pd.DataFrame([
-                {'room_code': 'E6-04-15', 'building': 'E6', 'capacity': 30,
-                 'room_type': 'lab', 'is_active': 'TRUE'},
-                {'room_code': 'E2-01-01', 'building': 'E2', 'capacity': 80,
-                 'room_type': 'lecture', 'is_active': 'TRUE'},
-            ]).to_excel(writer, index=False, sheet_name='Rooms')
-        output.seek(0)
-        return send_file(output, download_name='rooms_template.xlsx',
-                         as_attachment=True,
-                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
-    if download == 'professors':
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            pd.DataFrame([
-                {'staff_id': 'P001', 'name': 'John Doe',
-                 'email': 'john.doe@singaporetech.edu.sg', 'department': 'DSC'},
-            ]).to_excel(writer, index=False, sheet_name='Professors')
-        output.seek(0)
-        return send_file(output, download_name='professors_template.xlsx',
-                         as_attachment=True,
-                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-
     if download == 'modules':
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -3075,88 +3052,9 @@ def data_import():
             return redirect(url_for('admin.data_import'))
 
         created = updated = 0
-        errors = []
-
-        # ── Rooms ──────────────────────────────────────────────────────────
-        if import_type == 'rooms':
-            required = {'room_code', 'building', 'capacity', 'room_type'}
-            missing = required - set(df.columns.str.strip().str.lower())
-            if missing:
-                flash(f'Missing columns: {", ".join(missing)}', 'danger')
-                return redirect(url_for('admin.data_import'))
-
-            df.columns = df.columns.str.strip().str.lower()
-            for i, row in df.iterrows():
-                code = row.get('room_code', '').strip()
-                if not code:
-                    continue
-                try:
-                    cap = int(row.get('capacity', 0))
-                    rtype = row.get('room_type', 'lecture').strip().lower()
-                    if rtype not in ('lecture', 'lab', 'seminar'):
-                        rtype = 'lecture'
-                    active = str(row.get('is_active', 'TRUE')).strip().upper() != 'FALSE'
-                    building = row.get('building', '').strip()
-
-                    existing = Room.query.filter_by(room_code=code).first()
-                    if existing:
-                        existing.capacity = cap
-                        existing.room_type = rtype
-                        existing.is_active = active
-                        existing.building = building
-                        updated += 1
-                    else:
-                        db.session.add(Room(room_code=code, building=building,
-                                           capacity=cap, room_type=rtype, is_active=active))
-                        created += 1
-                except Exception as e:
-                    errors.append(f'Row {i+2} ({code}): {e}')
-
-            db.session.commit()
-            results['rooms'] = {'created': created, 'updated': updated, 'errors': errors}
-
-        # ── Professors ─────────────────────────────────────────────────────
-        elif import_type == 'professors':
-            required = {'staff_id', 'name', 'email', 'department'}
-            missing = required - set(df.columns.str.strip().str.lower())
-            if missing:
-                flash(f'Missing columns: {", ".join(missing)}', 'danger')
-                return redirect(url_for('admin.data_import'))
-
-            df.columns = df.columns.str.strip().str.lower()
-            for i, row in df.iterrows():
-                sid = row.get('staff_id', '').strip()
-                if not sid:
-                    continue
-                try:
-                    name  = row.get('name', '').strip()
-                    email = row.get('email', '').strip()
-                    dept  = row.get('department', '').strip()
-
-                    existing = Professor.query.filter_by(staff_id=sid).first()
-                    if existing:
-                        existing.department = dept
-                        existing.user.name  = name
-                        existing.user.email = email
-                        updated += 1
-                    else:
-                        if User.query.filter_by(email=email).first():
-                            errors.append(f'Row {i+2} ({sid}): email {email} already in use')
-                            continue
-                        user = User(name=name, email=email, role='professor',
-                                    password=generate_password_hash('password'))
-                        db.session.add(user)
-                        db.session.flush()
-                        db.session.add(Professor(user_id=user.id, staff_id=sid, department=dept))
-                        created += 1
-                except Exception as e:
-                    errors.append(f'Row {i+2} ({sid}): {e}')
-
-            db.session.commit()
-            results['professors'] = {'created': created, 'updated': updated, 'errors': errors}
 
         # ── Modules ────────────────────────────────────────────────────────
-        elif import_type == 'modules':
+        if import_type == 'modules':
             required = {'programme_code', 'module_code', 'title', 'year_level',
                         'session_type', 'session_delivery_mode', 'duration_hours'}
             missing = required - set(df.columns.str.strip().str.lower())
@@ -3165,59 +3063,107 @@ def data_import():
                 return redirect(url_for('admin.data_import'))
 
             df.columns = df.columns.str.strip().str.lower()
+            validated = []
+            errors = []
             for i, row in df.iterrows():
+                excel_row = i + 2
                 mc = row.get('module_code', '').strip().upper()
                 if not mc:
                     continue
+
+                row_errors = []
+                prog_code = row.get('programme_code', '').strip().upper()
+                prog = Programme.query.filter_by(code=prog_code).first()
+                if not prog:
+                    row_errors.append(f'programme "{prog_code}" not found')
+
+                stype = row.get('session_type', '').strip().lower()
+                if stype not in SESSION_TYPES:
+                    row_errors.append(f'session_type must be one of: {", ".join(SESSION_TYPES)}')
+
+                s_delivery = row.get('session_delivery_mode', '').strip().lower()
+                if s_delivery not in SESSION_DELIVERY_MODES:
+                    row_errors.append(f'session_delivery_mode must be one of: {", ".join(SESSION_DELIVERY_MODES)}')
+
+                dur = yr = None
                 try:
-                    prog_code = row.get('programme_code', '').strip().upper()
-                    prog = Programme.query.filter_by(code=prog_code).first()
-                    if not prog:
-                        errors.append(f'Row {i+2} ({mc}): programme "{prog_code}" not found')
-                        continue
+                    dur = int(row.get('duration_hours', ''))
+                    if dur <= 0:
+                        raise ValueError
+                except ValueError:
+                    row_errors.append('duration_hours must be a positive whole number')
+                try:
+                    yr = int(row.get('year_level', ''))
+                    if yr <= 0:
+                        raise ValueError
+                except ValueError:
+                    row_errors.append('year_level must be a positive whole number')
 
-                    stype = row.get('session_type', 'lecture').strip().lower()
-                    s_delivery = row.get('session_delivery_mode', 'f2f').strip().lower()
-                    dur = int(row.get('duration_hours', 2))
-                    tri = int(row.get('trimester', 0)) or None
-                    yr = int(row.get('year_level', 1))
-                    c_delivery = row.get('course_delivery_mode', s_delivery).strip().lower()
-                    spw = int(row.get('sessions_per_week', 1))
-                    total_h = int(row.get('total_hours', dur * 12))
-                    split_raw = row.get('split_count', '').strip()
-                    split = int(split_raw) if split_raw.isdigit() else None
+                tri_raw = row.get('trimester', '').strip()
+                tri = None
+                if tri_raw:
+                    try:
+                        tri = int(tri_raw)
+                    except ValueError:
+                        row_errors.append('trimester must be a number if given')
 
-                    course = Course.query.filter_by(
-                        module_code=mc, programme_id=prog.id
-                    ).first()
-                    if not course:
-                        title = row.get('title', mc).strip()
-                        course = Course(
-                            programme_id=prog.id, module_code=mc, title=title,
-                            year_level=yr, trimester=tri, delivery_mode=c_delivery,
-                            sessions_per_week=spw, total_hours=total_h, split_count=split,
-                        )
-                        db.session.add(course)
-                        db.session.flush()
-                        created += 1
+                if row_errors:
+                    errors.append(f'Row {excel_row} ({mc}): ' + '; '.join(row_errors))
+                    continue
 
-                    # Add session if this exact type doesn't exist yet
-                    existing_sess = ClassSession.query.filter_by(
-                        course_id=course.id, session_type=stype
-                    ).first()
-                    if not existing_sess:
-                        db.session.add(ClassSession(
-                            course_id=course.id, session_type=stype,
-                            delivery_mode=s_delivery, duration_hours=dur,
-                        ))
-                    else:
-                        updated += 1
+                c_delivery = row.get('course_delivery_mode', s_delivery).strip().lower()
+                if c_delivery not in COURSE_DELIVERY_MODES:
+                    c_delivery = s_delivery
+                spw_raw = row.get('sessions_per_week', '').strip()
+                spw = int(spw_raw) if spw_raw.isdigit() else 1
+                total_h_raw = row.get('total_hours', '').strip()
+                total_h = int(total_h_raw) if total_h_raw.isdigit() else dur * 12
+                split_raw = row.get('split_count', '').strip()
+                split = int(split_raw) if split_raw.isdigit() else None
 
-                except Exception as e:
-                    errors.append(f'Row {i+2} ({mc}): {e}')
+                validated.append({
+                    'mc': mc, 'prog': prog, 'title': row.get('title', mc).strip(),
+                    'yr': yr, 'tri': tri, 'c_delivery': c_delivery, 'spw': spw,
+                    'total_h': total_h, 'split': split,
+                    'stype': stype, 's_delivery': s_delivery, 'dur': dur,
+                })
+
+            if errors:
+                flash(f'Import rejected - {len(errors)} problem(s) found. Nothing was changed.', 'danger')
+                for e in errors[:15]:
+                    flash(e, 'warning')
+                if len(errors) > 15:
+                    flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
+                return redirect(url_for('admin.data_import'))
+
+            for v in validated:
+                course = Course.query.filter_by(
+                    module_code=v['mc'], programme_id=v['prog'].id
+                ).first()
+                if not course:
+                    course = Course(
+                        programme_id=v['prog'].id, module_code=v['mc'], title=v['title'],
+                        year_level=v['yr'], trimester=v['tri'], delivery_mode=v['c_delivery'],
+                        sessions_per_week=v['spw'], total_hours=v['total_h'], split_count=v['split'],
+                    )
+                    db.session.add(course)
+                    db.session.flush()
+                    created += 1
+
+                # Add session if this exact type doesn't exist yet
+                existing_sess = ClassSession.query.filter_by(
+                    course_id=course.id, session_type=v['stype']
+                ).first()
+                if not existing_sess:
+                    db.session.add(ClassSession(
+                        course_id=course.id, session_type=v['stype'],
+                        delivery_mode=v['s_delivery'], duration_hours=v['dur'],
+                    ))
+                else:
+                    updated += 1
 
             db.session.commit()
-            results['modules'] = {'created': created, 'updated': updated, 'errors': errors}
+            results['modules'] = {'created': created, 'updated': updated, 'errors': []}
 
         if not results:
             flash('Nothing was imported.', 'warning')
