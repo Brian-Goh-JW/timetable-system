@@ -1,13 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}System Info - SIT Timetable{% endblock %}
 
-{% block extra_head %}
-<style>
-    .collapse-chevron { transition: transform 0.2s ease; margin-left: 4px; }
-    [aria-expanded="true"] .collapse-chevron { transform: rotate(180deg); }
-</style>
-{% endblock %}
-
 {% macro status_badge(status) %}
     {% if status == 'Implemented' %}
     <span class="badge bg-success">{{ status }}</span>

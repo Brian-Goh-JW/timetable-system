@@ -44,6 +44,14 @@
         </div>
         {% else %}
 
+        <!-- ============================================================ -->
+        <!-- STEP 1: GENERATE                                              -->
+        <!-- ============================================================ -->
+        <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="badge rounded-pill" style="background-color:#c0272d;">1</span>
+            <span class="fw-semibold text-uppercase small text-muted">Generate</span>
+        </div>
+
         <!-- Readiness summary -->
         {% if issues %}
         <div class="card glass-card animate-in mb-3 border-0 border-start border-danger border-3">
@@ -173,9 +181,200 @@
             </div>
         </div>
 
-        <!-- Publish form -->
+        <!-- ============================================================ -->
+        <!-- STEP 2: REVIEW (collapsed by default - auto-opens if there's   -->
+        <!-- actually something worth checking, matching Brian's "no       -->
+        <!-- guided path / too many items" feedback, 2026-07-12)           -->
+        <!-- ============================================================ -->
         {% if active_trimester and entries %}
-        <div class="card glass-card animate-in">
+        {% set skipped_sessions = (stats.no_timeslot_warnings or []) + (stats.no_room_warnings or []) %}
+        {% set violations = stats.preferred_violations %}
+        {% set has_soft_issues = constraint_summary and constraint_summary.soft_total_violations > 0 %}
+        {% set review_flagged = skipped_sessions or has_soft_issues or violations %}
+
+        <div class="d-flex align-items-center gap-2 mb-2 mt-4">
+            <span class="badge rounded-pill" style="background-color:#c0272d;">2</span>
+            <span class="fw-semibold text-uppercase small text-muted">Review</span>
+        </div>
+
+        <div class="card glass-card animate-in mb-3">
+            <div class="card-header bg-transparent border-bottom fw-semibold d-flex align-items-center gap-2"
+                 style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#reviewSection"
+                 role="button" aria-expanded="{{ 'true' if review_flagged else 'false' }}" aria-controls="reviewSection">
+                <i class="bi bi-clipboard-check text-muted"></i>
+                {% if review_flagged %}
+                <span class="text-warning">Worth a look before publishing</span>
+                {% else %}
+                <span class="text-success">Generated cleanly</span>
+                {% endif %}
+                <i class="bi bi-chevron-down text-muted collapse-chevron ms-auto"></i>
+            </div>
+            <div class="collapse {% if review_flagged %}show{% endif %}" id="reviewSection">
+                <div class="card-body">
+
+                    {% if constraint_summary %}
+                    <div class="mb-3 pb-3 border-bottom">
+                        <div class="fw-semibold small text-uppercase text-muted mb-2">How This Was Generated</div>
+                        <div class="row g-2 text-center mb-2">
+                            <div class="col-6 border-end">
+                                <div class="fs-5 fw-bold text-danger">
+                                    <i class="bi bi-shield-check"></i> {{ constraint_summary.hard_rule_count }}
+                                </div>
+                                <div class="small text-muted">Hard constraints - all satisfied</div>
+                            </div>
+                            <div class="col-6">
+                                <div class="fs-5 fw-bold {% if constraint_summary.soft_total_violations > 0 %}text-warning{% else %}text-success{% endif %}">
+                                    <i class="bi bi-sliders"></i> {{ constraint_summary.soft_total_violations }}
+                                </div>
+                                <div class="small text-muted">Soft violation(s) across {{ constraint_summary.soft_rule_count }} rules</div>
+                            </div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary w-100" type="button"
+                                data-bs-toggle="collapse" data-bs-target="#constraintDetail" aria-expanded="false">
+                            <i class="bi bi-chevron-down me-1"></i>View rule-by-rule detail
+                        </button>
+                        <div class="collapse mt-3" id="constraintDetail">
+                            {% for group in constraint_summary.soft_groups %}
+                            <div class="mb-3">
+                                <div class="fw-semibold small text-muted mb-1">
+                                    <i class="bi {{ group.icon }} me-1"></i>{{ group.category }}
+                                </div>
+                                <table class="table table-sm mb-0">
+                                    <tbody>
+                                        {% for r in group.rows %}
+                                        <tr>
+                                            <td class="ps-0 small" style="width:62%;">{{ r.title }}</td>
+                                            <td class="text-end pe-0">
+                                                <span class="badge {% if r.violated > 0 %}bg-warning text-dark{% else %}bg-success{% endif %}" style="font-weight:400; white-space:normal;">
+                                                    {{ r.result }}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if stats %}
+                    <div class="mb-3 pb-3 border-bottom small">
+                        <div class="fw-semibold small text-uppercase text-muted mb-2">Last Run</div>
+                        <dl class="row mb-0">
+                            <dt class="col-7 text-muted">Status</dt>
+                            <dd class="col-5">
+                                <span class="badge bg-success">{{ stats.solver_status }}</span>
+                            </dd>
+                            <dt class="col-7 text-muted">Sessions scheduled</dt>
+                            <dd class="col-5">{{ stats.sessions_scheduled }}</dd>
+                            <dt class="col-7 text-muted">Teaching weeks</dt>
+                            <dd class="col-5">{{ stats.teaching_weeks }}</dd>
+                            <dt class="col-7 text-muted">Entries created</dt>
+                            <dd class="col-5">{{ stats.entries_created }}</dd>
+                            <dt class="col-7 text-muted">Skipped (public holidays)</dt>
+                            <dd class="col-5">{{ stats.entries_skipped_ph }}</dd>
+                            <dt class="col-7 text-muted">Skipped (events)</dt>
+                            <dd class="col-5">{{ stats.entries_skipped_events }}</dd>
+                        </dl>
+                    </div>
+                    {% endif %}
+
+                    <!-- Sessions skipped due to a data gap (not a scheduling conflict) -
+                         these used to abort the whole generation; now the rest of the
+                         trimester still generates and these are called out clearly here
+                         instead of being silently dropped (found 2026-07-11). -->
+                    {% if skipped_sessions %}
+                    <div class="mb-3 pb-3 border-bottom small">
+                        <div class="fw-semibold text-warning mb-2">
+                            <i class="bi bi-exclamation-triangle me-2"></i>
+                            Sessions Skipped - Needs a Data Fix
+                            <span class="badge bg-warning text-dark ms-1">{{ skipped_sessions | length }}</span>
+                        </div>
+                        <p class="text-muted mb-2">
+                            These classes have no valid option to be placed anywhere in the current
+                            system - not a scheduling conflict, but missing setup data (a time slot
+                            of the right length, or a room big/right enough). Everything else in this
+                            trimester generated normally; fix the data below and re-generate to include
+                            these too.
+                        </p>
+                        <ul class="mb-0 ps-3">
+                            {% for w in stats.no_timeslot_warnings %}
+                            <li>{{ w }} <span class="text-muted">- add a matching time slot.</span></li>
+                            {% endfor %}
+                            {% for w in stats.no_room_warnings %}
+                            <li>{{ w }} <a href="{{ url_for('admin.rooms') }}">- check Rooms</a>.</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
+                    <!-- Conflict report -->
+                    {% if violations %}
+                    <div class="small">
+                        <div class="fw-semibold text-warning mb-2">
+                            <i class="bi bi-exclamation-triangle me-2"></i>
+                            Preferred Declaration Violations
+                            <span class="badge bg-warning text-dark ms-1">{{ violations | length }}</span>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-2">Professor</th>
+                                        <th>Session</th>
+                                        <th>Assigned Slot</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for v in violations %}
+                                    <tr>
+                                        <td class="ps-2 fw-medium">
+                                            {{ v.professor }}
+                                            <div class="text-muted fw-normal">{{ v.staff_id }}</div>
+                                        </td>
+                                        <td>
+                                            {{ v.module_code }}
+                                            <div class="text-muted">{{ v.session_type | capitalize }}</div>
+                                        </td>
+                                        <td>
+                                            {{ v.day }} {{ v.period }}<br>
+                                            <span class="text-muted">{{ v.time }}</span>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="text-muted mt-2">
+                            <i class="bi bi-info-circle me-1"></i>
+                            The solver could not avoid these slots due to other hard constraints.
+                            Go to <a href="{{ url_for('admin.timetable_flags', trimester=active_trimester) }}">
+                            Conflict Flags</a> to set deadlines and notify affected professors.
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-success py-2 mb-0 small">
+                        <i class="bi bi-check-circle me-2"></i>
+                        All preferred availability declarations were honoured.
+                    </div>
+                    {% endif %}
+
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ============================================================ -->
+        <!-- STEP 3: PUBLISH                                               -->
+        <!-- ============================================================ -->
+        {% if active_trimester and entries %}
+        <div class="d-flex align-items-center gap-2 mb-2 mt-4">
+            <span class="badge rounded-pill" style="background-color:#c0272d;">3</span>
+            <span class="fw-semibold text-uppercase small text-muted">Publish</span>
+        </div>
+        <div class="card glass-card animate-in mb-3">
             <div class="card-header bg-transparent border-bottom fw-semibold">
                 <i class="bi bi-megaphone me-2 text-muted"></i>Publish Timetable
             </div>
@@ -199,212 +398,62 @@
         </div>
         {% endif %}
 
-        <!-- Reset timetable -->
+        <!-- ============================================================ -->
+        <!-- DANGER ZONE - collapsed and de-emphasized on purpose, since   -->
+        <!-- resetting isn't part of the normal generate->review->publish  -->
+        <!-- flow (used to sit right under Publish looking like a normal   -->
+        <!-- next step - Brian, 2026-07-12)                                -->
+        <!-- ============================================================ -->
         {% if active_trimester and entries %}
-        <div class="card glass-card animate-in mt-3">
-            <div class="card-header bg-transparent border-bottom fw-semibold">
-                <i class="bi bi-trash me-2 text-muted"></i>Reset Timetable
-            </div>
-            <div class="card-body">
-                <p class="small text-muted mb-2">
-                    Deletes all entries for <strong>{{ active_trimester }}</strong> including published ones.
-                </p>
-                <form method="POST" class="mb-2">
+        <div class="mt-4 mb-3">
+            <a href="#" class="small text-muted text-decoration-none d-flex align-items-center gap-1"
+               style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#dangerZone"
+               role="button" aria-expanded="false" aria-controls="dangerZone">
+                <i class="bi bi-three-dots"></i> Advanced / Danger Zone
+                <i class="bi bi-chevron-down collapse-chevron"></i>
+            </a>
+            <div class="collapse mt-2" id="dangerZone">
+                <div class="card glass-card animate-in border-0 border-start border-danger border-3">
+                    <div class="card-header bg-transparent border-bottom fw-semibold text-danger">
+                        <i class="bi bi-trash me-2"></i>Reset Timetable
+                    </div>
+                    <div class="card-body">
+                        <p class="small text-muted mb-2">
+                            Deletes all entries for <strong>{{ active_trimester }}</strong> including published ones.
+                        </p>
+                        <form method="POST" class="mb-2">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="hidden" name="action" value="reset">
-                    <input type="hidden" name="trimester" value="{{ active_trimester }}">
-                    <button type="submit" class="btn btn-outline-danger w-100"
-                            onclick="return confirm('Delete all timetable entries for {{ active_trimester }}? This cannot be undone.')">
-                        <i class="bi bi-trash me-1"></i>Clear This Trimester
-                    </button>
-                </form>
+                            <input type="hidden" name="action" value="reset">
+                            <input type="hidden" name="trimester" value="{{ active_trimester }}">
+                            <button type="submit" class="btn btn-outline-danger w-100"
+                                    onclick="return confirm('Delete all timetable entries for {{ active_trimester }}? This cannot be undone.')">
+                                <i class="bi bi-trash me-1"></i>Clear This Trimester
+                            </button>
+                        </form>
 
-                <!-- Clear full AY -->
-                {% if '-T' in active_trimester %}
-                    {% set cur_ay = active_trimester.split('-T')[0] %}
-                {% elif active_trimester and active_trimester[-4:] == '-all' %}
-                    {% set cur_ay = active_trimester[:-4] %}
-                {% else %}
-                    {% set cur_ay = '' %}
-                {% endif %}
-                {% if cur_ay %}
-                <form method="POST">
+                        <!-- Clear full AY -->
+                        {% if '-T' in active_trimester %}
+                            {% set cur_ay = active_trimester.split('-T')[0] %}
+                        {% elif active_trimester and active_trimester[-4:] == '-all' %}
+                            {% set cur_ay = active_trimester[:-4] %}
+                        {% else %}
+                            {% set cur_ay = '' %}
+                        {% endif %}
+                        {% if cur_ay %}
+                        <form method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <input type="hidden" name="action" value="reset_ay">
-                    <input type="hidden" name="clear_ay" value="{{ cur_ay }}">
-                    <button type="submit" class="btn btn-danger w-100"
-                            onclick="return confirm('Delete ALL timetable entries for {{ cur_ay }} (T1 + T2 + T3)? This cannot be undone.')">
-                        <i class="bi bi-trash-fill me-1"></i>Clear Full {{ cur_ay }}
-                    </button>
-                </form>
-                {% endif %}
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- Constraint summary: how the generation actually happened -->
-        {% if constraint_summary %}
-        <div class="card glass-card animate-in mt-3">
-            <div class="card-header bg-transparent border-bottom fw-semibold">
-                <i class="bi bi-diagram-3 me-2 text-muted"></i>How This Was Generated
-            </div>
-            <div class="card-body">
-                <div class="row g-2 text-center mb-3">
-                    <div class="col-6 border-end">
-                        <div class="fs-4 fw-bold text-danger">
-                            <i class="bi bi-shield-check"></i> {{ constraint_summary.hard_rule_count }}
-                        </div>
-                        <div class="small text-muted">Hard constraints - all satisfied<br>(generation would have failed otherwise)</div>
+                            <input type="hidden" name="action" value="reset_ay">
+                            <input type="hidden" name="clear_ay" value="{{ cur_ay }}">
+                            <button type="submit" class="btn btn-danger w-100"
+                                    onclick="return confirm('Delete ALL timetable entries for {{ cur_ay }} (T1 + T2 + T3)? This cannot be undone.')">
+                                <i class="bi bi-trash-fill me-1"></i>Clear Full {{ cur_ay }}
+                            </button>
+                        </form>
+                        {% endif %}
                     </div>
-                    <div class="col-6">
-                        <div class="fs-4 fw-bold {% if constraint_summary.soft_total_violations > 0 %}text-warning{% else %}text-success{% endif %}">
-                            <i class="bi bi-sliders"></i> {{ constraint_summary.soft_total_violations }}
-                        </div>
-                        <div class="small text-muted">Soft constraint violation(s)<br>across {{ constraint_summary.soft_rule_count }} preference rules</div>
-                    </div>
-                </div>
-                <button class="btn btn-sm btn-outline-secondary w-100" type="button"
-                        data-bs-toggle="collapse" data-bs-target="#constraintDetail" aria-expanded="false">
-                    <i class="bi bi-chevron-down me-1"></i>View rule-by-rule detail
-                </button>
-                <div class="collapse mt-3" id="constraintDetail">
-                    {% for group in constraint_summary.soft_groups %}
-                    <div class="mb-3">
-                        <div class="fw-semibold small text-muted mb-1">
-                            <i class="bi {{ group.icon }} me-1"></i>{{ group.category }}
-                        </div>
-                        <table class="table table-sm mb-0">
-                            <tbody>
-                                {% for r in group.rows %}
-                                <tr>
-                                    <td class="ps-0 small" style="width:62%;">{{ r.title }}</td>
-                                    <td class="text-end pe-0">
-                                        <span class="badge {% if r.violated > 0 %}bg-warning text-dark{% else %}bg-success{% endif %}" style="font-weight:400; white-space:normal;">
-                                            {{ r.result }}
-                                        </span>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    {% endfor %}
                 </div>
             </div>
         </div>
-        {% endif %}
-
-        <!-- Solver stats -->
-        {% if stats %}
-        <div class="card glass-card animate-in mt-3">
-            <div class="card-header bg-transparent border-bottom fw-semibold">
-                <i class="bi bi-bar-chart me-2 text-muted"></i>Last Run
-            </div>
-            <div class="card-body small">
-                <dl class="row mb-0">
-                    <dt class="col-7 text-muted">Status</dt>
-                    <dd class="col-5">
-                        <span class="badge bg-success">{{ stats.solver_status }}</span>
-                    </dd>
-                    <dt class="col-7 text-muted">Sessions scheduled</dt>
-                    <dd class="col-5">{{ stats.sessions_scheduled }}</dd>
-                    <dt class="col-7 text-muted">Teaching weeks</dt>
-                    <dd class="col-5">{{ stats.teaching_weeks }}</dd>
-                    <dt class="col-7 text-muted">Entries created</dt>
-                    <dd class="col-5">{{ stats.entries_created }}</dd>
-                    <dt class="col-7 text-muted">Skipped (public holidays)</dt>
-                    <dd class="col-5">{{ stats.entries_skipped_ph }}</dd>
-                    <dt class="col-7 text-muted">Skipped (events)</dt>
-                    <dd class="col-5">{{ stats.entries_skipped_events }}</dd>
-                </dl>
-            </div>
-        </div>
-
-        <!-- Sessions skipped due to a data gap (not a scheduling conflict) -
-             these used to abort the whole generation; now the rest of the
-             trimester still generates and these are called out clearly here
-             instead of being silently dropped (found 2026-07-11). -->
-        {% set skipped_sessions = (stats.no_timeslot_warnings or []) + (stats.no_room_warnings or []) %}
-        {% if skipped_sessions %}
-        <div class="card glass-card animate-in mt-3 border-0 border-start border-warning border-3">
-            <div class="card-header bg-transparent border-bottom fw-semibold text-warning">
-                <i class="bi bi-exclamation-triangle me-2"></i>
-                Sessions Skipped - Needs a Data Fix
-                <span class="badge bg-warning text-dark ms-1">{{ skipped_sessions | length }}</span>
-            </div>
-            <div class="card-body small">
-                <p class="text-muted mb-2">
-                    These classes have no valid option to be placed anywhere in the current
-                    system - not a scheduling conflict, but missing setup data (a time slot
-                    of the right length, or a room big/right enough). Everything else in this
-                    trimester generated normally; fix the data below and re-generate to include
-                    these too.
-                </p>
-                <ul class="mb-0 ps-3">
-                    {% for w in stats.no_timeslot_warnings %}
-                    <li>{{ w }} <span class="text-muted">- add a matching time slot.</span></li>
-                    {% endfor %}
-                    {% for w in stats.no_room_warnings %}
-                    <li>{{ w }} <a href="{{ url_for('admin.rooms') }}">- check Rooms</a>.</li>
-                    {% endfor %}
-                </ul>
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- Conflict report -->
-        {% set violations = stats.preferred_violations %}
-        {% if violations %}
-        <div class="card glass-card animate-in mt-3 border-0 border-start border-warning border-3">
-            <div class="card-header bg-transparent border-bottom fw-semibold text-warning">
-                <i class="bi bi-exclamation-triangle me-2"></i>
-                Preferred Declaration Violations
-                <span class="badge bg-warning text-dark ms-1">{{ violations | length }}</span>
-            </div>
-            <div class="card-body small p-0">
-                <table class="table table-sm table-hover align-middle mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th class="ps-3">Professor</th>
-                            <th>Session</th>
-                            <th>Assigned Slot</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for v in violations %}
-                        <tr>
-                            <td class="ps-3 fw-medium">
-                                {{ v.professor }}
-                                <div class="text-muted fw-normal">{{ v.staff_id }}</div>
-                            </td>
-                            <td>
-                                {{ v.module_code }}
-                                <div class="text-muted">{{ v.session_type | capitalize }}</div>
-                            </td>
-                            <td>
-                                {{ v.day }} {{ v.period }}<br>
-                                <span class="text-muted">{{ v.time }}</span>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <div class="card-footer bg-white border-top small text-muted">
-                <i class="bi bi-info-circle me-1"></i>
-                The solver could not avoid these slots due to other hard constraints.
-                Go to <a href="{{ url_for('admin.timetable_flags', trimester=active_trimester) }}">
-                Conflict Flags</a> to set deadlines and notify affected professors.
-            </div>
-        </div>
-
-        {% else %}
-        <div class="alert alert-success py-2 mt-3 mb-0 small">
-            <i class="bi bi-check-circle me-2"></i>
-            All preferred availability declarations were honoured.
-        </div>
-        {% endif %}
-
         {% endif %}
 
         {% endif %}{# end is_bb_view else #}
