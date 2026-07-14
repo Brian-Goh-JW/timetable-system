@@ -1,6 +1,13 @@
 {% extends 'base.html' %}
 {% block title %}Constraint Settings - SIT Timetable{% endblock %}
 
+{% block extra_head %}
+<style>
+    .tier-picker .btn { min-width: 2.4rem; font-weight: 600; }
+    .customised-row { background: rgba(245, 158, 11, 0.07); }
+</style>
+{% endblock %}
+
 {% block content %}
 
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -17,10 +24,11 @@
     <strong>Only soft constraints can be changed here.</strong> Hard constraints (e.g. no double-booked
     rooms, no classes on public holidays) always stay on - they exist to guarantee every generated
     schedule is actually usable, so making them optional isn't offered. Soft constraints are trade-offs:
-    turning one off means the solver stops trying to honour it at all; raising its priority means the
-    solver will sacrifice other, lower-priority preferences to protect it when they conflict. Changes
-    take effect on the <strong>next</strong> timetable generation - they don't retroactively change an
-    already-generated trimester.
+    turning one off means the solver stops trying to honour it at all; moving its priority to
+    <strong>Higher</strong> means the solver will sacrifice other, lower-priority preferences to protect
+    it when they conflict - <strong>Lower</strong> does the opposite. Changes take effect on the
+    <strong>next</strong> timetable generation - they don't retroactively change an already-generated
+    trimester. Rows shaded amber have been changed from their default.
 </div>
 
 <form method="POST">
@@ -33,16 +41,14 @@
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                     <tr>
-                        <th class="ps-3" style="width:8%;">On</th>
-                        <th style="width:46%;">Rule</th>
-                        <th style="width:16%;">Default Priority</th>
-                        <th style="width:20%;">Custom Priority</th>
-                        <th class="pe-3" style="width:10%;">Status</th>
+                        <th class="ps-3" style="width:7%;">On</th>
+                        <th style="width:43%;">Rule</th>
+                        <th class="pe-3" style="width:50%;">Priority</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for r in group.rows %}
-                    <tr title="Reference: {{ r.id }}">
+                    <tr title="Reference: {{ r.id }}" class="{% if r.is_customised %}customised-row{% endif %}">
                         <td class="ps-3">
                             <div class="form-check form-switch mb-0">
                                 <input class="form-check-input" type="checkbox" role="switch"
@@ -53,21 +59,22 @@
                         <td class="small">
                             {{ r.title }}
                         </td>
-                        <td>
-                            <span class="badge bg-secondary">{{ r.default }}</span>
-                        </td>
-                        <td>
-                            <input type="number" min="0" class="form-control form-control-sm"
-                                   style="max-width:100px;" name="weight_{{ r.id }}"
-                                   placeholder="{{ r.default }}"
-                                   value="{{ r.weight_override if r.weight_override is not none else '' }}">
-                        </td>
                         <td class="pe-3">
-                            {% if r.is_customised %}
-                            <span class="badge bg-warning text-dark">Customised</span>
-                            {% else %}
-                            <span class="badge bg-light text-muted border">Default</span>
-                            {% endif %}
+                            <input type="hidden" name="tier_{{ r.id }}" id="tier_{{ r.id }}" value="{{ r.selected_tier }}">
+                            <div class="btn-group btn-group-sm segmented-toggle tier-picker" role="group">
+                                {% for key, mult, label in priority_tiers %}
+                                <button type="button" class="btn {% if r.selected_tier == key %}active{% endif %}"
+                                        title="{{ label }}"
+                                        onclick="setTier('{{ r.id }}', '{{ key }}', this)">
+                                    {% if key == 'much_lower' %}&minus;&minus;
+                                    {% elif key == 'lower' %}&minus;
+                                    {% elif key == 'default' %}Default
+                                    {% elif key == 'higher' %}+
+                                    {% elif key == 'much_higher' %}++
+                                    {% endif %}
+                                </button>
+                                {% endfor %}
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -81,5 +88,14 @@
         <i class="bi bi-check-lg me-1"></i>Save Settings
     </button>
 </form>
+
+<script>
+function setTier(id, tier, btn) {
+    document.getElementById('tier_' + id).value = tier;
+    btn.closest('.btn-group').querySelectorAll('.btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    btn.closest('tr').classList.toggle('customised-row', tier !== 'default');
+}
+</script>
 
 {% endblock %}

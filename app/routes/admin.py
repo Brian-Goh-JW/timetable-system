@@ -2249,7 +2249,7 @@ def _build_constraints_reference(sv, sv_shared_group_count):
                 {'id': 'H3', 'title': 'A student group cannot attend two classes at the same time',
                  'status': 'Implemented', 'value': 'Also checks for clashes between a group and its sub-groups'},
                 {'id': 'H4', 'title': 'The room must be big enough for the class',
-                 'status': 'Implemented', 'value': "The room's capacity must be at least the class's size"},
+                 'status': 'Implemented', 'value': ''},
                 {'id': 'H17', 'title': 'Modules shared across programmes are scheduled as one combined class',
                  'status': 'Implemented', 'value': f'{sv_shared_group_count} module(s) linked - same time and room, room size checked against everyone combined'},
             ]},
@@ -2902,6 +2902,27 @@ def system_info():
 # schedule and are never adjustable). Confirmed with Brian 2026-07-11.
 # ---------------------------------------------------------------------------
 
+# Relative priority dial for Constraint Settings - an admin adjusts each
+# rule's importance relative to its own baseline (Higher/Lower) instead of
+# typing a bare number no one can interpret ("what does 15 mean?"). Each
+# tier is a multiplier on the rule's own default weight, so the relative
+# relationship between rules (e.g. "ends late" already matters more than
+# "not the snuggest room fit") is preserved regardless of which rule is
+# being adjusted.
+PRIORITY_TIERS = [
+    ('much_lower', 0.25, 'Much Lower'),
+    ('lower', 0.5, 'Lower'),
+    ('default', 1.0, 'Default'),
+    ('higher', 2.0, 'Higher'),
+    ('much_higher', 4.0, 'Much Higher'),
+]
+_PRIORITY_TIER_MULTIPLIERS = {key: mult for key, mult, _ in PRIORITY_TIERS}
+
+
+def _tier_weight(default, multiplier):
+    return max(1, round(default * multiplier))
+
+
 @admin_bp.route('/constraint-settings', methods=['GET', 'POST'])
 @login_required
 def constraint_settings():
@@ -2914,7 +2935,8 @@ def constraint_settings():
     if request.method == 'POST':
         for cid in sv.SOFT_CONSTRAINT_DEFAULTS:
             enabled = request.form.get(f'enabled_{cid}') == 'on'
-            weight_raw = request.form.get(f'weight_{cid}', '').strip()
+            tier = request.form.get(f'tier_{cid}', 'default')
+            default = sv.SOFT_CONSTRAINT_DEFAULTS[cid]
 
             row = existing.get(cid)
             if not row:
@@ -2922,13 +2944,10 @@ def constraint_settings():
                 db.session.add(row)
 
             row.enabled = enabled
-            if weight_raw == '':
+            if tier == 'default' or tier not in _PRIORITY_TIER_MULTIPLIERS:
                 row.weight_override = None
             else:
-                try:
-                    row.weight_override = max(0, int(weight_raw))
-                except ValueError:
-                    row.weight_override = None
+                row.weight_override = _tier_weight(default, _PRIORITY_TIER_MULTIPLIERS[tier])
 
         db.session.commit()
         flash('Constraint settings saved - they take effect the next time a trimester is generated.', 'success')
@@ -2945,21 +2964,33 @@ def constraint_settings():
                 continue  # S4 - covered by S8, no independent weight
             row = existing.get(cid)
             default = sv.SOFT_CONSTRAINT_DEFAULTS[cid]
+            weight_override = row.weight_override if row else None
+
+            if weight_override is None:
+                selected_tier = 'default'
+            else:
+                selected_tier = min(
+                    PRIORITY_TIERS,
+                    key=lambda t: abs(_tier_weight(default, t[1]) - weight_override)
+                )[0]
+
+            enabled = row.enabled if row else True
             rows.append({
                 'id': cid,
                 'title': r['title'],
                 'default': default,
-                'enabled': row.enabled if row else True,
-                'weight_override': row.weight_override if row else None,
-                'effective_weight': (0 if row and not row.enabled
-                                      else (row.weight_override if row and row.weight_override is not None else default)),
-                'is_customised': row is not None,
+                'enabled': enabled,
+                'selected_tier': selected_tier,
+                'effective_weight': (0 if not enabled
+                                      else (weight_override if weight_override is not None else default)),
+                'is_customised': (not enabled) or selected_tier != 'default',
             })
         if rows:
             rows_by_category.append({'category': group['category'], 'icon': group['icon'],
                                       'color': group['color'], 'rows': rows})
 
-    return render_template('admin/constraint_settings.html', rows_by_category=rows_by_category)
+    return render_template('admin/constraint_settings.html',
+                           rows_by_category=rows_by_category, priority_tiers=PRIORITY_TIERS)
 
 
 # ---------------------------------------------------------------------------

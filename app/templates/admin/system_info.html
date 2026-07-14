@@ -1,6 +1,13 @@
 {% extends 'base.html' %}
 {% block title %}System Info - SIT Timetable{% endblock %}
 
+{% block extra_head %}
+<style>
+    .collapse-chevron { transition: transform 0.2s ease; margin-left: 4px; }
+    [aria-expanded="true"] .collapse-chevron { transform: rotate(180deg); }
+</style>
+{% endblock %}
+
 {% macro status_badge(status) %}
     {% if status == 'Implemented' %}
     <span class="badge bg-success">{{ status }}</span>
@@ -56,34 +63,41 @@
 </div>
 {% endmacro %}
 
-{% macro constraint_group_card(group) %}
+{% macro constraint_group_card(group, uid) %}
 <div class="col-lg-6">
     <div class="card glass-card h-100">
-        <div class="card-header bg-transparent border-bottom d-flex align-items-center gap-2">
+        <div class="card-header bg-transparent border-bottom d-flex align-items-center gap-2"
+             style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#{{ uid }}"
+             role="button" aria-expanded="false" aria-controls="{{ uid }}">
             <div class="icon-orb icon-orb-{{ group.color }}" style="width:36px;height:36px;min-width:36px;">
                 <i class="bi {{ group.icon }}" style="font-size:0.9rem;"></i>
             </div>
             <span class="fw-semibold">{{ group.category }}</span>
             <span class="badge bg-light text-secondary border ms-auto">{{ group.rows | length }}</span>
+            <i class="bi bi-chevron-down text-muted collapse-chevron"></i>
         </div>
-        <ul class="list-group list-group-flush">
-            {% for c in group.rows %}
-            <li class="list-group-item px-3 py-2" title="Reference: {{ c.id }}">
-                <div class="d-flex align-items-start gap-2">
-                    <div class="flex-grow-1">
-                        <div class="fw-medium">{{ c.title }}</div>
-                        <div class="text-muted d-flex align-items-start gap-1 mt-1" style="font-size:0.8rem;">
-                            <i class="bi bi-arrow-return-right" style="font-size:0.7rem; margin-top:0.2rem;"></i>
-                            <span>{{ c.value }}</span>
+        <div class="collapse" id="{{ uid }}">
+            <ul class="list-group list-group-flush">
+                {% for c in group.rows %}
+                <li class="list-group-item px-3 py-2" title="Reference: {{ c.id }}">
+                    <div class="d-flex align-items-start gap-2">
+                        <div class="flex-grow-1">
+                            <div class="fw-medium">{{ c.title }}</div>
+                            {% if c.value %}
+                            <div class="text-muted d-flex align-items-start gap-1 mt-1" style="font-size:0.8rem;">
+                                <i class="bi bi-arrow-return-right" style="font-size:0.7rem; margin-top:0.2rem;"></i>
+                                <span>{{ c.value }}</span>
+                            </div>
+                            {% endif %}
                         </div>
+                        {% if c.status != 'Implemented' %}
+                        <div class="mt-1">{{ status_badge(c.status) }}</div>
+                        {% endif %}
                     </div>
-                    {% if c.status != 'Implemented' %}
-                    <div class="mt-1">{{ status_badge(c.status) }}</div>
-                    {% endif %}
-                </div>
-            </li>
-            {% endfor %}
-        </ul>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
     </div>
 </div>
 {% endmacro %}
@@ -105,6 +119,10 @@
     <div class="card-body">
         <div class="row g-3 small">
             <div class="col-md-4 col-lg">
+                <div class="fw-semibold text-danger"><i class="bi bi-flag me-1"></i>Data Gaps</div>
+                <div class="text-muted">Information that's simply <u>missing</u> - not assumed, not guessed, just not there yet. Usually the first thing worth checking.</div>
+            </div>
+            <div class="col-md-4 col-lg">
                 <div class="fw-semibold text-danger"><i class="bi bi-shield-check me-1"></i>Hard Constraints</div>
                 <div class="text-muted">Rules that can <u>never</u> be broken. If satisfying one is impossible, the system stops instead of guessing.</div>
             </div>
@@ -117,10 +135,6 @@
                 <div class="text-muted">Choices the system made on your behalf where no uploaded data said what to do. Worth double-checking.</div>
             </div>
             <div class="col-md-4 col-lg">
-                <div class="fw-semibold text-danger"><i class="bi bi-flag me-1"></i>Data Gaps</div>
-                <div class="text-muted">Information that's simply <u>missing</u> - not assumed, not guessed, just not there yet.</div>
-            </div>
-            <div class="col-md-4 col-lg">
                 <div class="fw-semibold text-secondary"><i class="bi bi-clock-history me-1"></i>Change Log</div>
                 <div class="text-muted">A dated record of mistakes found and fixed in the data. History, not the system's current state.</div>
             </div>
@@ -130,7 +144,17 @@
 
 <ul class="nav nav-pills mb-4 flex-wrap gap-2" id="sysInfoTabs" role="tablist">
     <li class="nav-item" role="presentation">
-        <button class="nav-link active d-flex align-items-center gap-2" id="tab-hard-btn" data-bs-toggle="tab" data-bs-target="#tab-hard" type="button" role="tab" aria-controls="tab-hard" aria-selected="true">
+        <button class="nav-link active d-flex align-items-center gap-2" id="tab-gaps-btn" data-bs-toggle="tab" data-bs-target="#tab-gaps" type="button" role="tab" aria-controls="tab-gaps" aria-selected="true">
+            <i class="bi bi-flag"></i> Data Gaps
+            {% if gap_flagged > 0 %}
+            <span class="badge bg-danger">{{ gap_flagged }} to review</span>
+            {% else %}
+            <span class="badge bg-success">clear</span>
+            {% endif %}
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link d-flex align-items-center gap-2" id="tab-hard-btn" data-bs-toggle="tab" data-bs-target="#tab-hard" type="button" role="tab" aria-controls="tab-hard" aria-selected="false">
             <i class="bi bi-shield-check"></i> Hard Constraints <span class="badge bg-danger">{{ hard_count }}</span>
         </button>
     </li>
@@ -145,16 +169,6 @@
         </button>
     </li>
     <li class="nav-item" role="presentation">
-        <button class="nav-link d-flex align-items-center gap-2" id="tab-gaps-btn" data-bs-toggle="tab" data-bs-target="#tab-gaps" type="button" role="tab" aria-controls="tab-gaps" aria-selected="false">
-            <i class="bi bi-flag"></i> Data Gaps
-            {% if gap_flagged > 0 %}
-            <span class="badge bg-danger">{{ gap_flagged }} to review</span>
-            {% else %}
-            <span class="badge bg-success">clear</span>
-            {% endif %}
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
         <button class="nav-link d-flex align-items-center gap-2" id="tab-changelog-btn" data-bs-toggle="tab" data-bs-target="#tab-changelog" type="button" role="tab" aria-controls="tab-changelog" aria-selected="false">
             <i class="bi bi-clock-history"></i> Change Log <span class="badge bg-secondary">{{ changelog_count }}</span>
         </button>
@@ -163,18 +177,34 @@
 
 <div class="tab-content" id="sysInfoTabsContent">
 
-    <div class="tab-pane fade show active" id="tab-hard" role="tabpanel" aria-labelledby="tab-hard-btn">
+    <div class="tab-pane fade show active" id="tab-gaps" role="tabpanel" aria-labelledby="tab-gaps-btn">
+        <div class="row g-3 mb-4">
+            {% for group in data_gap_groups %}
+                {{ assumption_group_card(group) }}
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="tab-pane fade" id="tab-hard" role="tabpanel" aria-labelledby="tab-hard-btn">
+        <div class="d-flex justify-content-end gap-2 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllCollapses('tab-hard', true)">Expand All</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllCollapses('tab-hard', false)">Collapse All</button>
+        </div>
         <div class="row g-3 mb-4">
             {% for group in constraints.hard %}
-                {{ constraint_group_card(group) }}
+                {{ constraint_group_card(group, 'hard-' ~ loop.index) }}
             {% endfor %}
         </div>
     </div>
 
     <div class="tab-pane fade" id="tab-soft" role="tabpanel" aria-labelledby="tab-soft-btn">
+        <div class="d-flex justify-content-end gap-2 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllCollapses('tab-soft', true)">Expand All</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllCollapses('tab-soft', false)">Collapse All</button>
+        </div>
         <div class="row g-3 mb-4">
             {% for group in constraints.soft %}
-                {{ constraint_group_card(group) }}
+                {{ constraint_group_card(group, 'soft-' ~ loop.index) }}
             {% endfor %}
         </div>
     </div>
@@ -182,14 +212,6 @@
     <div class="tab-pane fade" id="tab-assumed" role="tabpanel" aria-labelledby="tab-assumed-btn">
         <div class="row g-3 mb-4">
             {% for group in assumption_groups %}
-                {{ assumption_group_card(group) }}
-            {% endfor %}
-        </div>
-    </div>
-
-    <div class="tab-pane fade" id="tab-gaps" role="tabpanel" aria-labelledby="tab-gaps-btn">
-        <div class="row g-3 mb-4">
-            {% for group in data_gap_groups %}
                 {{ assumption_group_card(group) }}
             {% endfor %}
         </div>
@@ -204,5 +226,15 @@
     </div>
 
 </div>
+
+<script>
+function toggleAllCollapses(tabId, show) {
+    var tab = document.getElementById(tabId);
+    tab.querySelectorAll('.collapse').forEach(function(el) {
+        var instance = bootstrap.Collapse.getOrCreateInstance(el, {toggle: false});
+        if (show) { instance.show(); } else { instance.hide(); }
+    });
+}
+</script>
 
 {% endblock %}
