@@ -64,26 +64,29 @@
     <input type="text" id="course-search" class="form-control form-control-sm" style="max-width:260px;"
            placeholder="Search module code or title…" oninput="applyFilters()">
 
-    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Year filter">
-        <button class="btn active" data-filter="year" data-value="all" onclick="setFilter('year','all',this)">All Years</button>
-        <button class="btn" data-filter="year" data-value="1" onclick="setFilter('year','1',this)">Y1</button>
-        <button class="btn" data-filter="year" data-value="2" onclick="setFilter('year','2',this)">Y2</button>
-        <button class="btn" data-filter="year" data-value="3" onclick="setFilter('year','3',this)">Y3</button>
-    </div>
+    <select class="form-select form-select-sm select-glass" style="width:auto;" aria-label="Year filter"
+            onchange="setFilter('year', this.value)">
+        <option value="all">All Years</option>
+        <option value="1">Y1</option>
+        <option value="2">Y2</option>
+        <option value="3">Y3</option>
+    </select>
 
-    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Trimester filter">
-        <button class="btn active" data-filter="tri" data-value="all" onclick="setFilter('tri','all',this)">All Tri</button>
-        <button class="btn" data-filter="tri" data-value="1" onclick="setFilter('tri','1',this)">Tri 1</button>
-        <button class="btn" data-filter="tri" data-value="2" onclick="setFilter('tri','2',this)">Tri 2</button>
-        <button class="btn" data-filter="tri" data-value="3" onclick="setFilter('tri','3',this)">Tri 3</button>
-    </div>
+    <select class="form-select form-select-sm select-glass" style="width:auto;" aria-label="Trimester filter"
+            onchange="setFilter('tri', this.value)">
+        <option value="all">All Tri</option>
+        <option value="1">Tri 1</option>
+        <option value="2">Tri 2</option>
+        <option value="3">Tri 3</option>
+    </select>
 
-    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Delivery filter">
-        <button class="btn active" data-filter="delivery" data-value="all" onclick="setFilter('delivery','all',this)">All Delivery</button>
-        <button class="btn" data-filter="delivery" data-value="f2f" onclick="setFilter('delivery','f2f',this)">f2f</button>
-        <button class="btn" data-filter="delivery" data-value="online" onclick="setFilter('delivery','online',this)">Online</button>
-        <button class="btn" data-filter="delivery" data-value="hybrid" onclick="setFilter('delivery','hybrid',this)">Hybrid</button>
-    </div>
+    <select class="form-select form-select-sm select-glass" style="width:auto;" aria-label="Delivery filter"
+            onchange="setFilter('delivery', this.value)">
+        <option value="all">All Delivery</option>
+        <option value="f2f">f2f</option>
+        <option value="online">Online</option>
+        <option value="hybrid">Hybrid</option>
+    </select>
 
     <span id="course-count" class="text-muted small ms-1"></span>
 </div>
@@ -171,13 +174,8 @@
 <script>
 var activeFilters = { year: 'all', tri: 'all', delivery: 'all' };
 
-function setFilter(type, value, btn) {
+function setFilter(type, value) {
     activeFilters[type] = value;
-    // Update active button in this group
-    btn.closest('.btn-group').querySelectorAll('.btn').forEach(function(b) {
-        b.classList.remove('active');
-    });
-    btn.classList.add('active');
     applyFilters();
 }
 

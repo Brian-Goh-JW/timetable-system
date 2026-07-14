@@ -72,19 +72,21 @@
         <input type="text" id="group-search" class="form-control form-control-sm" style="max-width:240px;"
                placeholder="Search group label…" oninput="applyGroupFilters()">
 
-        <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Programme filter">
-            <button class="btn active" data-filter="programme" data-value="all" onclick="setGroupFilter('programme','all',this)">All Programmes</button>
+        <select class="form-select form-select-sm select-glass" style="width:auto;" aria-label="Programme filter"
+                onchange="setGroupFilter('programme', this.value)">
+            <option value="all">All Programmes</option>
             {% for p in programmes %}
-            <button class="btn" data-filter="programme" data-value="{{ p }}" onclick="setGroupFilter('programme','{{ p }}',this)">{{ p }}</button>
+            <option value="{{ p }}">{{ p }}</option>
             {% endfor %}
-        </div>
+        </select>
 
-        <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Year filter">
-            <button class="btn active" data-filter="year" data-value="all" onclick="setGroupFilter('year','all',this)">All Years</button>
+        <select class="form-select form-select-sm select-glass" style="width:auto;" aria-label="Year filter"
+                onchange="setGroupFilter('year', this.value)">
+            <option value="all">All Years</option>
             {% for y in years %}
-            <button class="btn" data-filter="year" data-value="{{ y }}" onclick="setGroupFilter('year','{{ y }}',this)">Year {{ y }}</button>
+            <option value="{{ y }}">Year {{ y }}</option>
             {% endfor %}
-        </div>
+        </select>
 
         <span id="group-count" class="text-muted small ms-1"></span>
     </div>
@@ -212,10 +214,8 @@
 <script>
 var groupActiveFilters = { programme: 'all', year: 'all' };
 
-function setGroupFilter(type, value, btn) {
+function setGroupFilter(type, value) {
     groupActiveFilters[type] = value;
-    btn.closest('.btn-group').querySelectorAll('.btn').forEach(function(b) { b.classList.remove('active'); });
-    btn.classList.add('active');
     applyGroupFilters();
 }
 

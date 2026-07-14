@@ -18,25 +18,28 @@
     <input type="text" id="student-search" class="form-control form-control-sm" style="max-width:240px;"
            placeholder="Search name or email…" oninput="applyStudentFilters()">
 
-    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Programme filter">
-        <button class="btn active" data-filter="programme" data-value="all" onclick="setStudentFilter('programme','all',this)">All Programmes</button>
+    <select class="form-select form-select-sm select-glass" style="width:auto;" aria-label="Programme filter"
+            onchange="setStudentFilter('programme', this.value)">
+        <option value="all">All Programmes</option>
         {% for p in programmes %}
-        <button class="btn" data-filter="programme" data-value="{{ p }}" onclick="setStudentFilter('programme','{{ p }}',this)">{{ p }}</button>
+        <option value="{{ p }}">{{ p }}</option>
         {% endfor %}
-    </div>
+    </select>
 
-    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Year filter">
-        <button class="btn active" data-filter="year" data-value="all" onclick="setStudentFilter('year','all',this)">All Years</button>
+    <select class="form-select form-select-sm select-glass" style="width:auto;" aria-label="Year filter"
+            onchange="setStudentFilter('year', this.value)">
+        <option value="all">All Years</option>
         {% for y in years %}
-        <button class="btn" data-filter="year" data-value="{{ y }}" onclick="setStudentFilter('year','{{ y }}',this)">Year {{ y }}</button>
+        <option value="{{ y }}">Year {{ y }}</option>
         {% endfor %}
-    </div>
+    </select>
 
-    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Assignment filter">
-        <button class="btn active" data-filter="assigned" data-value="all" onclick="setStudentFilter('assigned','all',this)">All</button>
-        <button class="btn" data-filter="assigned" data-value="yes" onclick="setStudentFilter('assigned','yes',this)">Assigned</button>
-        <button class="btn" data-filter="assigned" data-value="no" onclick="setStudentFilter('assigned','no',this)">Not Assigned</button>
-    </div>
+    <select class="form-select form-select-sm select-glass" style="width:auto;" aria-label="Assignment filter"
+            onchange="setStudentFilter('assigned', this.value)">
+        <option value="all">All</option>
+        <option value="yes">Assigned</option>
+        <option value="no">Not Assigned</option>
+    </select>
 
     <span id="student-count" class="text-muted small ms-1"></span>
 </div>
@@ -106,10 +109,8 @@
 <script>
 var studentActiveFilters = { programme: 'all', year: 'all', assigned: 'all' };
 
-function setStudentFilter(type, value, btn) {
+function setStudentFilter(type, value) {
     studentActiveFilters[type] = value;
-    btn.closest('.btn-group').querySelectorAll('.btn').forEach(function(b) { b.classList.remove('active'); });
-    btn.classList.add('active');
     applyStudentFilters();
 }
 

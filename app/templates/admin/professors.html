@@ -67,11 +67,12 @@
     <input type="text" id="prof-search" class="form-control form-control-sm" style="max-width:260px;"
            placeholder="Search name, email, or staff ID…" oninput="applyProfFilters()">
 
-    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Assignment filter">
-        <button class="btn active" data-filter="assigned" data-value="all" onclick="setProfFilter('assigned','all',this)">All</button>
-        <button class="btn" data-filter="assigned" data-value="yes" onclick="setProfFilter('assigned','yes',this)">Has Sessions</button>
-        <button class="btn" data-filter="assigned" data-value="no" onclick="setProfFilter('assigned','no',this)">No Sessions</button>
-    </div>
+    <select class="form-select form-select-sm select-glass" style="width:auto;" aria-label="Assignment filter"
+            onchange="setProfFilter('assigned', this.value)">
+        <option value="all">All</option>
+        <option value="yes">Has Sessions</option>
+        <option value="no">No Sessions</option>
+    </select>
 
     <span id="prof-count" class="text-muted small ms-1"></span>
 </div>
@@ -132,10 +133,8 @@
 <script>
 var profActiveFilters = { assigned: 'all' };
 
-function setProfFilter(type, value, btn) {
+function setProfFilter(type, value) {
     profActiveFilters[type] = value;
-    btn.closest('.btn-group').querySelectorAll('.btn').forEach(function(b) { b.classList.remove('active'); });
-    btn.classList.add('active');
     applyProfFilters();
 }
 

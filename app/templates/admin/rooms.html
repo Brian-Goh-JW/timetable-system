@@ -64,16 +64,13 @@
 
 <!-- Building filter (server-side - kept for the toggle/delete hidden-input trick) -->
 <div class="filter-bar mb-3 d-flex flex-wrap gap-2 align-items-center">
-    <div class="btn-group btn-group-sm segmented-toggle">
-        <a href="{{ url_for('admin.rooms') }}" class="btn {% if not active_building %}active{% endif %}">
-            All Buildings
-        </a>
+    <select class="form-select form-select-sm select-glass" style="width:auto;" aria-label="Building filter"
+            onchange="window.location.href=this.value">
+        <option value="{{ url_for('admin.rooms') }}" {% if not active_building %}selected{% endif %}>All Buildings</option>
         {% for b in buildings %}
-        <a href="{{ url_for('admin.rooms', building=b) }}" class="btn {% if active_building == b %}active{% endif %}">
-            {{ b }}
-        </a>
+        <option value="{{ url_for('admin.rooms', building=b) }}" {% if active_building == b %}selected{% endif %}>{{ b }}</option>
         {% endfor %}
-    </div>
+    </select>
 </div>
 
 <!-- Search + Type/Status filters (client-side, layered on top of the building filter above) -->
@@ -81,18 +78,20 @@
     <input type="text" id="room-search" class="form-control form-control-sm" style="max-width:220px;"
            placeholder="Search room code…" oninput="applyRoomFilters()">
 
-    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Type filter">
-        <button class="btn active" data-filter="type" data-value="all" onclick="setRoomFilter('type','all',this)">All Types</button>
-        <button class="btn" data-filter="type" data-value="lecture" onclick="setRoomFilter('type','lecture',this)">Lecture</button>
-        <button class="btn" data-filter="type" data-value="lab" onclick="setRoomFilter('type','lab',this)">Lab</button>
-        <button class="btn" data-filter="type" data-value="seminar" onclick="setRoomFilter('type','seminar',this)">Seminar</button>
-    </div>
+    <select class="form-select form-select-sm select-glass" style="width:auto;" aria-label="Type filter"
+            onchange="setRoomFilter('type', this.value)">
+        <option value="all">All Types</option>
+        <option value="lecture">Lecture</option>
+        <option value="lab">Lab</option>
+        <option value="seminar">Seminar</option>
+    </select>
 
-    <div class="btn-group btn-group-sm segmented-toggle" role="group" aria-label="Status filter">
-        <button class="btn active" data-filter="status" data-value="all" onclick="setRoomFilter('status','all',this)">All Status</button>
-        <button class="btn" data-filter="status" data-value="active" onclick="setRoomFilter('status','active',this)">Active</button>
-        <button class="btn" data-filter="status" data-value="inactive" onclick="setRoomFilter('status','inactive',this)">Inactive</button>
-    </div>
+    <select class="form-select form-select-sm select-glass" style="width:auto;" aria-label="Status filter"
+            onchange="setRoomFilter('status', this.value)">
+        <option value="all">All Status</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+    </select>
 
     <span id="room-count" class="text-muted small ms-1"></span>
 </div>
@@ -178,10 +177,8 @@
 <script>
 var roomActiveFilters = { type: 'all', status: 'all' };
 
-function setRoomFilter(type, value, btn) {
+function setRoomFilter(type, value) {
     roomActiveFilters[type] = value;
-    btn.closest('.btn-group').querySelectorAll('.btn').forEach(function(b) { b.classList.remove('active'); });
-    btn.classList.add('active');
     applyRoomFilters();
 }
 
