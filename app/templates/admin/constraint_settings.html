@@ -17,14 +17,8 @@
 </div>
 
 <div class="alert alert-light border small mb-4">
-    <strong>Only soft constraints can be changed here.</strong> Hard constraints (e.g. no double-booked
-    rooms, no classes on public holidays) always stay on - they exist to guarantee every generated
-    schedule is actually usable, so making them optional isn't offered. Soft constraints are trade-offs:
-    turning one off means the solver stops trying to honour it at all; moving its priority to
-    <strong>Higher</strong> means the solver will sacrifice other, lower-priority preferences to protect
-    it when they conflict - <strong>Lower</strong> does the opposite. Changes take effect on the
-    <strong>next</strong> timetable generation - they don't retroactively change an already-generated
-    trimester. Rows shaded amber have been changed from their default.
+    Only soft (preference) constraints can be changed here - hard constraints always stay on.
+    Changes apply the next time a timetable is generated.
 </div>
 
 <form method="POST">

@@ -287,11 +287,8 @@
                             <span class="badge bg-warning text-dark ms-1">{{ skipped_sessions | length }}</span>
                         </div>
                         <p class="text-muted mb-2">
-                            These classes have no valid option to be placed anywhere in the current
-                            system - not a scheduling conflict, but missing setup data (a time slot
-                            of the right length, or a room big/right enough). Everything else in this
-                            trimester generated normally; fix the data below and re-generate to include
-                            these too.
+                            Missing setup data (no matching time slot or room) - not a conflict.
+                            Fix below and re-generate to include these.
                         </p>
                         <ul class="mb-0 ps-3">
                             {% for w in stats.no_timeslot_warnings %}

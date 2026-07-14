@@ -25,9 +25,8 @@
     </div>
     <div class="card-body">
         <p class="text-muted small mb-3">
-            Upload a single Template 1 requirements Excel file. All sheets will be scanned
-            for session data. Sessions already in the database (matched by module + programme +
-            session type + group + weeks) are skipped automatically.
+            Upload a Template 1 Excel file - all sheets are scanned, and sessions already in the
+            database are skipped automatically.
         </p>
         <div class="alert alert-light border small py-2 mb-3">
             <div class="fw-medium mb-1">Expected columns (auto-detected, order-insensitive):</div>
@@ -94,8 +93,7 @@
 <div class="alert alert-warning py-2 small mb-3">
     <i class="bi bi-exclamation-triangle me-1"></i>
     <strong>{{ warn_count }} session{{ 's' if warn_count != 1 else '' }}</strong> have data issues highlighted below.
-    You can still import - warnings do not block import. Rows with no staff will be imported but
-    will need staff assigned manually afterwards.
+    Import isn't blocked - rows with no staff will need staff assigned manually afterwards.
 </div>
 {% endif %}
 

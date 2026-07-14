@@ -219,13 +219,9 @@
                     </tbody>
                 </table>
                 <div class="small text-muted" style="font-size:0.72rem;">
-                    <i class="bi bi-info-circle me-1"></i>Self-defined score, not an official metric: each violation
-                    is weighted by that rule's own solver priority (e.g. ending late costs more than a slightly
-                    under-sized room), averaged across every session so a large trimester isn't penalised just for
-                    having more sessions to check, then scaled so an average weighted penalty of
-                    {{ report.score.ceiling }} per session reaches 0. Hard constraints can never be violated - the
-                    generation would have failed outright otherwise.
-                    <a href="#scoring-matrix" class="ms-1">See the full breakdown below &darr;</a>
+                    <i class="bi bi-info-circle me-1"></i>Self-defined score, not an official metric - weighted
+                    by each rule's priority and averaged per session.
+                    <a href="#scoring-matrix" class="ms-1">Full breakdown below &darr;</a>
                 </div>
                 {% endif %}
             </div>
@@ -270,20 +266,10 @@
     <div class="card-body">
 
         <div class="alert alert-light border small mb-4">
-            <strong>How this works:</strong> Every generated timetable is checked against
-            {{ report.constraint_summary.hard_rule_count }} <strong>hard constraints</strong> (must always
-            pass - if even one couldn't be satisfied, generation fails outright rather than produce a
-            broken schedule) and {{ report.constraint_summary.soft_rule_count }} <strong>soft constraints</strong>
-            (weighted trade-offs the solver balances against each other while searching for the best
-            schedule it can find). Because a completed schedule can never actually violate a hard
-            constraint, those aren't scored - they're shown below as a pass/fail checklist instead.
-            The Optimised Score above is built entirely from the soft constraints: each violation costs
-            points equal to that rule's own <strong>priority</strong> - the same weight the solver itself
-            uses internally to decide which trade-offs to make when it can't honour every soft preference
-            at once, so "ends late" (priority 15) costs far more than "not the snuggest room fit" (priority
-            2). Those weighted points are averaged across every session, then scaled so an average of
-            {{ report.score.ceiling }} points per session brings the score to 0 - a higher priority rule
-            being broken pulls the score down faster than a low-priority one.
+            Checked against {{ report.constraint_summary.hard_rule_count }} <strong>hard constraints</strong>
+            (always satisfied, shown as a checklist below) and {{ report.constraint_summary.soft_rule_count }}
+            <strong>soft constraints</strong> (weighted trade-offs - the Optimised Score above is built
+            entirely from these, higher-priority violations costing more).
         </div>
 
         <!-- Hard constraints - compact pass/fail checklist, no per-run number needed since a -->
