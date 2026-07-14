@@ -42,7 +42,7 @@
                 </thead>
                 <tbody>
                     {% for r in group.rows %}
-                    <tr>
+                    <tr title="Reference: {{ r.id }}">
                         <td class="ps-3">
                             <div class="form-check form-switch mb-0">
                                 <input class="form-check-input" type="checkbox" role="switch"
@@ -51,7 +51,7 @@
                             </div>
                         </td>
                         <td class="small">
-                            <span class="text-muted" style="font-size:0.7rem;">{{ r.id }}</span> {{ r.title }}
+                            {{ r.title }}
                         </td>
                         <td>
                             <span class="badge bg-secondary">{{ r.default }}</span>

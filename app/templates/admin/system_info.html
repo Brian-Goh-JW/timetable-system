@@ -68,9 +68,8 @@
         </div>
         <ul class="list-group list-group-flush">
             {% for c in group.rows %}
-            <li class="list-group-item px-3 py-2">
+            <li class="list-group-item px-3 py-2" title="Reference: {{ c.id }}">
                 <div class="d-flex align-items-start gap-2">
-                    <span class="badge bg-light text-secondary border mt-1" style="font-size:0.68rem;">{{ c.id }}</span>
                     <div class="flex-grow-1">
                         <div class="fw-medium">{{ c.title }}</div>
                         <div class="text-muted d-flex align-items-start gap-1 mt-1" style="font-size:0.8rem;">

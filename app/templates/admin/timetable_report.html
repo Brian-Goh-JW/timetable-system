@@ -302,9 +302,9 @@
                 <div class="small text-muted mb-1"><i class="bi {{ group.icon }} me-1"></i>{{ group.category }}</div>
                 <ul class="list-unstyled small mb-2">
                     {% for r in group.rows %}
-                    <li class="mb-1">
+                    <li class="mb-1" title="Reference: {{ r.id }}">
                         <i class="bi bi-check-circle-fill text-success me-1"></i>
-                        <span class="text-muted" style="font-size:0.7rem;">{{ r.id }}</span> {{ r.title }}
+                        {{ r.title }}
                     </li>
                     {% endfor %}
                 </ul>
@@ -334,9 +334,9 @@
                     </thead>
                     <tbody>
                         {% for r in group.rows %}
-                        <tr>
+                        <tr title="Reference: {{ r.id }}">
                             <td class="small">
-                                <span class="text-muted" style="font-size:0.7rem;">{{ r.id }}</span> {{ r.title }}
+                                {{ r.title }}
                             </td>
                             <td>
                                 {% if r.weight is not none %}
