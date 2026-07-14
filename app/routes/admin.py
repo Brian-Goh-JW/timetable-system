@@ -186,7 +186,7 @@ def dashboard():
     ).count()
     blockers, _warnings = get_blocking_issues()
     needs_attention = [
-        {'label': 'Courses missing a split count', 'count': stats['courses_missing_split'],
+        {'label': 'Modules missing a split count', 'count': stats['courses_missing_split'],
          'href': url_for('admin.courses'), 'icon': 'bi-diagram-2'},
         {'label': 'Classes with no professor assigned', 'count': no_prof_count,
          'href': url_for('admin.system_info'), 'icon': 'bi-person-x'},
@@ -287,7 +287,7 @@ def course_export():
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = 'Courses'
+    ws.title = 'Modules'
     headers = ['Module Code', 'Programme Code', 'Trimester', 'Year Level', 'Title',
               'Delivery Mode', 'Split Count', 'Official Year Range', 'Remarks']
     ws.append(headers)
@@ -309,17 +309,17 @@ def course_export():
     for line in [
         '',
         'This import can only update Title, Split Count, Official Year Range, and Remarks '
-        '- the same fields the Edit Course page lets you change. Module Code, Programme '
+        '- the same fields the Edit Module page lets you change. Module Code, Programme '
         'Code, Trimester, Year Level, and Delivery Mode are shown for context (they\'re '
         'how rows are matched) but can\'t be changed here.',
         'Official Year Range is a reference note only (e.g. "Year 2-4", from SIT\'s own '
         'module catalog) - it never affects scheduling, which always uses Year Level.',
         'Rows are matched by Module Code + Programme Code + Trimester together - the '
         'same module code can legitimately appear more than once (different programmes '
-        'or trimesters), so all three must match an existing course.',
-        'New courses can\'t be created through this import - courses are only ever '
+        'or trimesters), so all three must match an existing module.',
+        'New modules can\'t be created through this import - modules are only ever '
         'created through a full bulk import (Template 1, or Admin Tools > Import), '
-        'since a course needs its class sessions set up at the same time.',
+        'since a module needs its class sessions set up at the same time.',
         'Split Count can be left blank to clear it. If any row fails validation, nothing '
         'in this file is imported - fix the error and re-upload the whole file.',
     ]:
@@ -329,7 +329,7 @@ def course_export():
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
-    return send_file(output, download_name='courses.xlsx', as_attachment=True,
+    return send_file(output, download_name='modules.xlsx', as_attachment=True,
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
@@ -344,7 +344,7 @@ def course_import():
         return redirect(url_for('admin.courses'))
 
     try:
-        df = pd.read_excel(file, sheet_name='Courses', dtype=str).fillna('')
+        df = pd.read_excel(file, sheet_name='Modules', dtype=str).fillna('')
     except Exception as e:
         flash(f'Could not read file: {e}', 'danger')
         return redirect(url_for('admin.courses'))
@@ -443,7 +443,7 @@ def course_import():
         updated += 1
 
     db.session.commit()
-    flash(f'Import complete - {updated} course(s) updated.', 'success')
+    flash(f'Import complete - {updated} module(s) updated.', 'success')
     return redirect(url_for('admin.courses'))
 
 
@@ -2827,14 +2827,14 @@ def system_info():
              'note': 'When several programmes share one class, the room chosen must fit everyone from all of '
                      'those programmes together - this isn\'t from any uploaded file, it\'s what made sense to us.'},
         ]},
-        {'category': 'Course Reference Data', 'icon': 'bi-journal-bookmark', 'color': 'blue', 'kind': 'value', 'rows': [
+        {'category': 'Module Reference Data', 'icon': 'bi-journal-bookmark', 'color': 'blue', 'kind': 'value', 'rows': [
             {'label': 'Official (SIT catalog) year range per module', 'value': f'{courses_with_year_range}/{total_course_count} filled in',
              'note': 'A module can legitimately span several years in SIT\'s own module catalog (sit.edu.sg) '
                      'even though it\'s only scheduled here for one specific year - Year Level (used for '
                      'scheduling) and Official Year Range (this field) are two different things and are not '
                      'always the same number. This is admin-entered reference text with no automated source - '
-                     'it is never read by the solver and has no effect on scheduling. Editable on each course\'s '
-                     'Edit page or in bulk via the Courses page\'s Import/Export.'},
+                     'it is never read by the solver and has no effect on scheduling. Editable on each module\'s '
+                     'Edit page or in bulk via the Modules page\'s Import/Export.'},
         ]},
     ]
 

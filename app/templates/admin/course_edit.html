@@ -5,9 +5,9 @@
 
 <div class="mb-4">
     <a href="{{ url_for('admin.courses') }}" class="text-decoration-none text-muted small">
-        <i class="bi bi-arrow-left me-1"></i>Back to Courses
+        <i class="bi bi-arrow-left me-1"></i>Back to Modules
     </a>
-    <h4 class="fw-semibold mt-2 mb-0">Edit Course</h4>
+    <h4 class="fw-semibold mt-2 mb-0">Edit Module</h4>
     <small class="text-muted">{{ course.module_code }} &mdash; Year {{ course.year_level }}</small>
 </div>
 
@@ -66,14 +66,14 @@
                             placeholder="e.g. 2"
                         >
                         <div class="form-text">
-                            Number of f2f sub-groups this course is split into.
-                            The scheduler is blocked until this is set for all f2f and hybrid courses.
+                            Number of f2f sub-groups this module is split into.
+                            The scheduler is blocked until this is set for all f2f and hybrid modules.
                         </div>
                     </div>
                     {% else %}
                     <div class="mb-3">
                         <label class="form-label fw-medium">Split Count</label>
-                        <input type="text" class="form-control bg-light" value="N/A - online course" disabled>
+                        <input type="text" class="form-control bg-light" value="N/A - online module" disabled>
                     </div>
                     {% endif %}
 
@@ -128,7 +128,7 @@
     <div class="col-lg-4 mt-3 mt-lg-0">
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white border-bottom fw-semibold">
-                <i class="bi bi-info-circle me-2 text-muted"></i>Course Details
+                <i class="bi bi-info-circle me-2 text-muted"></i>Module Details
             </div>
             <div class="card-body">
                 <dl class="row mb-0 small">

@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Courses - SIT Timetable{% endblock %}
+{% block title %}Modules - SIT Timetable{% endblock %}
 
 {% block content %}
 
@@ -13,7 +13,7 @@
                 <span class="icon-chip icon-chip-green"><i class="bi bi-download"></i></span>
                 <span class="item-text">
                     <span class="fw-medium">Download Current Data</span>
-                    <span class="text-muted" style="font-size:0.72rem;">Every course, ready to edit and re-upload</span>
+                    <span class="text-muted" style="font-size:0.72rem;">Every module, ready to edit and re-upload</span>
                 </span>
             </a></li>
             <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#courseImportModal">
@@ -34,7 +34,7 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Import Courses from Excel</h5>
+                    <h5 class="modal-title">Import Modules from Excel</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -42,7 +42,7 @@
                         Upload a file downloaded from <strong>Download Current Data</strong> above, with your
                         edits made inside it. Rows are matched by Module Code + Programme Code + Trimester
                         together, and only Title, Split Count, Official Year Range, and Remarks can be
-                        changed - the same fields the Edit Course page allows. New courses can't be created
+                        changed - the same fields the Edit Module page allows. New modules can't be created
                         this way. If anything in the file fails validation, nothing is imported and you'll
                         see exactly what to fix.
                     </p>

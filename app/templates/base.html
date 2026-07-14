@@ -377,7 +377,7 @@
                                 </a>
                                 <ul class="dropdown-menu">
                                     <li><a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('admin.course') %}active{% endif %}"
-                                           href="{{ url_for('admin.courses') }}"><i class="bi bi-journal-text"></i> Courses</a></li>
+                                           href="{{ url_for('admin.courses') }}"><i class="bi bi-journal-text"></i> Modules</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('admin.professor') %}active{% endif %}"
                                            href="{{ url_for('admin.professors') }}"><i class="bi bi-person-badge"></i> Professors</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint and request.endpoint.startswith('admin.student_group') %}active{% endif %}"
