@@ -11,12 +11,12 @@
 {% block content %}
 
 <div class="d-flex justify-content-end align-items-center mb-4">
-    <a href="{{ url_for('admin.system_info') }}" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-info-circle me-1"></i>Full Constraint Reference
-    </a>
+    <button type="submit" form="constraintSettingsForm" class="btn text-white" style="background-color:#c0272d;">
+        <i class="bi bi-check-lg me-1"></i>Save Settings
+    </button>
 </div>
 
-<form method="POST">
+<form method="POST" id="constraintSettingsForm">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {% for group in rows_by_category %}
     <div class="card glass-card animate-in mb-3">
