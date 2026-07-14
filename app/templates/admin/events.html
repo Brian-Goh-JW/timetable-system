@@ -87,6 +87,7 @@
                     <td class="text-end pe-4">
                         <form method="POST" action="{{ url_for('admin.event_delete', event_id=ev.id) }}"
                               onsubmit="return confirm('Delete event \'{{ ev.name }}\'?')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn btn-sm btn-outline-danger">
                                 <i class="bi bi-trash"></i>
                             </button>

@@ -95,6 +95,7 @@
                         <form method="POST"
                               action="{{ url_for('admin.flag_notify', flag_id=f.id) }}"
                               class="d-flex gap-1 align-items-center">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="date" name="response_deadline"
                                    class="form-control form-control-sm"
                                    style="max-width:140px;"

@@ -61,6 +61,7 @@
                         <div class="d-flex gap-1">
                             <!-- Strict -->
                             <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="decl_id" value="{{ d.id }}">
                                 <input type="hidden" name="constraint_type" value="strict">
                                 <button type="submit"
@@ -72,6 +73,7 @@
                             </form>
                             <!-- Preferred -->
                             <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="decl_id" value="{{ d.id }}">
                                 <input type="hidden" name="constraint_type" value="preferred">
                                 <button type="submit"
@@ -145,6 +147,7 @@
                         <!-- Allow reclassification if admin made a mistake -->
                         {% if d.constraint_type == 'strict' %}
                         <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="decl_id" value="{{ d.id }}">
                             <input type="hidden" name="constraint_type" value="preferred">
                             <button type="submit" class="btn btn-sm btn-outline-warning"
@@ -154,6 +157,7 @@
                         </form>
                         {% else %}
                         <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="decl_id" value="{{ d.id }}">
                             <input type="hidden" name="constraint_type" value="strict">
                             <button type="submit" class="btn btn-sm btn-outline-danger"

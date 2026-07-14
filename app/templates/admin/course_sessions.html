@@ -78,6 +78,7 @@
                         <form method="POST"
                               action="{{ url_for('admin.session_assign', course_id=course.id, session_id=s.id) }}"
                               class="d-flex align-items-center gap-2 flex-wrap py-1">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                             <!-- Professor assignments -->
                             <div class="d-flex flex-column gap-1" id="profs-{{ s.id }}">

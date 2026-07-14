@@ -97,6 +97,7 @@
                 <!-- SINGLE TRIMESTER FORM (the only generation mode)         -->
                 <!-- ======================================================= -->
                 <form method="POST" id="form-single">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="generate">
 
                     <div class="row g-2 mb-3">
@@ -186,6 +187,7 @@
                     Once published, professors and students can view their timetable.
                 </p>
                 <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="publish">
                     <input type="hidden" name="trimester" value="{{ active_trimester }}">
                     <button type="submit" class="btn btn-success w-100"
@@ -208,6 +210,7 @@
                     Deletes all entries for <strong>{{ active_trimester }}</strong> including published ones.
                 </p>
                 <form method="POST" class="mb-2">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="reset">
                     <input type="hidden" name="trimester" value="{{ active_trimester }}">
                     <button type="submit" class="btn btn-outline-danger w-100"
@@ -226,6 +229,7 @@
                 {% endif %}
                 {% if cur_ay %}
                 <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="reset_ay">
                     <input type="hidden" name="clear_ay" value="{{ cur_ay }}">
                     <button type="submit" class="btn btn-danger w-100"

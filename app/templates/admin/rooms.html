@@ -40,6 +40,7 @@
 <div class="modal fade" id="roomImportModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <form method="POST" action="{{ url_for('admin.room_import') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Import Rooms from Excel</h5>
@@ -149,6 +150,7 @@
                             <form method="POST"
                                   action="{{ url_for('admin.room_toggle', room_id=room.id) }}"
                                   class="d-inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <input type="hidden" name="building" value="{{ active_building }}">
                                 <button type="submit"
                                         class="btn btn-sm {% if room.is_active %}btn-outline-warning{% else %}btn-outline-success{% endif %}"
@@ -162,6 +164,7 @@
                                   action="{{ url_for('admin.room_delete', room_id=room.id) }}"
                                   class="d-inline"
                                   onsubmit="return confirm('Delete room {{ room.room_code }}? This cannot be undone.')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
                                     <i class="bi bi-trash"></i>
                                 </button>

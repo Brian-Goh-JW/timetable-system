@@ -40,6 +40,7 @@
 <div class="modal fade" id="groupImportModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <form method="POST" action="{{ url_for('admin.student_group_import') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Import Student Groups from Excel</h5>
@@ -123,6 +124,7 @@
                     <form method="POST"
                           action="{{ url_for('admin.student_group_delete', group_id=group.id) }}"
                           onsubmit="return confirm('Delete {{ group.group_label }} and all its sub-groups?')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class="btn btn-sm btn-outline-danger">
                             <i class="bi bi-trash me-1"></i>Delete
                         </button>
@@ -174,6 +176,7 @@
                       action="{{ url_for('admin.student_group_generate', group_id=group.id) }}"
                       class="d-flex align-items-center gap-2"
                       onsubmit="return confirm('{% if group.sub_groups %}This will replace existing sub-groups. Continue?{% else %}Generate sub-groups for {{ group.group_label }}?{% endif %}')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <label class="form-label mb-0 small text-muted">
                         {% if group.sub_groups %}Regenerate sub-groups:{% else %}Generate sub-groups:{% endif %}
                     </label>

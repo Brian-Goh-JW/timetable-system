@@ -20,6 +20,7 @@
             </div>
             <div class="card-body">
                 <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                     <div class="mb-3">
                         <label for="timeslot_id" class="form-label fw-medium">
@@ -124,6 +125,7 @@
                                 <form method="POST"
                                       action="{{ url_for('teacher.availability_delete', decl_id=d.id) }}"
                                       onsubmit="return confirm('Remove this declaration?')">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-sm btn-outline-danger">
                                         <i class="bi bi-trash"></i>
                                     </button>

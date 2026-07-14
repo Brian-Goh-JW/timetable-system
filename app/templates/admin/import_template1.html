@@ -40,6 +40,7 @@
             Staff 1 &nbsp;|&nbsp; Staff ID 1 &nbsp;|&nbsp; Remarks</code>
         </div>
         <form method="POST" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mb-3">
                 <label class="form-label fw-medium small">Trimester</label>
                 <select name="trimester" class="form-select form-select-sm">
@@ -81,6 +82,7 @@
             <i class="bi bi-x me-1"></i>Cancel
         </a>
         <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="confirm" value="1">
             <input type="hidden" name="token" value="{{ token }}">
             <input type="hidden" name="orig_filename" value="{{ orig_filename }}">
@@ -166,6 +168,7 @@
 
 <div class="d-flex justify-content-end mt-3">
     <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="confirm" value="1">
         <input type="hidden" name="token" value="{{ token }}">
         <input type="hidden" name="orig_filename" value="{{ orig_filename }}">
