@@ -16,11 +16,6 @@
     </a>
 </div>
 
-<div class="alert alert-light border small mb-4">
-    Only soft (preference) constraints can be changed here - hard constraints always stay on.
-    Changes apply the next time a timetable is generated.
-</div>
-
 <form method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {% for group in rows_by_category %}
