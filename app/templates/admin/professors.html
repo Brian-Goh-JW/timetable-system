@@ -93,7 +93,7 @@
             </thead>
             <tbody>
                 {% for prof in professors %}
-                {% set session_count = prof.class_sessions | length %}
+                {% set session_count = prof.session_assignments | length %}
                 <tr data-assigned="{{ 'yes' if session_count > 0 else 'no' }}">
                     <td class="ps-4 fw-medium">{{ prof.user.name }}</td>
                     <td class="text-muted">{{ prof.user.email }}</td>
