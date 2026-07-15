@@ -4099,7 +4099,27 @@ def timetable():
         if view_mode == 'list' and unique_entries else {}
     )
 
+    # The Generate form always targets whatever single trimester is currently
+    # being viewed (the trimester selector above the timetable), rather than
+    # its own separate AY/Tri picker - having two independent trimester
+    # pickers on one page was the single biggest source of "which trimester
+    # am I even looking at" confusion (Brian, 2026-07-15). "All Tri" has no
+    # single trimester to generate for, so gen_trimester stays None there.
+    gen_ay = gen_tri_num = gen_trimester = None
+    gen_start_date = ''
+    if trimester and trimester[-4:] != '-all' and '-T' in trimester:
+        _gen_ay_part, _gen_tri_part = trimester.split('-T')
+        if _gen_tri_part in ('1', '2', '3'):
+            gen_ay = _gen_ay_part
+            gen_tri_num = int(_gen_tri_part)
+            gen_trimester = trimester
+            gen_start_date = SIT_ACADEMIC_CALENDAR.get(gen_ay, {}).get(gen_tri_num, '')
+
     return render_template('admin/timetable.html',
+                           gen_ay=gen_ay,
+                           gen_tri_num=gen_tri_num,
+                           gen_trimester=gen_trimester,
+                           gen_start_date=gen_start_date,
                            issues=issues,
                            issue_warnings=issue_warnings,
                            trimesters=trimesters,
@@ -4124,7 +4144,6 @@ def timetable():
                            ay_default=ay_default,
                            ay_options=ay_options,
                            selected_tri=selected_tri,
-                           sit_calendar=SIT_ACADEMIC_CALENDAR,
                            source=source,
                            has_backbone_ay=has_backbone_ay)
 

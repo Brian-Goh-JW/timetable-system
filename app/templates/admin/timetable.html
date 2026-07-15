@@ -88,60 +88,36 @@
         </div>
         {% endif %}
 
-        <!-- Generate form -->
+        <!-- Generate form - always targets whatever trimester is currently
+             selected in the trimester picker on the right, not its own
+             separate picker (see gen_trimester comment in admin.py). -->
         <div class="card glass-card animate-in mb-3">
             <div class="card-header bg-transparent border-bottom fw-semibold">
                 <i class="bi bi-cpu me-2 text-muted"></i>Generate Timetable
             </div>
             <div class="card-body">
 
-                <!-- ======================================================= -->
-                <!-- SINGLE TRIMESTER FORM (the only generation mode)         -->
-                <!-- ======================================================= -->
+                {% if gen_trimester %}
+                <div class="mb-3 p-2 bg-light rounded border small">
+                    <i class="bi bi-calendar-check me-1 text-muted"></i>
+                    Generating for <strong>{{ gen_trimester }}</strong>
+                    <div class="text-muted mt-1">Change this with the trimester selector on the right.</div>
+                </div>
+
                 <form method="POST" id="form-single">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="action" value="generate">
-
-                    <div class="row g-2 mb-3">
-                        <div class="col-7">
-                            <label class="form-label fw-medium">
-                                Academic Year <span class="text-danger">*</span>
-                            </label>
-                            <select class="form-select" name="academic_year" required
-                                    onchange="updateTrimKey(); fillSingleDate()">
-                                {% for ay in ay_options %}
-                                <option value="{{ ay }}" {% if ay == ay_default %}selected{% endif %}>AY20{{ ay[2:4] }}/{{ ay[4:6] }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-5">
-                            <label class="form-label fw-medium">
-                                Trimester <span class="text-danger">*</span>
-                            </label>
-                            <select class="form-select" name="trimester_num" required
-                                    onchange="updateTrimKey(); fillSingleDate()">
-                                <option value="">-</option>
-                                <option value="1" {% if selected_tri == 1 %}selected{% endif %}>Tri 1</option>
-                                <option value="2" {% if selected_tri == 2 %}selected{% endif %}>Tri 2</option>
-                                <option value="3" {% if selected_tri == 3 %}selected{% endif %}>Tri 3</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <div class="form-text text-muted">
-                            <i class="bi bi-tag me-1"></i>
-                            Key: <strong id="trim-key-preview">{{ ay_default }}-T?</strong>
-                            &nbsp;·&nbsp; Only sessions tagged for this trimester will be scheduled.
-                        </div>
-                    </div>
+                    <input type="hidden" name="academic_year" value="{{ gen_ay }}">
+                    <input type="hidden" name="trimester_num" value="{{ gen_tri_num }}">
 
                     <div class="mb-3">
                         <label class="form-label fw-medium">
                             Week 1 Start Date
-                            <span class="text-muted fw-normal small ms-1" id="cal-source-single"></span>
+                            <span class="text-muted fw-normal small ms-1">
+                                {% if gen_start_date %}· from official SIT calendar{% else %}· not in calendar - enter manually{% endif %}
+                            </span>
                         </label>
-                        <input type="date" class="form-control" name="start_date" id="sd_single">
-                        <div class="form-text">Auto-filled from official SIT calendar. Override if needed.</div>
+                        <input type="date" class="form-control" name="start_date" value="{{ gen_start_date }}">
                     </div>
 
                     <div class="mb-3">
@@ -171,6 +147,12 @@
                         <i class="bi bi-arrow-repeat me-1"></i>Re-generate Trimester
                     </button>
                 </form>
+                {% else %}
+                <div class="text-center text-muted small py-3">
+                    <i class="bi bi-arrow-up-right fs-4 d-block mb-2"></i>
+                    Select a specific trimester (not "All Tri") on the right to generate for it.
+                </div>
+                {% endif %}
 
             </div>
         </div>
@@ -453,54 +435,8 @@
 
     <!-- Right: Timetable view -->
     <div class="col-lg-9">
-        <div class="d-flex justify-content-end gap-2 mb-2">
-            {% if active_trimester and active_trimester[-4:] != '-all' %}
-            <div class="btn-group action-dropdown">
-                <button type="button" class="btn btn-sm dropdown-toggle" data-bs-toggle="dropdown">
-                    <span class="icon-chip icon-chip-blue"><i class="bi bi-download"></i></span>Export
-                </button>
-                <ul class="dropdown-menu dropdown-menu-end">
-                    <li><a class="dropdown-item" href="{{ url_for('admin.timetable_export', trimester=active_trimester) }}">
-                        <span class="icon-chip icon-chip-green"><i class="bi bi-grid-3x3"></i></span>
-                        <span class="item-text">
-                            <span class="fw-medium">Weekly Grid (Excel)</span>
-                            <span class="text-muted" style="font-size:0.72rem;">Colour-coded, printable - one sheet per week</span>
-                        </span>
-                    </a></li>
-                    <li><a class="dropdown-item" href="{{ url_for('admin.timetable_export_template2', trimester=active_trimester) }}">
-                        <span class="icon-chip icon-chip-red"><i class="bi bi-file-earmark-spreadsheet"></i></span>
-                        <span class="item-text">
-                            <span class="fw-medium">Template 2 (SIT Upload)</span>
-                            <span class="text-muted" style="font-size:0.72rem;">Official flat-row format for submission</span>
-                        </span>
-                    </a></li>
-                </ul>
-            </div>
-            {% endif %}
-            <div class="btn-group action-dropdown">
-                <button type="button" class="btn btn-sm dropdown-toggle" data-bs-toggle="dropdown">
-                    <span class="icon-chip icon-chip-purple"><i class="bi bi-graph-up"></i></span>Reports
-                </button>
-                <ul class="dropdown-menu dropdown-menu-end">
-                    <li><a class="dropdown-item" href="{{ url_for('admin.timetable_similarity', ay=active_trimester[:6] if active_trimester and active_trimester[:2]=='AY' else '') }}">
-                        <span class="icon-chip icon-chip-blue"><i class="bi bi-bar-chart"></i></span>
-                        <span class="item-text">
-                            <span class="fw-medium">Similarity Report</span>
-                            <span class="text-muted" style="font-size:0.72rem;">How closely this AY matches last year's slots</span>
-                        </span>
-                    </a></li>
-                    <li><a class="dropdown-item" href="{{ url_for('admin.timetable_report', trimester=active_trimester if active_trimester and active_trimester[:2]=='AY' and '-all' not in active_trimester else '') }}">
-                        <span class="icon-chip icon-chip-amber"><i class="bi bi-clipboard-data"></i></span>
-                        <span class="item-text">
-                            <span class="fw-medium">Scheduling Report</span>
-                            <span class="text-muted" style="font-size:0.72rem;">Scoring matrix and generation breakdown</span>
-                        </span>
-                    </a></li>
-                </ul>
-            </div>
-        </div>
 
-        <!-- Filter bar - all dropdowns -->
+        <!-- Filter bar -->
         {% if trimesters %}
         {% set distinct_ays = namespace(vals=[]) %}
         {% for t in trimesters %}
@@ -510,7 +446,8 @@
         {% set active_tri_num = 'all' if (not active_trimester or active_trimester[-4:] == '-all') else active_trimester[-1] %}
         {% set prog_display = {'CPC': 'General'} %}
 
-        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+        <!-- Row 1 (primary): what am I looking at, and what view -->
+        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
 
             {# Academic Year #}
             <select class="form-select form-select-sm w-auto select-glass" id="sel-ay" onchange="navigate()">
@@ -529,6 +466,74 @@
                 {% endif %}
                 {% endfor %}
             </select>
+
+            {# View toggle #}
+            {% if active_trimester and entries %}
+            <div class="btn-group btn-group-sm segmented-toggle">
+                <button type="button" onclick="navigate('list')"
+                        class="btn {% if view_mode == 'list' %}active{% endif %}">
+                    <i class="bi bi-list-ul me-1"></i>List
+                </button>
+                <button type="button" onclick="navigate('weekly')"
+                        class="btn {% if view_mode == 'weekly' %}active{% endif %}"
+                        {% if active_tri_num == 'all' %}disabled title="Select a specific trimester (not \'All Tri\') to use Weekly view"{% endif %}>
+                    <i class="bi bi-calendar-week me-1"></i>Weekly
+                </button>
+            </div>
+            {% endif %}
+
+            <!-- Export/Reports - secondary actions on what's currently selected above -->
+            <div class="ms-auto d-flex gap-2">
+                {% if active_trimester and active_trimester[-4:] != '-all' %}
+                <div class="btn-group action-dropdown">
+                    <button type="button" class="btn btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                        <span class="icon-chip icon-chip-blue"><i class="bi bi-download"></i></span>Export
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="{{ url_for('admin.timetable_export', trimester=active_trimester) }}">
+                            <span class="icon-chip icon-chip-green"><i class="bi bi-grid-3x3"></i></span>
+                            <span class="item-text">
+                                <span class="fw-medium">Weekly Grid (Excel)</span>
+                                <span class="text-muted" style="font-size:0.72rem;">Colour-coded, printable - one sheet per week</span>
+                            </span>
+                        </a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('admin.timetable_export_template2', trimester=active_trimester) }}">
+                            <span class="icon-chip icon-chip-red"><i class="bi bi-file-earmark-spreadsheet"></i></span>
+                            <span class="item-text">
+                                <span class="fw-medium">Template 2 (SIT Upload)</span>
+                                <span class="text-muted" style="font-size:0.72rem;">Official flat-row format for submission</span>
+                            </span>
+                        </a></li>
+                    </ul>
+                </div>
+                {% endif %}
+                <div class="btn-group action-dropdown">
+                    <button type="button" class="btn btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                        <span class="icon-chip icon-chip-purple"><i class="bi bi-graph-up"></i></span>Reports
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="{{ url_for('admin.timetable_similarity', ay=active_trimester[:6] if active_trimester and active_trimester[:2]=='AY' else '') }}">
+                            <span class="icon-chip icon-chip-blue"><i class="bi bi-bar-chart"></i></span>
+                            <span class="item-text">
+                                <span class="fw-medium">Similarity Report</span>
+                                <span class="text-muted" style="font-size:0.72rem;">How closely this AY matches last year's slots</span>
+                            </span>
+                        </a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('admin.timetable_report', trimester=active_trimester if active_trimester and active_trimester[:2]=='AY' and '-all' not in active_trimester else '') }}">
+                            <span class="icon-chip icon-chip-amber"><i class="bi bi-clipboard-data"></i></span>
+                            <span class="item-text">
+                                <span class="fw-medium">Scheduling Report</span>
+                                <span class="text-muted" style="font-size:0.72rem;">Scoring matrix and generation breakdown</span>
+                            </span>
+                        </a></li>
+                    </ul>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Row 2 (secondary): narrow down what's shown -->
+        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
 
             {# Year level (client-side filter) #}
             {% if year_levels %}
@@ -560,21 +565,6 @@
                 </option>
                 {% endfor %}
             </select>
-            {% endif %}
-
-            {# View toggle #}
-            {% if active_trimester and entries %}
-            <div class="btn-group btn-group-sm ms-auto segmented-toggle">
-                <button type="button" onclick="navigate('list')"
-                        class="btn {% if view_mode == 'list' %}active{% endif %}">
-                    <i class="bi bi-list-ul me-1"></i>List
-                </button>
-                <button type="button" onclick="navigate('weekly')"
-                        class="btn {% if view_mode == 'weekly' %}active{% endif %}"
-                        {% if active_tri_num == 'all' %}disabled title="Select a specific trimester (not \'All Tri\') to use Weekly view"{% endif %}>
-                    <i class="bi bi-calendar-week me-1"></i>Weekly
-                </button>
-            </div>
             {% endif %}
 
         </div>
@@ -965,33 +955,7 @@
 </style>
 
 <script>
-var SIT_CAL = {{ sit_calendar | tojson }};
-
-function fillSingleDate() {
-    var ay  = (document.querySelector('#form-single [name=academic_year]').value || '').trim().toUpperCase();
-    var tri = document.querySelector('#form-single [name=trimester_num]').value;
-    var el  = document.getElementById('sd_single');
-    var src = document.getElementById('cal-source-single');
-    var cal = SIT_CAL[ay] || {};
-    if (el && tri && cal[tri]) {
-        el.value = cal[tri];
-        if (src) src.textContent = '· from official SIT calendar';
-    } else if (el && tri) {
-        if (src) src.textContent = '· not in calendar - enter manually';
-    }
-}
-
-function updateTrimKey() {
-    var ay  = (document.querySelector('#form-single [name=academic_year]').value || '').trim().toUpperCase();
-    var tri = document.querySelector('#form-single [name=trimester_num]').value;
-    var preview = document.getElementById('trim-key-preview');
-    if (preview) {
-        preview.textContent = ay && tri ? (ay + '-T' + tri) : (ay ? ay + '-T?' : '?');
-    }
-}
 document.addEventListener('DOMContentLoaded', function () {
-    updateTrimKey();
-    fillSingleDate();
     var modal = document.getElementById('sessionDetailModal');
     modal.addEventListener('show.bs.modal', function (event) {
         var el = event.relatedTarget;
