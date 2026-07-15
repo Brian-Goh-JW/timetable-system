@@ -3,14 +3,15 @@
 
 {% block content %}
 
-<div class="mb-4">
-    <a href="{{ url_for('admin.events') }}" class="text-decoration-none text-muted small">
-        <i class="bi bi-arrow-left me-1"></i>Back to Events
-    </a>
-    <h4 class="fw-semibold mt-2 mb-0">Add Event</h4>
-</div>
+<div class="mx-auto" style="max-width:700px">
+    <div class="mb-4">
+        <a href="{{ url_for('admin.events') }}" class="text-decoration-none text-muted small">
+            <i class="bi bi-arrow-left me-1"></i>Back to Events
+        </a>
+        <h4 class="fw-semibold mt-2 mb-0">Add Event</h4>
+    </div>
 
-<div class="card border-0 shadow-sm mx-auto" style="max-width:700px">
+    <div class="card border-0 shadow-sm">
     <div class="card-body p-4">
                 <form method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -128,6 +129,7 @@
                 </form>
             </div>
         </div>
+    </div>
 
 {% endblock %}
 
