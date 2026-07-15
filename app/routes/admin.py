@@ -259,10 +259,6 @@ def course_add():
         remarks = request.form.get('remarks', '').strip()
         official_year_range = request.form.get('official_year_range', '').strip()
 
-        session_type = request.form.get('session_type', '').strip().lower()
-        session_delivery_mode = request.form.get('session_delivery_mode', '').strip().lower()
-        duration_raw = request.form.get('duration_hours', '').strip()
-
         errors = []
         if not module_code:
             errors.append('Module Code is required.')
@@ -282,17 +278,6 @@ def course_add():
         if delivery_mode not in COURSE_DELIVERY_MODES:
             errors.append('Please select a delivery mode.')
 
-        if session_type not in SESSION_TYPES:
-            errors.append('Please select a session type for the first class session.')
-        if session_delivery_mode not in SESSION_DELIVERY_MODES:
-            errors.append('Please select a delivery mode for the first class session.')
-
-        duration_hours = None
-        if duration_raw.isdigit() and int(duration_raw) > 0:
-            duration_hours = int(duration_raw)
-        else:
-            errors.append('Session duration (hours) must be a positive whole number.')
-
         split_count = None
         if delivery_mode in ('f2f', 'hybrid') and split_count_raw.isdigit() and int(split_count_raw) > 0:
             split_count = int(split_count_raw)
@@ -310,28 +295,21 @@ def course_add():
         if errors:
             for e in errors:
                 flash(e, 'danger')
-            return render_template('admin/course_add.html', programmes=programmes,
-                                   session_types=SESSION_TYPES, form=form)
+            return render_template('admin/course_add.html', programmes=programmes, form=form)
 
         course = Course(
             programme_id=programme.id, module_code=module_code, title=title,
             year_level=year_level, trimester=trimester, delivery_mode=delivery_mode,
-            sessions_per_week=1, total_hours=duration_hours * 12, split_count=split_count,
+            sessions_per_week=1, total_hours=0, split_count=split_count,
             remarks=remarks or None, official_year_range=official_year_range or None,
         )
         db.session.add(course)
-        db.session.flush()
-        db.session.add(ClassSession(
-            course_id=course.id, session_type=session_type,
-            delivery_mode=session_delivery_mode, duration_hours=duration_hours,
-        ))
         db.session.commit()
 
-        flash(f'{module_code} added - assign a professor and student group below.', 'success')
+        flash(f'{module_code} added - add its first class session below.', 'success')
         return redirect(url_for('admin.course_sessions', course_id=course.id))
 
-    return render_template('admin/course_add.html', programmes=programmes,
-                           session_types=SESSION_TYPES, form=form)
+    return render_template('admin/course_add.html', programmes=programmes, form=form)
 
 
 @admin_bp.route('/courses/<int:course_id>/edit', methods=['GET', 'POST'])

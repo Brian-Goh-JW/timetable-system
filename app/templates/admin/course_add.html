@@ -8,7 +8,7 @@
         <i class="bi bi-arrow-left me-1"></i>Back to Modules
     </a>
     <h4 class="fw-semibold mt-2 mb-0">Add Module</h4>
-    <small class="text-muted">Creates a module and its first class session</small>
+    <small class="text-muted">Class sessions are added afterwards, on the module's Sessions page</small>
 </div>
 
 <div class="row">
@@ -92,41 +92,6 @@
                                placeholder="e.g. 2 - leave blank to set later">
                     </div>
 
-                    <hr class="my-4">
-                    <div class="fw-semibold mb-3">First Class Session</div>
-
-                    <div class="row">
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label fw-medium">
-                                Session Type <span class="text-danger">*</span>
-                            </label>
-                            <select class="form-select" name="session_type" required>
-                                <option value="" disabled {% if not form.get('session_type') %}selected{% endif %}>Select</option>
-                                {% for st in session_types %}
-                                <option value="{{ st }}" {% if form.get('session_type') == st %}selected{% endif %}>{{ st | capitalize }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label fw-medium">
-                                Delivery <span class="text-danger">*</span>
-                            </label>
-                            <select class="form-select" name="session_delivery_mode" required>
-                                <option value="" disabled {% if not form.get('session_delivery_mode') %}selected{% endif %}>Select</option>
-                                <option value="f2f" {% if form.get('session_delivery_mode') == 'f2f' %}selected{% endif %}>f2f</option>
-                                <option value="online" {% if form.get('session_delivery_mode') == 'online' %}selected{% endif %}>Online</option>
-                            </select>
-                        </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label fw-medium">
-                                Duration (hrs) <span class="text-danger">*</span>
-                            </label>
-                            <input type="number" class="form-control" name="duration_hours" min="1"
-                                   value="{{ form.get('duration_hours', '') }}"
-                                   placeholder="e.g. 2" required>
-                        </div>
-                    </div>
-
                     <div class="mb-4">
                         <label class="form-label fw-medium">
                             Remarks <span class="text-muted fw-normal">(optional)</span>
@@ -156,12 +121,14 @@
             </div>
             <div class="card-body small text-muted">
                 <p>
-                    This creates the module plus its first class session - unstaffed, with no student
-                    group yet. You'll assign those next, on the module's Sessions page.
+                    This creates the module itself - no class sessions yet. You'll land on the
+                    module's Sessions page next, where <strong>Add Session</strong> lets you add
+                    a Lecture, Tutorial, Lab, or any other session type whenever you're ready
+                    (one at a time, in any order).
                 </p>
                 <p class="mb-0">
-                    Need more than one session type (e.g. a Lecture and a Tutorial)? Add the first one
-                    here, then use <strong>Add Session</strong> on the Sessions page for the rest.
+                    A module with no sessions won't appear on any generated timetable - it just
+                    sits here until you add at least one.
                 </p>
             </div>
         </div>
