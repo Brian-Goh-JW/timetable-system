@@ -44,11 +44,9 @@
                 </div>
                 <div class="modal-body">
                     <p class="small text-muted">
-                        Upload a file downloaded from <strong>Download Current Data</strong> above, with your
-                        edits made inside it. Rows are matched by Group Label - existing labels update that
-                        group's Intake Size, new labels create a new top-level group. Sub-groups still need
-                        "Generate Sub-groups" on this page. If anything in the file fails validation, nothing
-                        is imported and you'll see exactly what to fix.
+                        Upload a file downloaded from <strong>Download Current Data</strong> above.
+                        Matched by Group Label - existing labels update Intake Size, new labels create a
+                        top-level group. Sub-groups aren't created here - use "Generate Sub-groups" below.
                     </p>
                     <input type="file" name="file" accept=".xlsx,.xls" class="form-control" required>
                 </div>
@@ -101,10 +99,9 @@
             <div class="d-flex justify-content-between align-items-start">
                 <div>
                     <span class="fw-semibold fs-6">{{ group.group_label }}</span>
-                    <span class="text-muted ms-2 small">
-                        {{ group.programme.code }} &mdash; Year {{ group.year_level }}
-                        &mdash; {{ group.intake_size }} students
-                    </span>
+                    <span class="badge bg-light text-dark border ms-2">{{ group.programme.code }}</span>
+                    <span class="badge bg-light text-dark border">Year {{ group.year_level }}</span>
+                    <span class="text-muted small ms-1">{{ group.intake_size }} students</span>
                     {% if group.sub_groups %}
                         <span class="badge bg-secondary ms-2">{{ group.sub_groups | length }} sub-groups</span>
                     {% else %}
@@ -175,9 +172,7 @@
                       class="d-flex align-items-center gap-2"
                       onsubmit="return confirm('{% if group.sub_groups %}This will replace existing sub-groups. Continue?{% else %}Generate sub-groups for {{ group.group_label }}?{% endif %}')">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <label class="form-label mb-0 small text-muted">
-                        {% if group.sub_groups %}Regenerate sub-groups:{% else %}Generate sub-groups:{% endif %}
-                    </label>
+                    <label class="form-label mb-0 small text-muted">Split into:</label>
                     <input type="number" name="num_subgroups" class="form-control form-control-sm"
                            style="width:80px;" min="2" max="26"
                            placeholder="e.g. 2"
@@ -188,8 +183,7 @@
                     </button>
                 </form>
                 <div class="form-text ms-1">
-                    Enter the number of f2f sub-groups to split this cohort into (e.g. 2 creates A and B).
-                    Each sub-group gets an equal share of the {{ group.intake_size }} students.
+                    Splits the {{ group.intake_size }} students evenly (e.g. 2 creates A and B).
                 </div>
             </div>
 
