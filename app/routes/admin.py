@@ -234,6 +234,41 @@ SESSION_TYPES = ('lecture', 'lab', 'seminar', 'tutorial', 'lectorial', 'workshop
 SESSION_DELIVERY_MODES = ('f2f', 'online')
 COURSE_DELIVERY_MODES = ('f2f', 'online', 'hybrid')
 
+# Template 2's "Group" column letter per session_type - confirmed from Ms Yang's
+# reference file (Lecture/Lectorial/Tutorial/Workshop/Quiz all observed directly
+# in real rows); Lab and Seminar have no real example in that file, so P and S
+# are a disclosed best-fit (P avoids colliding with Lecture's L; S matches
+# "Seminar" itself) rather than a confirmed convention.
+GROUP_LABEL_PREFIX = {
+    'lecture': 'L', 'lectorial': 'L', 'tutorial': 'T',
+    'lab': 'P', 'seminar': 'S', 'workshop': 'W', 'quiz': 'Q',
+}
+
+
+def _recompute_group_labels(course_id, session_type):
+    """Template 2's "Group" column: a letter (matching Class Type) + a
+    sequential number identifying which parallel split-section a session
+    belongs to - e.g. a Tutorial split into 4 parallel groups is T1/T2/T3/T4.
+    "All" means unsplit (the whole cohort attends together), and is what
+    every session defaulted to before this existed, since nothing ever
+    computed a real value. Quiz is the one confirmed exception - the
+    reference file always numbers it (Q1), never "All", even for a single
+    quiz group. Ordered by id for determinism. Called after anything that
+    changes how many sessions of one type a module has, so labels never
+    drift stale."""
+    siblings = (ClassSession.query
+                .filter_by(course_id=course_id, session_type=session_type)
+                .order_by(ClassSession.id)
+                .all())
+    if not siblings:
+        return
+    letter = GROUP_LABEL_PREFIX.get(session_type, 'X')
+    if len(siblings) == 1 and session_type != 'quiz':
+        siblings[0].group_label = 'All'
+    else:
+        for i, s in enumerate(siblings, start=1):
+            s.group_label = f'{letter}{i}'
+
 
 @admin_bp.route('/courses')
 @login_required
@@ -1640,7 +1675,17 @@ def course_sessions(course_id):
                 break  # Leave assigned sessions alone - admin must clear them manually
 
     if changed:
-        db.session.commit()
+        db.session.flush()
+
+    # Keep Template 2's "Group" column correct for every session type this
+    # module has - not just the f2f ones the split-sync above touches -
+    # since stale/garbage values from before this logic existed need fixing
+    # too, and this keeps it correct every time this page loads.
+    all_types = {s.session_type for s in
+                 ClassSession.query.filter_by(course_id=course.id).all()}
+    for stype in all_types:
+        _recompute_group_labels(course.id, stype)
+    db.session.commit()
 
     # Reload sessions after potential expansion
     sessions = (ClassSession.query
@@ -1722,6 +1767,8 @@ def course_session_add(course_id):
         course_id=course.id, session_type=session_type,
         delivery_mode=session_delivery_mode, duration_hours=int(duration_raw),
     ))
+    db.session.flush()
+    _recompute_group_labels(course.id, session_type)
     db.session.commit()
     flash(f'{session_type.capitalize()} session added to {course.module_code}.', 'success')
     return redirect(url_for('admin.course_sessions', course_id=course.id))
