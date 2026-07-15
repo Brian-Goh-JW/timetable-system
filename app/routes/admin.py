@@ -2897,6 +2897,21 @@ def system_info():
                      'still holds for every other class - these 5 are a disclosed, source-confirmed exception, not '
                      'a loosening of the rule generally.'},
         ]},
+        {'category': 'Template 2 "Group" Column Fixed - 2026-07-15', 'icon': 'bi-file-earmark-spreadsheet', 'color': 'red', 'kind': 'value', 'rows': [
+            {'label': 'Almost every exported class showed "Group: All", even genuinely split ones', 'value': '334 of 791 sessions corrected',
+             'note': 'The value was set by a regex that only matched the literal word "Group" inside a free-text '
+                     'Remarks cell - almost never present, so classes silently defaulted to "All" regardless of '
+                     'whether they were actually split into parallel sections. The rare real matches often grabbed '
+                     'garbage too (Remarks text that happened to contain "Group" followed by an unrelated word '
+                     'produced values like "ASSESSMENTS", "SETTING", "WORK", "PROJECTS"). Checked against Ms. '
+                     'Yang\'s own reference file to find the real convention (see "Group column letter per class '
+                     'type" below), then recomputed every session\'s value from real sibling counts - see '
+                     'bootstrap/39_fix_group_labels.py.'},
+            {'label': 'New sessions now get a correct Group value automatically', 'value': 'Wired into session creation',
+             'note': 'Recomputed any time the number of sessions of one type for a module changes - splitting via '
+                     'the Sessions page\'s split count, or adding a new session type - so this can\'t silently '
+                     'drift back to "All" for new data the way it did before.'},
+        ]},
     ]
 
     # Assumed / Self-Input Values - standing facts about how the system fills
@@ -2967,6 +2982,14 @@ def system_info():
             {'label': '"Term start week" column', 'value': 'Always set to 1',
              'note': 'Every exported row shows "1" here - it isn\'t calculated from the real calendar or term '
                      'break dates.'},
+            {'label': '"Group" column letter per class type', 'value': 'L / T / P / S / W / Q',
+             'note': 'Checked against Ms. Yang\'s own reference file: Lecture and Lectorial both use "L", '
+                     'Tutorial "T", Workshop "W", and Quiz "Q" - all confirmed directly from real rows in that '
+                     'file. Lab ("P") and Seminar ("S") have no real example there, so those two are a disclosed '
+                     'best-fit, not a confirmed convention: P avoids colliding with Lecture\'s "L", S matches '
+                     '"Seminar" itself. The number after the letter (e.g. T1, T2, T3) counts which parallel split '
+                     'of that class type this is - a class with only one (unsplit) session exports as "All", '
+                     'except Quiz, which the reference file always numbers even for a single quiz group.'},
         ]},
         {'category': 'Cross-Programme Coordination', 'icon': 'bi-diagram-3', 'color': 'red', 'kind': 'value', 'rows': [
             {'label': 'Classes shared across multiple programmes', 'value': f'{len(shared_groups_all)} shared group(s), {shared_sessions_linked} class(es) linked',
