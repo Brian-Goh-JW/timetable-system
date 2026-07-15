@@ -1,8 +1,9 @@
 """
 Pre-solve readiness checker.
 Returns (blockers, warnings) - only blockers prevent generation.
-The solver gracefully skips sessions with no professor or no student group,
-so those are warnings only.
+The solver still schedules sessions with no professor (blank staff field);
+it skips f2f sessions with no student group entirely. Both are warnings,
+not blockers.
 """
 
 from app.models.course import Course

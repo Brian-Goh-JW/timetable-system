@@ -115,6 +115,27 @@ def require_admin():
         abort(403)
 
 
+def _data_quality_gaps():
+    """Modules missing a split count, and sessions with no professor assigned -
+    shared by the Dashboard's Needs Attention panel and System Info's Data
+    Gaps tab so the two can't silently drift apart (found hand-duplicated in
+    both places, 2026-07-15)."""
+    from sqlalchemy import exists as sa_exists
+
+    has_session = sa_exists().where(ClassSession.course_id == Course.id)
+    courses_missing_split = Course.query.filter(
+        Course.delivery_mode.in_(['f2f', 'hybrid']),
+        Course.split_count.is_(None),
+        ~has_session,
+    ).order_by(Course.year_level, Course.module_code).all()
+
+    no_prof_sessions = ClassSession.query.filter(
+        ~sa_exists().where(ClassSessionProfessor.session_id == ClassSession.id)
+    ).all()
+
+    return courses_missing_split, no_prof_sessions
+
+
 # ---------------------------------------------------------------------------
 # Dashboard
 # ---------------------------------------------------------------------------
@@ -122,14 +143,7 @@ def require_admin():
 @admin_bp.route('/dashboard')
 @login_required
 def dashboard():
-    from sqlalchemy import exists as sa_exists
-    # Only flag courses that have NO sessions yet AND no split_count (mirrors checker.py logic)
-    _has_session = sa_exists().where(ClassSession.course_id == Course.id)
-    courses_missing_split = Course.query.filter(
-        Course.delivery_mode.in_(['f2f', 'hybrid']),
-        Course.split_count.is_(None),
-        ~_has_session,
-    ).order_by(Course.year_level, Course.module_code).all()
+    courses_missing_split, no_prof_sessions = _data_quality_gaps()
 
     stats = {
         'total_courses':         Course.query.count(),
@@ -180,10 +194,7 @@ def dashboard():
     # kind of information (things that need admin action) across several
     # always-visible cards, most of which show nothing most of the time.
     from app.engine.checker import get_blocking_issues
-    from app.models.class_session_professor import ClassSessionProfessor as _CSP
-    no_prof_count = ClassSession.query.filter(
-        ~sa_exists().where(_CSP.session_id == ClassSession.id)
-    ).count()
+    no_prof_count = len(no_prof_sessions)
     blockers, _warnings = get_blocking_issues()
     needs_attention = [
         {'label': 'Modules missing a split count', 'count': stats['courses_missing_split'],
@@ -272,9 +283,8 @@ def course_edit(course_id):
 # Student Groups above). Scoped to exactly what the Edit form already
 # supports - Title, Remarks, Split Count - since that's the only thing a
 # single Course can be edited to on this page; there's no "Add Course" form
-# either (courses are only ever created via bulk import: Template 1 or the
-# existing Admin Tools > Import modules importer), so new-row creation isn't
-# offered here - matching rows must already exist.
+# either (modules are only ever created via Template 1's bulk import), so
+# new-row creation isn't offered here - matching rows must already exist.
 # ---------------------------------------------------------------------------
 
 @admin_bp.route('/courses/export')
@@ -2454,16 +2464,7 @@ def system_info():
     courses_with_year_range = Course.query.filter(Course.official_year_range.isnot(None)).count()
 
     # ---- Assumptions / self-input data disclosure ------------------------
-    _has_session = sa_exists().where(ClassSession.course_id == Course.id)
-    courses_missing_split = Course.query.filter(
-        Course.delivery_mode.in_(['f2f', 'hybrid']),
-        Course.split_count.is_(None),
-        ~_has_session,
-    ).order_by(Course.year_level, Course.module_code).all()
-
-    no_prof_sessions = ClassSession.query.filter(
-        ~sa_exists().where(ClassSessionProfessor.session_id == ClassSession.id)
-    ).all()
+    courses_missing_split, no_prof_sessions = _data_quality_gaps()
 
     no_group_sessions = ClassSession.query.filter(
         ClassSession.delivery_mode == 'f2f',
@@ -2844,8 +2845,8 @@ def system_info():
     data_gap_groups = [
         {'category': 'Data Gaps', 'icon': 'bi-exclamation-triangle', 'color': 'amber', 'kind': 'count', 'rows': [
             {'label': 'Classes with no professor assigned', 'count': len(no_prof_sessions),
-             'note': 'These are skipped entirely - they won\'t appear on any generated timetable until a '
-                     'professor is assigned.'},
+             'note': 'Still scheduled - gets a room and time either way - but shows a blank staff field on '
+                     'the timetable and Template 2 export until a professor is assigned.'},
             {'label': 'In-person classes with no student group assigned', 'count': len(no_group_sessions),
              'note': 'Also skipped entirely until a group is assigned.'},
             {'label': 'Modules missing a group-split setting', 'count': len(courses_missing_split),
