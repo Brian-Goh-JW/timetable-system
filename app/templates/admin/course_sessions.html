@@ -177,6 +177,41 @@
     </div>
 </div>
 
+<!-- Add another session type (e.g. add a Tutorial to a module that only has a Lecture) -->
+<div class="card border-0 shadow-sm mt-3">
+    <div class="card-body py-3">
+        <form method="POST" action="{{ url_for('admin.course_session_add', course_id=course.id) }}"
+              class="d-flex align-items-end gap-2 flex-wrap">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div>
+                <label class="form-label mb-1 small text-muted">Session Type</label>
+                <select name="session_type" class="form-select form-select-sm" style="min-width:150px;" required>
+                    <option value="" disabled selected>Select</option>
+                    {% for st in session_types %}
+                    <option value="{{ st }}">{{ st | capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="form-label mb-1 small text-muted">Delivery</label>
+                <select name="session_delivery_mode" class="form-select form-select-sm" style="min-width:120px;" required>
+                    <option value="" disabled selected>Select</option>
+                    <option value="f2f">f2f</option>
+                    <option value="online">Online</option>
+                </select>
+            </div>
+            <div>
+                <label class="form-label mb-1 small text-muted">Duration (hrs)</label>
+                <input type="number" name="duration_hours" class="form-control form-control-sm"
+                       style="width:100px;" min="1" placeholder="e.g. 2" required>
+            </div>
+            <button type="submit" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-plus-lg me-1"></i>Add Session
+            </button>
+        </form>
+    </div>
+</div>
+
 <!-- Assignment status summary -->
 <div class="mt-3">
     {% set unassigned = sessions | selectattr('primary_professor', 'none') | list | length %}

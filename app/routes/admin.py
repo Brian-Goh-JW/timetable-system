@@ -230,11 +230,108 @@ def dashboard():
 # Courses
 # ---------------------------------------------------------------------------
 
+SESSION_TYPES = ('lecture', 'lab', 'seminar', 'tutorial', 'lectorial', 'workshop', 'quiz')
+SESSION_DELIVERY_MODES = ('f2f', 'online')
+COURSE_DELIVERY_MODES = ('f2f', 'online', 'hybrid')
+
+
 @admin_bp.route('/courses')
 @login_required
 def courses():
     all_courses = Course.query.order_by(Course.year_level, Course.module_code).all()
     return render_template('admin/courses.html', courses=all_courses)
+
+
+@admin_bp.route('/courses/add', methods=['GET', 'POST'])
+@login_required
+def course_add():
+    programmes = Programme.query.order_by(Programme.code).all()
+    form = request.form
+
+    if request.method == 'POST':
+        module_code = request.form.get('module_code', '').strip().upper()
+        title = request.form.get('title', '').strip()
+        prog_id_raw = request.form.get('programme_id', '').strip()
+        year_level_raw = request.form.get('year_level', '').strip()
+        trimester_raw = request.form.get('trimester', '').strip()
+        delivery_mode = request.form.get('delivery_mode', '').strip().lower()
+        split_count_raw = request.form.get('split_count', '').strip()
+        remarks = request.form.get('remarks', '').strip()
+        official_year_range = request.form.get('official_year_range', '').strip()
+
+        session_type = request.form.get('session_type', '').strip().lower()
+        session_delivery_mode = request.form.get('session_delivery_mode', '').strip().lower()
+        duration_raw = request.form.get('duration_hours', '').strip()
+
+        errors = []
+        if not module_code:
+            errors.append('Module Code is required.')
+        if not title:
+            errors.append('Module Title is required.')
+
+        programme = Programme.query.get(int(prog_id_raw)) if prog_id_raw.isdigit() else None
+        if not programme:
+            errors.append('Please select a programme.')
+
+        year_level = int(year_level_raw) if year_level_raw.isdigit() else None
+        if not year_level or year_level < 1:
+            errors.append('Please select a year level.')
+
+        trimester = int(trimester_raw) if trimester_raw.isdigit() else None
+
+        if delivery_mode not in COURSE_DELIVERY_MODES:
+            errors.append('Please select a delivery mode.')
+
+        if session_type not in SESSION_TYPES:
+            errors.append('Please select a session type for the first class session.')
+        if session_delivery_mode not in SESSION_DELIVERY_MODES:
+            errors.append('Please select a delivery mode for the first class session.')
+
+        duration_hours = None
+        if duration_raw.isdigit() and int(duration_raw) > 0:
+            duration_hours = int(duration_raw)
+        else:
+            errors.append('Session duration (hours) must be a positive whole number.')
+
+        split_count = None
+        if delivery_mode in ('f2f', 'hybrid') and split_count_raw.isdigit() and int(split_count_raw) > 0:
+            split_count = int(split_count_raw)
+
+        if not errors and programme:
+            existing = Course.query.filter_by(
+                module_code=module_code, programme_id=programme.id, trimester=trimester
+            ).first()
+            if existing:
+                errors.append(
+                    f'{module_code} already exists for {programme.code}'
+                    + (f' Trimester {trimester}' if trimester else '') + '.'
+                )
+
+        if errors:
+            for e in errors:
+                flash(e, 'danger')
+            return render_template('admin/course_add.html', programmes=programmes,
+                                   session_types=SESSION_TYPES, form=form)
+
+        course = Course(
+            programme_id=programme.id, module_code=module_code, title=title,
+            year_level=year_level, trimester=trimester, delivery_mode=delivery_mode,
+            sessions_per_week=1, total_hours=duration_hours * 12, split_count=split_count,
+            remarks=remarks or None, official_year_range=official_year_range or None,
+        )
+        db.session.add(course)
+        db.session.flush()
+        db.session.add(ClassSession(
+            course_id=course.id, session_type=session_type,
+            delivery_mode=session_delivery_mode, duration_hours=duration_hours,
+        ))
+        db.session.commit()
+
+        flash(f'{module_code} added - assign a professor and student group below.', 'success')
+        return redirect(url_for('admin.course_sessions', course_id=course.id))
+
+    return render_template('admin/course_add.html', programmes=programmes,
+                           session_types=SESSION_TYPES, form=form)
 
 
 @admin_bp.route('/courses/<int:course_id>/edit', methods=['GET', 'POST'])
@@ -1615,7 +1712,41 @@ def course_sessions(course_id):
                            sessions=sessions,
                            professors=professors,
                            group_choices=group_choices,
-                           compat_ts=compat_ts)
+                           compat_ts=compat_ts,
+                           session_types=SESSION_TYPES)
+
+
+@admin_bp.route('/courses/<int:course_id>/sessions/add', methods=['POST'])
+@login_required
+def course_session_add(course_id):
+    course = Course.query.get_or_404(course_id)
+
+    session_type = request.form.get('session_type', '').strip().lower()
+    session_delivery_mode = request.form.get('session_delivery_mode', '').strip().lower()
+    duration_raw = request.form.get('duration_hours', '').strip()
+
+    if session_type not in SESSION_TYPES:
+        flash('Please select a valid session type.', 'danger')
+        return redirect(url_for('admin.course_sessions', course_id=course.id))
+    if session_delivery_mode not in SESSION_DELIVERY_MODES:
+        flash('Please select a valid delivery mode.', 'danger')
+        return redirect(url_for('admin.course_sessions', course_id=course.id))
+    if not duration_raw.isdigit() or int(duration_raw) <= 0:
+        flash('Duration (hours) must be a positive whole number.', 'danger')
+        return redirect(url_for('admin.course_sessions', course_id=course.id))
+
+    existing = ClassSession.query.filter_by(course_id=course.id, session_type=session_type).first()
+    if existing:
+        flash(f'{course.module_code} already has a {session_type} session.', 'warning')
+        return redirect(url_for('admin.course_sessions', course_id=course.id))
+
+    db.session.add(ClassSession(
+        course_id=course.id, session_type=session_type,
+        delivery_mode=session_delivery_mode, duration_hours=int(duration_raw),
+    ))
+    db.session.commit()
+    flash(f'{session_type.capitalize()} session added to {course.module_code}.', 'success')
+    return redirect(url_for('admin.course_sessions', course_id=course.id))
 
 
 @admin_bp.route('/courses/<int:course_id>/sessions/<int:session_id>/assign',
