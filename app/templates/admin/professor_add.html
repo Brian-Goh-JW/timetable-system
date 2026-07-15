@@ -8,13 +8,10 @@
         <i class="bi bi-arrow-left me-1"></i>Back to Professors
     </a>
     <h4 class="fw-semibold mt-2 mb-0">Add Professor</h4>
-    <small class="text-muted">Creates a login account and professor profile</small>
 </div>
 
-<div class="row">
-    <div class="col-lg-6">
-        <div class="card border-0 shadow-sm">
-            <div class="card-body p-4">
+<div class="card border-0 shadow-sm" style="max-width:600px">
+    <div class="card-body p-4">
                 <form method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
@@ -81,21 +78,5 @@
                 </form>
             </div>
         </div>
-    </div>
-
-    <div class="col-lg-4 mt-3 mt-lg-0">
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white border-bottom fw-semibold">
-                <i class="bi bi-info-circle me-2 text-muted"></i>Note
-            </div>
-            <div class="card-body small text-muted">
-                <p class="mb-0">
-                    Creates a login the professor can use right away. Assign them to class
-                    sessions separately, under each module's Sessions page.
-                </p>
-            </div>
-        </div>
-    </div>
-</div>
 
 {% endblock %}

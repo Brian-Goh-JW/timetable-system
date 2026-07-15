@@ -10,10 +10,8 @@
     <h4 class="fw-semibold mt-2 mb-0">Add Room</h4>
 </div>
 
-<div class="row">
-    <div class="col-lg-5">
-        <div class="card border-0 shadow-sm">
-            <div class="card-body p-4">
+<div class="card border-0 shadow-sm" style="max-width:520px">
+    <div class="card-body p-4">
                 <form method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
@@ -67,7 +65,5 @@
                 </form>
             </div>
         </div>
-    </div>
-</div>
 
 {% endblock %}
