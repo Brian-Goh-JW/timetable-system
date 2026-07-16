@@ -1791,16 +1791,6 @@ def session_assign(course_id, session_id):
     primary_raw        = request.form.get('professor_id_primary', '').strip()
     co_raws            = [r.strip() for r in request.form.getlist('professor_id_co') if r.strip()]
 
-    def _parse_id(raw, label):
-        """Return (int_id, error_message). error_message is None on success."""
-        if not raw:
-            return None, None
-        try:
-            n = int(raw)
-        except ValueError:
-            return None, f'{label} was not a valid selection - please choose from the dropdown.'
-        return n, None
-
     errors = []
 
     group_id, err = _parse_id(student_group_raw, 'Student group')
@@ -1931,6 +1921,21 @@ def _slot_ok(ts, s):
     return ts.period_label.startswith('Lab') == (s.session_type == 'lab')
 
 
+def _parse_id(raw, label):
+    """Parse an optional numeric form field into (int_id, error_message).
+    error_message is None on success; int_id is None for a blank field.
+    Shared by every admin form route that accepts a dropdown-selected FK id,
+    since a bare int() crashes on a tampered/stale non-numeric value instead
+    of showing a clear error (input-error-prevention audit, 2026-07-16)."""
+    if not raw:
+        return None, None
+    try:
+        n = int(raw)
+    except ValueError:
+        return None, f'{label} was not a valid selection - please choose from the dropdown.'
+    return n, None
+
+
 def _check_week_conflicts(week_number, trimester, timeslot_id,
                           room_id, professor_id, student_group_id,
                           exclude_entry_id=None):
@@ -2045,20 +2050,40 @@ def timetable_edit_entry(entry_id):
     force_save  = False
 
     if request.method == 'POST':
-        new_ts_id   = request.form.get('timeslot_id', '').strip()
-        new_room_id = request.form.get('room_id', '').strip()
-        new_prof_id = request.form.get('professor_id', '').strip()
-        force_save  = request.form.get('force_save') == '1'
+        new_ts_id_raw   = request.form.get('timeslot_id', '').strip()
+        new_room_id_raw = request.form.get('room_id', '').strip()
+        new_prof_id_raw = request.form.get('professor_id', '').strip()
+        force_save      = request.form.get('force_save') == '1'
 
         errors = []
-        if not new_ts_id:
+        if not new_ts_id_raw:
             errors.append('Please select a timeslot.')
 
-        if not errors:
-            new_ts_id   = int(new_ts_id)
-            new_room_id = int(new_room_id) if new_room_id else None
-            new_prof_id = int(new_prof_id) if new_prof_id else None
+        new_ts_id, err = _parse_id(new_ts_id_raw, 'Timeslot')
+        if err:
+            errors.append(err)
+        new_room_id, err = _parse_id(new_room_id_raw, 'Room')
+        if err:
+            errors.append(err)
+        new_prof_id, err = _parse_id(new_prof_id_raw, 'Professor')
+        if err:
+            errors.append(err)
 
+        if not errors and new_ts_id is not None:
+            new_ts = TimeSlot.query.get(new_ts_id)
+            if new_ts is None:
+                errors.append('That timeslot no longer exists - please pick another.')
+            elif not _slot_ok(new_ts, session):
+                errors.append(
+                    f'{new_ts.day_of_week} {new_ts.period_label} does not match this '
+                    f'session\'s duration/type - it cannot be used here.'
+                )
+            if new_room_id is not None and Room.query.get(new_room_id) is None:
+                errors.append('That room no longer exists - please pick another.')
+            if new_prof_id is not None and Professor.query.get(new_prof_id) is None:
+                errors.append('That professor no longer exists - please pick another.')
+
+        if not errors:
             if not force_save:
                 conflicts = _check_week_conflicts(
                     week_number      = entry.week_number,
@@ -2099,7 +2124,7 @@ def timetable_edit_entry(entry_id):
 
                 entry.timeslot_id           = new_ts_id
                 entry.room_id               = new_room_id
-                entry.override_professor_id = new_prof_id if new_prof_id != session.professor_id else None
+                entry.override_professor_id = new_prof_id if new_prof_id != session.primary_professor_id else None
                 entry.is_manually_edited    = True
                 db.session.commit()
 
@@ -2149,20 +2174,40 @@ def timetable_edit_all_weeks(trimester, session_id):
     force_save  = False
 
     if request.method == 'POST':
-        new_ts_id   = request.form.get('timeslot_id', '').strip()
-        new_room_id = request.form.get('room_id', '').strip()
-        new_prof_id = request.form.get('professor_id', '').strip()
-        force_save  = request.form.get('force_save') == '1'
+        new_ts_id_raw   = request.form.get('timeslot_id', '').strip()
+        new_room_id_raw = request.form.get('room_id', '').strip()
+        new_prof_id_raw = request.form.get('professor_id', '').strip()
+        force_save      = request.form.get('force_save') == '1'
 
         errors = []
-        if not new_ts_id:
+        if not new_ts_id_raw:
             errors.append('Please select a timeslot.')
 
-        if not errors:
-            new_ts_id   = int(new_ts_id)
-            new_room_id = int(new_room_id) if new_room_id else None
-            new_prof_id = int(new_prof_id) if new_prof_id else None
+        new_ts_id, err = _parse_id(new_ts_id_raw, 'Timeslot')
+        if err:
+            errors.append(err)
+        new_room_id, err = _parse_id(new_room_id_raw, 'Room')
+        if err:
+            errors.append(err)
+        new_prof_id, err = _parse_id(new_prof_id_raw, 'Professor')
+        if err:
+            errors.append(err)
 
+        if not errors and new_ts_id is not None:
+            new_ts = TimeSlot.query.get(new_ts_id)
+            if new_ts is None:
+                errors.append('That timeslot no longer exists - please pick another.')
+            elif not _slot_ok(new_ts, session):
+                errors.append(
+                    f'{new_ts.day_of_week} {new_ts.period_label} does not match this '
+                    f'session\'s duration/type - it cannot be used here.'
+                )
+            if new_room_id is not None and Room.query.get(new_room_id) is None:
+                errors.append('That room no longer exists - please pick another.')
+            if new_prof_id is not None and Professor.query.get(new_prof_id) is None:
+                errors.append('That professor no longer exists - please pick another.')
+
+        if not errors:
             if not force_save:
                 for e in entries:
                     week_conflicts = _check_week_conflicts(
@@ -2205,7 +2250,7 @@ def timetable_edit_all_weeks(trimester, session_id):
                 for e in entries:
                     e.timeslot_id           = new_ts_id
                     e.room_id               = new_room_id
-                    e.override_professor_id = new_prof_id if new_prof_id != session.professor_id else None
+                    e.override_professor_id = new_prof_id if new_prof_id != session.primary_professor_id else None
                     e.is_manually_edited    = True
 
                 db.session.commit()
