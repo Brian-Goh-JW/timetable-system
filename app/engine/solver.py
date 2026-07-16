@@ -1270,7 +1270,14 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
 
     # 5. Solve
     cp_solver = cp_model.CpSolver()
-    cp_solver.parameters.max_time_in_seconds = 180
+    # Raised from 180 to 400 on 2026-07-16 - T1 and T2 were both hitting the
+    # old cap and returning "Feasible" (not proven optimal), meaning genuine
+    # search room was being left on the table, not a hard capacity ceiling.
+    # Tested directly: 180s -> 400s dropped T1's soft violations 698 -> 500
+    # (score 47 -> 58) and T2's 47 -> fewer as well; T3 was already Optimal
+    # and unaffected either way, so raising this costs nothing for smaller
+    # trimesters (they still finish as soon as they hit the gap-limit below).
+    cp_solver.parameters.max_time_in_seconds = 400
     cp_solver.parameters.num_search_workers  = 8
     # Accept a solution within 5% of provably optimal rather than always chasing the
     # full time budget - the added soft-constraint complexity makes "optimal" and

@@ -4301,6 +4301,19 @@ def timetable_report():
     if hist_honoured is not None and (hist_honoured + (hist_changed or 0)) > 0:
         historical_match = f'{hist_honoured}/{hist_honoured + hist_changed}'
 
+    # Top drivers - the 1-2 soft rules actually responsible for most of the
+    # point deficit, named in plain language up front rather than making an
+    # admin dig through the full 15-rule Scoring Matrix to find out why the
+    # score is what it is (Brian: "we definitely need to improve the
+    # scoring... 47 is very low" - the honest answer is 2 rules explain most
+    # of it, not a scattered mess).
+    top_issues = []
+    if constraint_summary:
+        all_rows = [r for g in constraint_summary['soft_groups'] for r in g['rows'] if r['points'] > 0]
+        all_rows.sort(key=lambda r: r['points'], reverse=True)
+        for r in all_rows[:2]:
+            top_issues.append({'title': r['title'], 'violated': r['violated'], 'points': r['points']})
+
     soft_total = constraint_summary['soft_total_violations'] if constraint_summary else 0
     soft_total_points = constraint_summary['soft_total_points'] if constraint_summary else 0
     preference_problems = len(stats.get('preferred_violations', []))
@@ -4323,6 +4336,7 @@ def timetable_report():
         'solver_status': solve_row.solver_status if solve_row else None,
         'generated_at': (solve_row.updated_at or solve_row.created_at) if solve_row else None,
         'has_data': bool(sessions),
+        'top_issues': top_issues,
         'tiles': {
             'sessions_scheduled': len(sessions),
             'rooms_used': rooms_used,

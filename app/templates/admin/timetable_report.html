@@ -99,10 +99,12 @@
             <strong>This timetable works.</strong> Every must-follow rule is satisfied -
             no professor double-booked, no room conflicts, nothing broken.
             The <strong>{{ report.score.value }}/100</strong> score below only tracks optional
-            preferences (like avoiding the first slot of the day) that couldn't all be honoured
-            because so many classes are competing for the same rooms and times - it is
-            <u>not</u> a correctness grade. A larger, busier trimester will always score lower
-            here than a small one, even though both are equally usable.
+            preferences, not correctness.
+            {% if report.top_issues %}
+            Most of the trade-off comes from just
+            {{ '2 rules' if report.top_issues|length > 1 else '1 rule' }}:
+            {% for issue in report.top_issues %}<strong>"{{ issue.title }}"</strong> ({{ issue.violated }} class{{ 'es' if issue.violated != 1 }} affected){% if not loop.last %} and {% endif %}{% endfor %}.
+            {% endif %}
         </div>
     </div>
 </div>
@@ -159,32 +161,12 @@
                 <dl class="row mb-0 small">
                     <dt class="col-6 text-muted">Solver status</dt>
                     <dd class="col-6"><span class="badge bg-success">{{ report.solver_status or 'Unknown' }}</span></dd>
-                    <dt class="col-6 text-muted">Hard constraints</dt>
-                    <dd class="col-6">
-                        {% if report.overview.hard_rule_count %}
-                        <span class="text-success">{{ report.overview.hard_rule_count }} rules - all satisfied</span>
-                        {% else %}-{% endif %}
-                    </dd>
-                    <dt class="col-6 text-muted">Soft constraints</dt>
-                    <dd class="col-6">
-                        {% if report.overview.soft_rule_count %}
-                        {{ report.tiles.soft_violations }} violated across {{ report.overview.soft_rule_count }} rules
-                        {% else %}-{% endif %}
-                    </dd>
                     <dt class="col-6 text-muted">Programmes covered</dt>
                     <dd class="col-6">{{ report.overview.programmes }}</dd>
                     <dt class="col-6 text-muted">Modules covered</dt>
                     <dd class="col-6">{{ report.overview.modules }}</dd>
                     <dt class="col-6 text-muted">Student groups covered</dt>
                     <dd class="col-6">{{ report.overview.student_groups }}</dd>
-                    {% if report.overview.historical_match %}
-                    <dt class="col-6 text-muted">
-                        Historical slot match
-                        <i class="bi bi-info-circle text-muted" style="font-size:0.7rem;"
-                           title="How many sessions landed in the same slot as last year's equivalent trimester (or DSC's real submitted timetable, where that applies). Not a universal quality signal - most programmes have no real timetable to match against, only the solver's own prior output."></i>
-                    </dt>
-                    <dd class="col-6">{{ report.overview.historical_match }}</dd>
-                    {% endif %}
                 </dl>
             </div>
         </div>
