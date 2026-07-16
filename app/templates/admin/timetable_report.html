@@ -56,14 +56,17 @@
             <option value="{{ t }}" {% if t == trimester %}selected{% endif %}>{{ t }}</option>
             {% endfor %}
         </select>
-        <a href="{{ url_for('admin.timetable', trimester=trimester, source='generated') }}"
-           class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-calendar-week me-1"></i>View Timetable
-        </a>
+        <div class="action-dropdown">
+            <a href="{{ url_for('admin.timetable', trimester=trimester, source='generated') }}" class="btn btn-sm">
+                <span class="icon-chip icon-chip-blue"><i class="bi bi-calendar-week"></i></span>View Timetable
+            </a>
+        </div>
         {% if report and report.has_data %}
-        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.print()">
-            <i class="bi bi-printer me-1"></i>Print / Save as PDF
-        </button>
+        <div class="action-dropdown">
+            <button type="button" class="btn btn-sm" onclick="window.print()">
+                <span class="icon-chip icon-chip-green"><i class="bi bi-printer"></i></span>Print / Save as PDF
+            </button>
+        </div>
         {% endif %}
     </form>
 </div>
