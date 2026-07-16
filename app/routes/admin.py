@@ -4910,8 +4910,18 @@ def timetable_export_template2():
     # Build slot map: cs.id → (timeslot | None, sorted_weeks_list, room | None)
     slot_map = {}
     for cs in all_sessions:
-        te_list = [e for e in cs.timetable_entries
-                   if not trimester_filter or e.trimester == trimester_filter]
+        te_list_all = [e for e in cs.timetable_entries
+                       if not trimester_filter or e.trimester == trimester_filter]
+        # Prefer solver-generated entries over backbone ones - mirrors the
+        # Timetable page's own default Source filter ("default to generated
+        # when backbone exists"). Backbone data is a soft preference the
+        # solver already used to bias its own result; once generation has
+        # run, the generated entry is the current schedule. Mixing both
+        # sources for the same session (found 2026-07-16) produced random
+        # blank Room1 cells and, for sessions where the solver picked a
+        # different day than backbone, a Tri Week list merged from both.
+        generated = [e for e in te_list_all if not e.is_backbone]
+        te_list = generated if generated else te_list_all
         if te_list:
             ts = te_list[0].timeslot
             weeks = sorted(set(e.week_number for e in te_list if e.week_number != 7))
