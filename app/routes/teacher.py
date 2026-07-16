@@ -222,13 +222,23 @@ def availability():
         reason          = request.form.get('reason', '').strip()
 
         errors = []
+        ts_id = None
         if not timeslot_id_raw:
             errors.append('Please select a timeslot.')
+        else:
+            try:
+                ts_id = int(timeslot_id_raw)
+            except ValueError:
+                errors.append('That timeslot was not a valid selection - please choose from the dropdown.')
+            else:
+                if TimeSlot.query.get(ts_id) is None:
+                    errors.append('That timeslot no longer exists - please refresh and try again.')
         if not reason:
             errors.append('Please provide a reason.')
+        elif len(reason) > 255:
+            reason = reason[:255]
 
         if not errors:
-            ts_id = int(timeslot_id_raw)
             existing = AvailabilityDeclaration.query.filter_by(
                 professor_id=prof.id,
                 timeslot_id=ts_id,
