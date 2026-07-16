@@ -240,10 +240,6 @@
     <div class="card-body">
         <div class="row g-4">
             <div class="col-md-6">
-                <div class="fw-semibold small text-uppercase text-muted mb-2">Source</div>
-                {% for row in report.breakdown.source %}{{ bar_row(row) }}{% endfor %}
-            </div>
-            <div class="col-md-6">
                 <div class="fw-semibold small text-uppercase text-muted mb-2">Day</div>
                 {% for row in report.breakdown.day %}{{ bar_row(row) }}{% endfor %}
             </div>

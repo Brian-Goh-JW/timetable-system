@@ -4233,13 +4233,19 @@ def timetable_report():
     )
 
     # One row per session (not one per week) for every count/breakdown below -
-    # a weekly class recurring 13 times must count once, not 13 times.
-    seen = set()
-    sessions = []
+    # a weekly class recurring 13 times must count once, not 13 times. Prefer
+    # the solver-generated entry over a backbone one when a session has both
+    # (mirrors the Template 2 export fix, 2026-07-16) - backbone is a soft
+    # preference the solver already used to bias its own result, not a
+    # second, competing "real" schedule; picking whichever happened to come
+    # back first from the DB could silently show a stale backbone day/time
+    # for the handful of sessions where the solver moved off it.
+    by_session = {}
     for e in all_entries:
-        if e.class_session_id not in seen:
-            seen.add(e.class_session_id)
-            sessions.append(e)
+        existing = by_session.get(e.class_session_id)
+        if existing is None or (existing.is_backbone and not e.is_backbone):
+            by_session[e.class_session_id] = e
+    sessions = list(by_session.values())
 
     def _count_by(key_fn, label_fn=None):
         counts = {}
@@ -4270,10 +4276,6 @@ def timetable_report():
     delivery_rows = _count_by(
         lambda e: e.class_session.delivery_mode,
         lambda k: {'f2f': 'Face-to-face', 'online': 'Online', 'hybrid': 'Hybrid'}.get(k, k.capitalize()),
-    )
-    source_rows = _count_by(
-        lambda e: e.is_backbone,
-        lambda k: 'Backbone (real timetable)' if k else 'Solver-generated',
     )
 
     rooms_used = len({e.room_id for e in sessions if e.room_id})
@@ -4378,7 +4380,6 @@ def timetable_report():
             'preference_problems': preference_problems,
         },
         'breakdown': {
-            'source': source_rows,
             'day': day_rows,
             'class_type': class_type_rows,
             'delivery_mode': delivery_rows,
