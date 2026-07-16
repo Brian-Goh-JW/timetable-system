@@ -2922,14 +2922,18 @@ def system_info():
                      'step after solving. Fixed by teaching the solver to avoid any day that would wipe out every '
                      'occurrence of a session before it ever picks one; 7 of the 17 were rescheduled onto a '
                      'working day automatically.'},
-            {'label': '10 quiz sessions reference a teaching week beyond the trimester\'s calendar', 'value': 'Now a visible warning, not a silent gap',
-             'note': 'A handful of sessions (mostly one-off quizzes) have teaching_weeks = 14 or 15, but this '
+            {'label': '10 sessions referenced a teaching week beyond the trimester\'s calendar', 'value': '10 removed, 1 replacement added',
+             'note': 'A handful of sessions (mostly one-off quizzes) had teaching_weeks = 14 or 15, but this '
                      'system\'s academic calendar model is fixed at 13 weeks per trimester - those weeks simply '
-                     'don\'t exist to schedule into. Previously this failed silently the same way as above; now it '
-                     'shows up explicitly in the Timetable page\'s "Sessions Skipped" panel. Left as a disclosed '
-                     'skip rather than extending the calendar model, since that assumption is used system-wide and '
-                     'changing it this close to the Template 2 deadline (19 July 2026) was judged too risky for '
-                     'too small a gain (10 of 565 sessions in the largest trimester).'},
+                     'don\'t exist to schedule into, and the new check above would only ever report them as '
+                     'skipped, never fix them (extending the calendar model itself was judged too risky this close '
+                     'to the Template 2 deadline, since it\'s a system-wide assumption). Confirmed with Brian these '
+                     'values were never real (matches the same conclusion bootstrap/29 already reached for other '
+                     'quiz sessions on 15 July) - removed all 10 via bootstrap/40. One of them, ASE2210, had '
+                     'ONLY these invalid sessions and nothing else, so removing them left the module with zero '
+                     'sessions, which blocks generation outright. Added one basic replacement Lecture session '
+                     '(bootstrap/41) - no hard constraints, same student group and standard weekly pattern every '
+                     'other lecture uses - so ASE2210 stays part of the output instead of silently disappearing.'},
         ]},
     ]
 
