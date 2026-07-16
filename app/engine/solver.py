@@ -513,6 +513,78 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     # Institutional blocked slots (applied to all sessions without a fixed pin)
     inst_blocked = _institutional_blocked_indices(timeslots)
 
+    # Calendar / public-holiday / cancelled-event lookups, computed up front
+    # (not just at entry-writing time) so the domain-building step below can
+    # steer sessions AWAY from a day that would silently wipe out every one
+    # of their occurrences. Found 2026-07-16: a session's day/time used to be
+    # chosen with zero awareness of PH/events - fine for a normal session
+    # with many teaching weeks (losing 1 week to a holiday is a minor, VISIBLE
+    # gap), but a session with only 1-3 sparse teaching weeks (a one-off quiz,
+    # for example) could have its single occurrence land on a blocked date and
+    # vanish entirely - reported as "scheduled" by the solver's own stats,
+    # invisible in every export including Template 2.
+    cal_weeks = _get_or_create_calendar(trimester, start_date, term_break_weeks)
+    non_break_weeks = [w for w in cal_weeks if not w.is_term_break]
+    if non_break_weeks:
+        ph_dates = _get_sg_holidays(non_break_weeks[0].start_date, non_break_weeks[-1].end_date)
+    else:
+        ph_dates = set()
+    from app.models.event import Event
+    event_filters = [Event.outcome == 'cancel']
+    if trimester_num is not None:
+        event_filters.append(db.or_(Event.trimester == None, Event.trimester == trimester_num))
+    if academic_year is not None:
+        event_filters.append(db.or_(Event.academic_year == None, Event.academic_year == academic_year))
+    cancel_events = Event.query.filter(*event_filters).all()
+    event_blocks = {}  # date -> set of blocked timeslot_ids (empty set = full day)
+    for ev in cancel_events:
+        if ev.event_date not in event_blocks:
+            event_blocks[ev.event_date] = set() if ev.is_full_day else set(ev.blocked_timeslot_ids)
+        else:
+            if ev.is_full_day:
+                event_blocks[ev.event_date] = set()
+            elif event_blocks[ev.event_date]:
+                event_blocks[ev.event_date].update(ev.blocked_timeslot_ids)
+    _day_offset = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
+
+    def _session_teaching_weeks_outside_calendar(session_obj):
+        """True if session_obj.teaching_weeks is set but none of those week
+        numbers exist in this trimester's actual (non-break) calendar - e.g.
+        a session pointing at week 14 when the trimester only runs 13 weeks.
+        Day-independent (unlike PH/event blocking), so checked once per
+        session rather than per candidate timeslot."""
+        if not session_obj.teaching_weeks:
+            return False
+        try:
+            allowed_weeks = {int(w) for w in session_obj.teaching_weeks.split(',') if w.strip()}
+        except ValueError:
+            return False
+        return not any(w.week_number in allowed_weeks for w in non_break_weeks)
+
+    def _all_occurrences_blocked(session_obj, ts):
+        """True if EVERY one of session_obj's teaching weeks lands on a public
+        holiday or cancelled event for timeslot ts - i.e. picking ts would
+        produce zero real TimetableEntry rows for this session."""
+        if not session_obj.teaching_weeks:
+            return False
+        try:
+            allowed_weeks = {int(w) for w in session_obj.teaching_weeks.split(',') if w.strip()}
+        except ValueError:
+            return False
+        relevant_weeks = [w for w in non_break_weeks if w.week_number in allowed_weeks]
+        if not relevant_weeks:
+            return False  # handled separately by _session_teaching_weeks_outside_calendar
+        day_offset = _day_offset.get(ts.day_of_week, 0)
+        for week in relevant_weeks:
+            d = week.start_date + timedelta(days=day_offset)
+            if d in ph_dates:
+                continue
+            blocked_ts = event_blocks.get(d)
+            if blocked_ts is not None and (not blocked_ts or ts.id in blocked_ts):
+                continue
+            return False  # at least one real occurrence survives on this day
+        return True
+
     compat_slots = {}   # session.id → [timeslot indices]
     no_timeslot_warnings = []   # sessions with genuinely zero matching time slots
     for s in sessions:
@@ -531,7 +603,26 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                 f'no time slot of this length exists in the system - skipped.'
             )
             continue
-        compat_slots[s.id] = compat
+        if _session_teaching_weeks_outside_calendar(s):
+            # Found 2026-07-16: some quiz sessions reference a teaching week
+            # (e.g. 14 or 15) that doesn't exist in this trimester's actual
+            # calendar (e.g. only 13 weeks) - can never produce a real entry
+            # no matter which day/room is picked, so this must be caught here
+            # rather than left to silently vanish after solving.
+            no_timeslot_warnings.append(
+                f'{s.course.module_code} ({s.session_type}) - teaching week(s) {s.teaching_weeks} '
+                f"fall outside this trimester's {len(non_break_weeks)}-week calendar - skipped."
+            )
+            continue
+        compat_after_calendar = [i for i in compat if not _all_occurrences_blocked(s, timeslots[i])]
+        if not compat_after_calendar:
+            no_timeslot_warnings.append(
+                f'{s.course.module_code} ({s.session_type}) - every candidate day/time falls on a '
+                f"public holiday or cancelled event for this session's teaching week(s) "
+                f'({s.teaching_weeks}) - skipped rather than silently producing zero sessions.'
+            )
+            continue
+        compat_slots[s.id] = compat_after_calendar
 
     if no_timeslot_warnings:
         sessions = [s for s in sessions if s.id in compat_slots]
@@ -1223,43 +1314,10 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     # 7. Write TimetableEntry records
     TimetableEntry.query.filter_by(trimester=trimester, is_backbone=False).delete()
 
-    cal_weeks = _get_or_create_calendar(trimester, start_date, term_break_weeks)
-    # Only skip full term breaks - public holiday weeks are handled per-session-day below
-    non_break_weeks = [w for w in cal_weeks if not w.is_term_break]
-
-    # Pre-compute SG holidays for precise per-day check
-    if non_break_weeks:
-        ph_dates = _get_sg_holidays(non_break_weeks[0].start_date,
-                                    non_break_weeks[-1].end_date)
-    else:
-        ph_dates = set()
-
-    # Load events for this trimester (cancel-outcome events block dates)
-    from app.models.event import Event
-    event_filters = [Event.outcome == 'cancel']
-    if trimester_num is not None:
-        # Match events with no trimester set (school-wide) OR events matching this trimester
-        event_filters.append(
-            db.or_(Event.trimester == None, Event.trimester == trimester_num)
-        )
-    if academic_year is not None:
-        # Match events with no AY set OR events matching this AY
-        event_filters.append(
-            db.or_(Event.academic_year == None, Event.academic_year == academic_year)
-        )
-    cancel_events = Event.query.filter(*event_filters).all()
-    # Build: date -> set of blocked timeslot_ids (empty set = full day block)
-    event_blocks = {}  # date -> set of ts_ids (empty = full day)
-    for ev in cancel_events:
-        if ev.event_date not in event_blocks:
-            event_blocks[ev.event_date] = set() if ev.is_full_day else set(ev.blocked_timeslot_ids)
-        else:
-            if ev.is_full_day:
-                event_blocks[ev.event_date] = set()  # full day override
-            elif event_blocks[ev.event_date]:  # only add if not already full day
-                event_blocks[ev.event_date].update(ev.blocked_timeslot_ids)
-
-    _day_offset = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
+    # cal_weeks / non_break_weeks / ph_dates / event_blocks / _day_offset were
+    # already computed above (step 2) so the domain-building step could steer
+    # sessions away from days that would wipe them out entirely - reused here
+    # unchanged rather than recomputed.
 
     entries = 0
     skipped_ph = 0

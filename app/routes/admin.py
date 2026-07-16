@@ -2912,6 +2912,25 @@ def system_info():
                      'the Sessions page\'s split count, or adding a new session type - so this can\'t silently '
                      'drift back to "All" for new data the way it did before.'},
         ]},
+        {'category': 'Template 2 Silent Scheduling Gaps Fixed - 2026-07-16', 'icon': 'bi-file-earmark-spreadsheet', 'color': 'red', 'kind': 'value', 'rows': [
+            {'label': 'Some sessions vanished from Template 2 with no explanation', 'value': '17 sessions in T1 affected, all now visible',
+             'note': 'The solver picked each session\'s day/time with zero awareness of public holidays or '
+                     'cancelled Events - fine for a normal weekly class (losing 1 of 13 weeks to a holiday is a '
+                     'minor, visible gap), but a session with only 1-3 sparse teaching weeks (a one-off quiz, for '
+                     'example) could have its single occurrence land on a blocked date and disappear entirely. '
+                     'The solver\'s own stats still reported it as "scheduled" - the loss happened silently, one '
+                     'step after solving. Fixed by teaching the solver to avoid any day that would wipe out every '
+                     'occurrence of a session before it ever picks one; 7 of the 17 were rescheduled onto a '
+                     'working day automatically.'},
+            {'label': '10 quiz sessions reference a teaching week beyond the trimester\'s calendar', 'value': 'Now a visible warning, not a silent gap',
+             'note': 'A handful of sessions (mostly one-off quizzes) have teaching_weeks = 14 or 15, but this '
+                     'system\'s academic calendar model is fixed at 13 weeks per trimester - those weeks simply '
+                     'don\'t exist to schedule into. Previously this failed silently the same way as above; now it '
+                     'shows up explicitly in the Timetable page\'s "Sessions Skipped" panel. Left as a disclosed '
+                     'skip rather than extending the calendar model, since that assumption is used system-wide and '
+                     'changing it this close to the Template 2 deadline (19 July 2026) was judged too risky for '
+                     'too small a gain (10 of 565 sessions in the largest trimester).'},
+        ]},
     ]
 
     # Assumed / Self-Input Values - standing facts about how the system fills
