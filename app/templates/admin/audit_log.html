@@ -6,10 +6,11 @@
 <div class="d-flex justify-content-end align-items-center mb-4">
     <div class="d-flex align-items-center gap-2">
         <span class="badge bg-secondary fs-6">{{ logs | length }} entries</span>
-        <a href="{{ url_for('admin.audit_log_export', trimester=active_trimester) }}"
-           class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-download me-1"></i>Export CSV
-        </a>
+        <div class="action-dropdown">
+            <a href="{{ url_for('admin.audit_log_export', trimester=active_trimester) }}" class="btn btn-sm">
+                <span class="icon-chip icon-chip-blue"><i class="bi bi-download"></i></span>Export CSV
+            </a>
+        </div>
     </div>
 </div>
 

@@ -3,9 +3,11 @@
 
 {% block content %}
 <div class="d-flex justify-content-end align-items-center mb-4">
-    <a href="{{ url_for('admin.data_import') }}" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-arrow-left me-1"></i>Back to Import
-    </a>
+    <div class="action-dropdown">
+        <a href="{{ url_for('admin.data_import') }}" class="btn btn-sm">
+            <span class="icon-chip icon-chip-blue"><i class="bi bi-arrow-left"></i></span>Back to Import
+        </a>
+    </div>
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
