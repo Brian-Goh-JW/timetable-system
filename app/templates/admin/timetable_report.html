@@ -33,12 +33,23 @@
     }
     .stat-tile .stat-value { font-size: 1.5rem; font-weight: 700; color: #0b0b0b; }
     .stat-tile .stat-label { font-size: 0.72rem; color: #52514e; text-transform: uppercase; letter-spacing: 0.03em; }
+
+    /* Print / Save-as-PDF - hide page chrome, force every collapsed section
+       open so the PDF captures the full report, not just what's currently
+       expanded on screen. */
+    @media print {
+        .navbar-sit, .no-print { display: none !important; }
+        .collapse { display: block !important; height: auto !important; overflow: visible !important; }
+        .collapse-chevron { display: none !important; }
+        .card { break-inside: avoid; box-shadow: none !important; border: 1px solid #ddd !important; }
+        a[href^="#"] { text-decoration: none; color: inherit; }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 
-<div class="d-flex justify-content-end align-items-center mb-4 flex-wrap gap-2">
+<div class="d-flex justify-content-end align-items-center mb-4 flex-wrap gap-2 no-print">
     <form method="GET" class="d-flex align-items-center gap-2">
         <select class="form-select select-glass" name="trimester" onchange="this.form.submit()">
             {% for t in trimesters %}
@@ -49,6 +60,11 @@
            class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-calendar-week me-1"></i>View Timetable
         </a>
+        {% if report and report.has_data %}
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.print()">
+            <i class="bi bi-printer me-1"></i>Print / Save as PDF
+        </button>
+        {% endif %}
     </form>
 </div>
 
@@ -110,6 +126,62 @@
 </div>
 {% endif %}
 
+<!-- Optimised score - the headline metric, right after the plain-language summary -->
+<div class="card glass-card animate-in mb-3">
+    <div class="card-header bg-transparent border-bottom fw-semibold">
+        <i class="bi bi-speedometer2 me-2 text-muted"></i>Optimised Score
+    </div>
+    <div class="card-body">
+        {% if not report.score.available %}
+        <div class="text-muted small">
+            <i class="bi bi-info-circle me-1"></i>
+            This trimester hasn't been generated since scoring was added, so there's no recorded
+            solve data to score. Click <strong>Re-generate Trimester</strong> on the Timetable page to
+            get a score.
+        </div>
+        {% else %}
+        <div class="d-flex align-items-center gap-3 mb-3">
+            <div class="fs-1 fw-bold
+                {% if report.score.value >= 80 %}text-success
+                {% elif report.score.value >= 50 %}text-warning
+                {% else %}text-danger{% endif %}">
+                {{ report.score.value }}<span class="fs-6 text-muted">/100</span>
+            </div>
+            <div class="small text-muted">
+                {% if report.score.value >= 80 %}Good - most preferences honoured.
+                {% elif report.score.value >= 50 %}Fair - some preferences traded off.
+                {% else %}Needs review - many preferences traded off.{% endif %}
+            </div>
+        </div>
+        <div class="small text-muted fw-semibold text-uppercase mb-2" style="font-size:0.7rem;">How this number is worked out</div>
+        <ol class="small mb-2 ps-3">
+            <li class="mb-1">
+                Every time an optional preference gets broken, it costs points - more important
+                preferences cost more per break.
+            </li>
+            <li class="mb-1">
+                This run: <strong>{{ report.score.soft_violations }}</strong> preference{{ 's' if report.score.soft_violations != 1 }}
+                broken, costing <strong>{{ report.score.soft_total_points }} points</strong> in total.
+            </li>
+            <li class="mb-1">
+                Divide by <strong>{{ report.tiles.sessions_scheduled }}</strong> sessions (so a
+                bigger trimester with more classes to check isn't punished just for its size):
+                <strong>{{ report.score.avg_weighted_penalty }}</strong> points per session, on average.
+            </li>
+            <li>
+                That average is placed on a 0-100 scale, where 0 points/session = 100 and
+                {{ report.score.ceiling }}+ points/session = 0.
+                <strong>{{ report.score.avg_weighted_penalty }} of {{ report.score.ceiling }} &rarr; {{ report.score.value }}/100.</strong>
+            </li>
+        </ol>
+        <div class="small text-muted" style="font-size:0.72rem;">
+            <i class="bi bi-info-circle me-1"></i>Self-defined score, not an official metric.
+            <a href="#scoring-matrix" class="ms-1">See every rule's own points below &darr;</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
 <!-- Stat tiles -->
 <div class="row g-3 mb-3 stagger row-cols-2 row-cols-md-4">
     <div class="col">
@@ -150,93 +222,36 @@
     </div>
 </div>
 
-<div class="row g-3 mb-3">
-    <!-- Run overview -->
-    <div class="col-lg-7">
-        <div class="card glass-card animate-in h-100">
-            <div class="card-header bg-transparent border-bottom fw-semibold">
-                <i class="bi bi-clipboard-data me-2 text-muted"></i>Run Overview
-            </div>
-            <div class="card-body">
-                <dl class="row mb-0 small">
-                    <dt class="col-6 text-muted">Solver status</dt>
-                    <dd class="col-6"><span class="badge bg-success">{{ report.solver_status or 'Unknown' }}</span></dd>
-                    <dt class="col-6 text-muted">Programmes covered</dt>
-                    <dd class="col-6">{{ report.overview.programmes }}</dd>
-                    <dt class="col-6 text-muted">Modules covered</dt>
-                    <dd class="col-6">{{ report.overview.modules }}</dd>
-                    <dt class="col-6 text-muted">Student groups covered</dt>
-                    <dd class="col-6">{{ report.overview.student_groups }}</dd>
-                </dl>
-            </div>
-        </div>
+<!-- Run overview -->
+<div class="card glass-card animate-in mb-3">
+    <div class="card-header bg-transparent border-bottom fw-semibold">
+        <i class="bi bi-clipboard-data me-2 text-muted"></i>Run Overview
     </div>
-
-    <!-- Optimised score -->
-    <div class="col-lg-5">
-        <div class="card glass-card animate-in h-100">
-            <div class="card-header bg-transparent border-bottom fw-semibold">
-                <i class="bi bi-speedometer2 me-2 text-muted"></i>Optimised Score
-            </div>
-            <div class="card-body">
-                {% if not report.score.available %}
-                <div class="text-muted small">
-                    <i class="bi bi-info-circle me-1"></i>
-                    This trimester hasn't been generated since scoring was added, so there's no recorded
-                    solve data to score. Click <strong>Re-generate Trimester</strong> on the Timetable page to
-                    get a score.
-                </div>
-                {% else %}
-                <div class="d-flex align-items-center gap-3 mb-3">
-                    <div class="fs-1 fw-bold
-                        {% if report.score.value >= 80 %}text-success
-                        {% elif report.score.value >= 50 %}text-warning
-                        {% else %}text-danger{% endif %}">
-                        {{ report.score.value }}<span class="fs-6 text-muted">/100</span>
-                    </div>
-                    <div class="small text-muted">
-                        {% if report.score.value >= 80 %}Good - most preferences honoured.
-                        {% elif report.score.value >= 50 %}Fair - some preferences traded off.
-                        {% else %}Needs review - many preferences traded off.{% endif %}
-                    </div>
-                </div>
-                <div class="small text-muted fw-semibold text-uppercase mb-2" style="font-size:0.7rem;">How this number is worked out</div>
-                <ol class="small mb-2 ps-3">
-                    <li class="mb-1">
-                        Every time an optional preference gets broken, it costs points - more important
-                        preferences cost more per break.
-                    </li>
-                    <li class="mb-1">
-                        This run: <strong>{{ report.score.soft_violations }}</strong> preference{{ 's' if report.score.soft_violations != 1 }}
-                        broken, costing <strong>{{ report.score.soft_total_points }} points</strong> in total.
-                    </li>
-                    <li class="mb-1">
-                        Divide by <strong>{{ report.tiles.sessions_scheduled }}</strong> sessions (so a
-                        bigger trimester with more classes to check isn't punished just for its size):
-                        <strong>{{ report.score.avg_weighted_penalty }}</strong> points per session, on average.
-                    </li>
-                    <li>
-                        That average is placed on a 0-100 scale, where 0 points/session = 100 and
-                        {{ report.score.ceiling }}+ points/session = 0.
-                        <strong>{{ report.score.avg_weighted_penalty }} of {{ report.score.ceiling }} &rarr; {{ report.score.value }}/100.</strong>
-                    </li>
-                </ol>
-                <div class="small text-muted" style="font-size:0.72rem;">
-                    <i class="bi bi-info-circle me-1"></i>Self-defined score, not an official metric.
-                    <a href="#scoring-matrix" class="ms-1">See every rule's own points below &darr;</a>
-                </div>
-                {% endif %}
-            </div>
-        </div>
+    <div class="card-body">
+        <dl class="row mb-0 small">
+            <dt class="col-6 col-md-3 text-muted">Solver status</dt>
+            <dd class="col-6 col-md-3"><span class="badge bg-success">{{ report.solver_status or 'Unknown' }}</span></dd>
+            <dt class="col-6 col-md-3 text-muted">Programmes covered</dt>
+            <dd class="col-6 col-md-3">{{ report.overview.programmes }}</dd>
+            <dt class="col-6 col-md-3 text-muted">Modules covered</dt>
+            <dd class="col-6 col-md-3">{{ report.overview.modules }}</dd>
+            <dt class="col-6 col-md-3 text-muted">Student groups covered</dt>
+            <dd class="col-6 col-md-3">{{ report.overview.student_groups }}</dd>
+        </dl>
     </div>
 </div>
 
-<!-- Scheduling breakdown -->
+<!-- Scheduling breakdown - supplementary detail, collapsed by default so it -->
+<!-- doesn't compete for attention with the score above -->
 <div class="card glass-card animate-in mb-3">
-    <div class="card-header bg-transparent border-bottom fw-semibold">
-        <i class="bi bi-bar-chart-steps me-2 text-muted"></i>Scheduling Breakdown
-        <span class="text-muted small fw-normal ms-2">Distribution of sessions across the generated timetable</span>
+    <div class="card-header bg-transparent border-bottom fw-semibold d-flex align-items-center gap-2"
+         style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#breakdownBody"
+         role="button" aria-expanded="false" aria-controls="breakdownBody">
+        <i class="bi bi-bar-chart-steps text-muted"></i>Scheduling Breakdown
+        <span class="text-muted small fw-normal">Distribution of sessions across the generated timetable</span>
+        <i class="bi bi-chevron-down text-muted collapse-chevron ms-auto"></i>
     </div>
+    <div class="collapse" id="breakdownBody">
     <div class="card-body">
         <div class="row g-4">
             <div class="col-md-6">
@@ -252,6 +267,7 @@
                 {% for row in report.breakdown.delivery_mode %}{{ bar_row(row) }}{% endfor %}
             </div>
         </div>
+    </div>
     </div>
 </div>
 
