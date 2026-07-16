@@ -35,6 +35,7 @@ def _save_solve_run(trimester, stats):
     Scheduling Report survive a server restart and don't depend on which
     process ran the solve."""
     import json
+    from datetime import datetime, timezone
     from app.models.solve_run import SolveRun
     row = SolveRun.query.filter_by(trimester=trimester).first()
     if row is None:
@@ -42,6 +43,7 @@ def _save_solve_run(trimester, stats):
         db.session.add(row)
     row.solver_status = stats.get('solver_status', 'Feasible')
     row.stats_json = json.dumps(stats)
+    row.updated_at = datetime.now(timezone.utc)
     db.session.commit()
 
 
@@ -185,7 +187,7 @@ def dashboard():
             'room_util_pct':      room_util,
             'profs_covered':      profs_covered,
             'is_published':       is_published,
-            'generated_at':       solve_row.created_at if solve_row else None,
+            'generated_at':       (solve_row.updated_at or solve_row.created_at) if solve_row else None,
         })
 
     kpis = trimester_status  # renamed conceptually to "per-trimester KPIs" - see template
@@ -4319,7 +4321,7 @@ def timetable_report():
     report = {
         'trimester': trimester,
         'solver_status': solve_row.solver_status if solve_row else None,
-        'generated_at': solve_row.created_at if solve_row else None,
+        'generated_at': (solve_row.updated_at or solve_row.created_at) if solve_row else None,
         'has_data': bool(sessions),
         'tiles': {
             'sessions_scheduled': len(sessions),

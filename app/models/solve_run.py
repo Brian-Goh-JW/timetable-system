@@ -16,6 +16,13 @@ class SolveRun(db.Model):
     stats_json    = db.Column(db.Text, nullable=False)                      # solve() stats dict, json-encoded
     created_at    = db.Column(db.DateTime, nullable=False,
                                default=lambda: datetime.now(timezone.utc))
+    # When this row's stats were last (re)written - since the row is
+    # upserted on every regenerate, created_at stays fixed at the FIRST
+    # generation forever. Reports must show updated_at, not created_at, or
+    # they display a stale date even though the numbers underneath are
+    # current (found 2026-07-16).
+    updated_at    = db.Column(db.DateTime, nullable=True,
+                               default=lambda: datetime.now(timezone.utc))
 
     def __repr__(self):
         return f'<SolveRun {self.trimester} {self.solver_status}>'
