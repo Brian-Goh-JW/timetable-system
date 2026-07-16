@@ -1287,7 +1287,17 @@ def student_group_add():
         intake_size  = request.form.get('intake_size', '').strip()
 
         errors = []
-        if not programme_id: errors.append('Programme is required.')
+        programme = None
+        if not programme_id:
+            errors.append('Programme is required.')
+        else:
+            try:
+                programme = Programme.query.get(int(programme_id))
+            except ValueError:
+                errors.append('Programme was not a valid selection - please choose from the dropdown.')
+            else:
+                if programme is None:
+                    errors.append('That programme no longer exists - please pick another.')
 
         try:
             year_level = int(year_level)
@@ -1305,7 +1315,6 @@ def student_group_add():
             errors.append('Intake size must be a positive number.')
             intake_size = ''
 
-        programme = Programme.query.get(int(programme_id)) if programme_id else None
         group_label = f'{programme.code}-Y{year_level}' if programme and year_level != '' else ''
 
         if group_label and StudentGroup.query.filter_by(group_label=group_label).first():
@@ -1318,7 +1327,7 @@ def student_group_add():
                                    programmes=programmes, form=request.form)
 
         group = StudentGroup(
-            programme_id=int(programme_id),
+            programme_id=programme.id,
             year_level=year_level,
             group_label=group_label,
             intake_size=intake_size,
