@@ -5008,6 +5008,20 @@ def timetable_export_template2():
         else:
             day_str = start_str = end_str = ''
 
+        # Remark - cross-programme shared-module note, matching Ms. Yang's
+        # reference file convention ("w <other linked module code>") for a
+        # class that's really one shared session under multiple programmes'
+        # own module numbering. Only set when we have a real SharedModuleGroup
+        # link - never guessed for ordinary, non-shared sessions.
+        remark = ''
+        if cs.shared_module_group_id:
+            other_mods = sorted({
+                s.course.module_code for s in cs.shared_module_group.class_sessions
+                if s.course.module_code != mod_code
+            })
+            if other_mods:
+                remark = 'w ' + ', '.join(other_mods)
+
         rows.append({
             'Module':                 mod_code,
             'Class Type':             T2_CLASS_TYPE.get(cs.session_type, cs.session_type.capitalize()),
@@ -5026,7 +5040,7 @@ def timetable_export_template2():
             'Staff2':                 staff2_name,
             'Tri Week':               weeks_str,
             'Recording Mode':         'A0' if cs.session_type == 'lectorial' else '',
-            'Remark':                 '',
+            'Remark':                 remark,
             'FMTS Tri Start Week':    1,
             'Activity Hostkey':       hostkey,
             'SIS Module Code':        sis_mod,
