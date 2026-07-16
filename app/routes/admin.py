@@ -1658,7 +1658,6 @@ def course_sessions(course_id):
                 session_type=stype,
                 delivery_mode='f2f',
                 duration_hours=sessions[0].duration_hours,
-                professor_id=None,
                 student_group_id=None,
             )
             db.session.add(new_session)
@@ -1669,7 +1668,7 @@ def course_sessions(course_id):
         # Only removes sessions that are fully unassigned with no timetable entries.
         while len(sessions) > target_count:
             last = sessions[-1]
-            if not last.professor_id and not last.student_group_id and not last.timetable_entries:
+            if not last.all_professor_ids and not last.student_group_id and not last.timetable_entries:
                 db.session.delete(last)
                 sessions.pop()
                 changed = True
@@ -1720,13 +1719,9 @@ def course_sessions(course_id):
         day_order.index(ts.day_of_week), ts.start_time
     ))
 
-    def _slot_ok(ts, s):
-        start_m = ts.start_time.hour * 60 + ts.start_time.minute
-        end_m   = ts.end_time.hour   * 60 + ts.end_time.minute
-        if (end_m - start_m) // 60 != s.duration_hours:
-            return False
-        return ts.period_label.startswith('Lab') == (s.session_type == 'lab')
-
+    # _slot_ok is a module-level helper (defined below, near the manual
+    # timetable-editing routes that also need it) - reused here so both
+    # places agree on what counts as a valid fixed-slot pin.
     compat_ts = {
         s.id: [ts for ts in all_timeslots if _slot_ok(ts, s)]
         for s in sessions
@@ -1780,37 +1775,100 @@ def course_session_add(course_id):
                 methods=['POST'])
 @login_required
 def session_assign(course_id, session_id):
+    """Assign a session's student group, fixed timeslot, and professor(s).
+    Validated in full BEFORE any write - this data feeds the solver
+    directly (fixed_timeslot_id becomes a hard pin), so a tampered or
+    stale form value must be rejected with a clear message rather than
+    crash, silently corrupt the session, or pin an incompatible slot
+    (found in a 2026-07-16 input-error-prevention audit - previously
+    every field here was cast with a bare int() and written straight to
+    the DB with no existence or compatibility check at all)."""
     from app.models.class_session_professor import ClassSessionProfessor
 
     session = ClassSession.query.get_or_404(session_id)
-    student_group_raw  = request.form.get('student_group_id', '').strip()
+    student_group_raw = request.form.get('student_group_id', '').strip()
     fixed_ts_raw       = request.form.get('fixed_timeslot_id', '').strip()
+    primary_raw        = request.form.get('professor_id_primary', '').strip()
+    co_raws            = [r.strip() for r in request.form.getlist('professor_id_co') if r.strip()]
 
-    session.student_group_id  = int(student_group_raw) if student_group_raw else None
-    session.fixed_timeslot_id = int(fixed_ts_raw)      if fixed_ts_raw      else None
+    def _parse_id(raw, label):
+        """Return (int_id, error_message). error_message is None on success."""
+        if not raw:
+            return None, None
+        try:
+            n = int(raw)
+        except ValueError:
+            return None, f'{label} was not a valid selection - please choose from the dropdown.'
+        return n, None
 
-    # Rebuild professor assignments from form
-    primary_raw   = request.form.get('professor_id_primary', '').strip()
-    co_raws       = request.form.getlist('professor_id_co')
+    errors = []
 
-    # Delete existing assignments
+    group_id, err = _parse_id(student_group_raw, 'Student group')
+    if err:
+        errors.append(err)
+    elif group_id is not None and StudentGroup.query.get(group_id) is None:
+        errors.append('That student group no longer exists - please pick another.')
+
+    fixed_ts_id, err = _parse_id(fixed_ts_raw, 'Fixed timeslot')
+    if err:
+        errors.append(err)
+    elif fixed_ts_id is not None:
+        ts = TimeSlot.query.get(fixed_ts_id)
+        if ts is None:
+            errors.append('That fixed timeslot no longer exists - please pick another.')
+        elif not _slot_ok(ts, session):
+            errors.append(
+                f'{ts.day_of_week} {ts.period_label} does not match this session\'s '
+                f'duration/type - it cannot be used as a fixed slot.'
+            )
+
+    primary_id, err = _parse_id(primary_raw, 'Primary professor')
+    if err:
+        errors.append(err)
+    elif primary_id is not None and Professor.query.get(primary_id) is None:
+        errors.append('That primary professor no longer exists - please pick another.')
+
+    co_ids = []
+    for co_raw in co_raws:
+        co_id, err = _parse_id(co_raw, 'Co-teacher')
+        if err:
+            errors.append(err)
+            continue
+        if Professor.query.get(co_id) is None:
+            errors.append('One of the selected co-teachers no longer exists - please review.')
+            continue
+        co_ids.append(co_id)
+
+    # Same professor can't be picked twice (as primary + co-teacher, or in
+    # two co-teacher rows) - would create duplicate/contradictory
+    # ClassSessionProfessor rows with no way to tell them apart.
+    all_prof_ids = ([primary_id] if primary_id is not None else []) + co_ids
+    if len(all_prof_ids) != len(set(all_prof_ids)):
+        errors.append('The same professor is selected more than once for this session.')
+
+    if errors:
+        for e in errors:
+            flash(e, 'danger')
+        return redirect(url_for('admin.course_sessions', course_id=course_id))
+
+    session.student_group_id  = group_id
+    session.fixed_timeslot_id = fixed_ts_id
+
     ClassSessionProfessor.query.filter_by(session_id=session.id).delete()
 
     order = 0
-    if primary_raw:
+    if primary_id is not None:
         db.session.add(ClassSessionProfessor(
-            session_id=session.id, professor_id=int(primary_raw),
+            session_id=session.id, professor_id=primary_id,
             is_primary=True, display_order=0
         ))
         order = 1
-    for co_raw in co_raws:
-        co_raw = co_raw.strip()
-        if co_raw:
-            db.session.add(ClassSessionProfessor(
-                session_id=session.id, professor_id=int(co_raw),
-                is_primary=False, display_order=order
-            ))
-            order += 1
+    for co_id in co_ids:
+        db.session.add(ClassSessionProfessor(
+            session_id=session.id, professor_id=co_id,
+            is_primary=False, display_order=order
+        ))
+        order += 1
 
     db.session.commit()
     flash('Session updated.', 'success')
