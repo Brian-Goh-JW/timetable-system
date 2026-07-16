@@ -5382,7 +5382,46 @@ def event_add():
 
         errors = []
         if not name:       errors.append('Event name is required.')
-        if not event_date: errors.append('Event date is required.')
+
+        from datetime import date as date_cls
+        parsed_date = None
+        if not event_date:
+            errors.append('Event date is required.')
+        else:
+            try:
+                parsed_date = date_cls.fromisoformat(event_date)
+            except ValueError:
+                errors.append('Event date was not a valid date - please use the date picker.')
+
+        if scope not in ('school_wide', 'programme', 'course'):
+            errors.append('Scope was not a valid selection - please choose from the dropdown.')
+        if outcome not in ('cancel', 'reschedule'):
+            errors.append('Outcome was not a valid selection - please choose from the dropdown.')
+
+        programme = None
+        if scope == 'programme' and not programme_id:
+            errors.append('Please select a programme, since this event\'s scope is programme-specific.')
+        if programme_id:
+            try:
+                programme = Programme.query.get(int(programme_id))
+            except ValueError:
+                errors.append('Programme was not a valid selection - please choose from the dropdown.')
+            else:
+                if programme is None:
+                    errors.append('That programme no longer exists - please pick another.')
+
+        trimester_num = None
+        if trimester:
+            try:
+                trimester_num = int(trimester)
+            except ValueError:
+                errors.append('Trimester was not a valid selection - please choose from the dropdown.')
+            else:
+                if trimester_num not in (1, 2, 3):
+                    errors.append('Trimester must be 1, 2, or 3.')
+
+        if not is_full_day and not timeslot_ids:
+            errors.append('Please select at least one timeslot, or mark this event as full-day.')
 
         if errors:
             for e in errors:
@@ -5390,17 +5429,16 @@ def event_add():
             return render_template('admin/event_add.html',
                                    programmes=programmes, timeslots=timeslots, form=request.form)
 
-        from datetime import date as date_cls
         ev = Event(
             name         = name,
             description  = description or None,
-            event_date   = date_cls.fromisoformat(event_date),
+            event_date   = parsed_date,
             is_full_day  = is_full_day,
             timeslot_ids = timeslot_ids if not is_full_day else None,
             scope        = scope,
-            programme_id = int(programme_id) if programme_id else None,
+            programme_id = programme.id if programme else None,
             outcome      = outcome,
-            trimester    = int(trimester) if trimester else None,
+            trimester    = trimester_num,
             academic_year= academic_year or None,
             is_recurring = is_recurring,
         )
