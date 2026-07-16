@@ -880,6 +880,12 @@ def student_add():
         if email and User.query.filter_by(email=email).first():
             errors.append(f'An account with email {email} already exists.')
 
+        group_id_num, err = _parse_id(group_id, 'Student group')
+        if err:
+            errors.append(err)
+        elif group_id_num is not None and StudentGroup.query.get(group_id_num) is None:
+            errors.append('That student group no longer exists - please pick another.')
+
         if errors:
             for e in errors:
                 flash(e, 'danger')
@@ -890,7 +896,7 @@ def student_add():
             name             = name,
             email            = email,
             role             = 'student',
-            student_group_id = int(group_id) if group_id else None,
+            student_group_id = group_id_num,
         )
         student.set_password(password)
         db.session.add(student)
@@ -926,6 +932,12 @@ def student_edit(user_id):
         if existing and existing.id != student.id:
             errors.append(f'Another account is already using {email}.')
 
+        group_id_num, err = _parse_id(group_id, 'Student group')
+        if err:
+            errors.append(err)
+        elif group_id_num is not None and StudentGroup.query.get(group_id_num) is None:
+            errors.append('That student group no longer exists - please pick another.')
+
         if errors:
             for e in errors:
                 flash(e, 'danger')
@@ -934,7 +946,7 @@ def student_edit(user_id):
 
         student.name             = name
         student.email            = email
-        student.student_group_id = int(group_id) if group_id else None
+        student.student_group_id = group_id_num
         if password:
             student.set_password(password)
             flash('Password has been reset.', 'info')
@@ -1885,8 +1897,15 @@ def declarations():
         decl_id         = request.form.get('decl_id', '').strip()
         constraint_type = request.form.get('constraint_type', '').strip()
 
-        if decl_id and constraint_type in ('strict', 'preferred'):
-            decl = AvailabilityDeclaration.query.get_or_404(int(decl_id))
+        decl_id_num = None
+        if decl_id:
+            try:
+                decl_id_num = int(decl_id)
+            except ValueError:
+                decl_id_num = None
+
+        if decl_id_num and constraint_type in ('strict', 'preferred'):
+            decl = AvailabilityDeclaration.query.get_or_404(decl_id_num)
             decl.constraint_type = constraint_type
             decl.status          = 'classified'
             db.session.commit()
