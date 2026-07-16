@@ -3239,6 +3239,16 @@ def system_info():
                      'explicitly marked f2f (in-person) about as often as online, row by row. The system trusts '
                      'each class\'s own stated delivery mode from the uploaded data instead of this blanket rule, '
                      'since the data itself is more specific and consistent than the general statement.'},
+            {'label': 'CVE3371A workshop has no Teaching Weeks value in the source file', 'count': 2,
+             'note': 'Checked directly against the CVE cleaned-data source file (found 2026-07-17): the Teaching '
+                     'Weeks column is blank for both CVE3371A rows, and for its f2f sibling CVE3371B too - not an '
+                     'import or parsing issue, the cell itself is empty. CVE3371B still gets scheduled normally '
+                     'because the solver treats a missing value as "every teaching week" for classes it actually '
+                     'schedules - but CVE3371A is Online-Asynchronous, which the solver deliberately never '
+                     'schedules at all (no room/time needed), so it never gets that same default and shows a '
+                     'blank Tri Week in the Template 2 export instead. Not fixed with a guessed value, same '
+                     'reasoning as the elective-overlap and "lectures fully online" gaps above - would need the '
+                     'real weeks pattern from Ms. Yang\'s team.'},
         ]},
     ]
 
