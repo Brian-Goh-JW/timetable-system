@@ -13,7 +13,7 @@
     {% endif %}
 {% endmacro %}
 
-{% macro assumption_group_card(group) %}
+{% macro assumption_group_card(group, uid) %}
 <div class="col-lg-6">
     <div class="card glass-card h-100">
         <div class="card-header bg-transparent border-bottom d-flex align-items-center gap-2">
@@ -30,7 +30,19 @@
                     <tr>
                         <td class="ps-3">
                             <div>{{ a.label }}</div>
-                            <div class="text-muted" style="font-size:0.78rem;">{{ a.note }}</div>
+                            {% if a.note %}
+                                {% if a.note | length > 90 %}
+                                <a class="text-muted text-decoration-none" data-bs-toggle="collapse"
+                                   href="#{{ uid }}-{{ loop.index }}" role="button" style="font-size:0.72rem;">
+                                    <i class="bi bi-chevron-right collapse-chevron" style="font-size:0.65rem;"></i> details
+                                </a>
+                                <div class="collapse" id="{{ uid }}-{{ loop.index }}">
+                                    <div class="text-muted mt-1" style="font-size:0.78rem;">{{ a.note }}</div>
+                                </div>
+                                {% else %}
+                                <div class="text-muted" style="font-size:0.78rem;">{{ a.note }}</div>
+                                {% endif %}
+                            {% endif %}
                         </td>
                         <td class="text-end pe-3" style="width:1%; white-space:nowrap;">
                             {% if group.kind == 'count' %}
@@ -169,7 +181,7 @@
     <div class="tab-pane fade show active" id="tab-gaps" role="tabpanel" aria-labelledby="tab-gaps-btn">
         <div class="row g-3 mb-4">
             {% for group in data_gap_groups %}
-                {{ assumption_group_card(group) }}
+                {{ assumption_group_card(group, 'gap-' ~ loop.index) }}
             {% endfor %}
         </div>
     </div>
@@ -201,7 +213,7 @@
     <div class="tab-pane fade" id="tab-assumed" role="tabpanel" aria-labelledby="tab-assumed-btn">
         <div class="row g-3 mb-4">
             {% for group in assumption_groups %}
-                {{ assumption_group_card(group) }}
+                {{ assumption_group_card(group, 'assumed-' ~ loop.index) }}
             {% endfor %}
         </div>
     </div>
@@ -209,7 +221,7 @@
     <div class="tab-pane fade" id="tab-changelog" role="tabpanel" aria-labelledby="tab-changelog-btn">
         <div class="row g-3 mb-4">
             {% for group in changelog_groups %}
-                {{ assumption_group_card(group) }}
+                {{ assumption_group_card(group, 'changelog-' ~ loop.index) }}
             {% endfor %}
         </div>
     </div>
