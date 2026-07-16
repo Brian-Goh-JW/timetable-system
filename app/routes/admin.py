@@ -2533,7 +2533,15 @@ _SOFT_STAT_MAP = {
 # Rules whose "result" is informational (a count with no pass/fail meaning,
 # e.g. day-spread instances or wasted seats) rather than a true violation -
 # these never cost score points even though they have a number attached.
-_SOFT_INFORMATIONAL_IDS = {'S5', 'S10', 'S-pref-ts', 'S-lec-tut', 'S-lec-lab'}
+_SOFT_INFORMATIONAL_IDS = {'S5', 'S10', 'S-pref-ts', 'S-lec-tut', 'S-lec-lab', 'S-hist'}
+# S-hist ("keep the same slot as last year") is backend-only machinery -
+# it exists purely to bias the solver toward DSC's real backbone timing
+# (see feedback_dsc_backbone.md), and only ever has a real target for a
+# handful of backbone-linked sessions (everyone else has no "last year" to
+# compare against at all). Counting it toward the score made it look like a
+# general scheduling-quality problem when it isn't one - Brian: "remember
+# backbone is backend? why is it in there" - made informational 2026-07-16
+# so it no longer drags the score down or appears as a "top driver".
 
 # Optimised Score calibration (see timetable_report()'s score calculation).
 # Each violation is weighted by the rule's own solver priority (not a flat
@@ -2572,8 +2580,9 @@ def _build_constraint_summary(stats):
                 continue  # S4 - no independent number, covered by S8
             soft_rule_count += 1
             result_text, violated = fn(stats)
-            total_violations += violated
             informational = r['id'] in _SOFT_INFORMATIONAL_IDS
+            if not informational:
+                total_violations += violated
             weight = live_weights.get(r['id']) or 0
             points = 0 if informational else violated * weight
             total_points += points

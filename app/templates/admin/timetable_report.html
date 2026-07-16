@@ -200,34 +200,30 @@
                         {% else %}Needs review - many preferences traded off.{% endif %}
                     </div>
                 </div>
-                <button class="btn btn-sm btn-outline-secondary w-100 mb-2" type="button"
-                        data-bs-toggle="collapse" data-bs-target="#scoreDetail" aria-expanded="false">
-                    <i class="bi bi-chevron-down me-1 collapse-chevron"></i>How this number was calculated
-                </button>
-                <div class="collapse" id="scoreDetail">
-                    <table class="table table-sm mb-2 small">
-                        <tbody>
-                            <tr><td>Hard conflicts</td><td class="text-end text-success">-{{ report.score.hard_conflicts }}</td></tr>
-                            <tr>
-                                <td>Soft violations, weighted by priority</td>
-                                <td class="text-end {% if report.score.soft_total_points > 0 %}text-warning{% else %}text-success{% endif %}">
-                                    {{ report.score.soft_total_points }} pts ({{ report.score.soft_violations }} violation{{ 's' if report.score.soft_violations != 1 }})
-                                </td>
-                            </tr>
-                            <tr>
-                                <td>Average weighted penalty per session</td>
-                                <td class="text-end {% if report.score.avg_weighted_penalty > 0 %}text-warning{% else %}text-success{% endif %}">
-                                    {{ report.score.avg_weighted_penalty }} / {{ report.score.ceiling }}
-                                </td>
-                            </tr>
-                            <tr><td>Preference declarations overridden</td><td class="text-end {% if report.score.preference_problems > 0 %}text-warning{% else %}text-success{% endif %}">{{ report.score.preference_problems }}</td></tr>
-                        </tbody>
-                    </table>
-                    <div class="small text-muted" style="font-size:0.72rem;">
-                        <i class="bi bi-info-circle me-1"></i>Self-defined score, not an official metric - weighted
-                        by each rule's priority and averaged per session.
-                        <a href="#scoring-matrix" class="ms-1">Full rule-by-rule breakdown below &darr;</a>
-                    </div>
+                <div class="small text-muted fw-semibold text-uppercase mb-2" style="font-size:0.7rem;">How this number is worked out</div>
+                <ol class="small mb-2 ps-3">
+                    <li class="mb-1">
+                        Every time an optional preference gets broken, it costs points - more important
+                        preferences cost more per break.
+                    </li>
+                    <li class="mb-1">
+                        This run: <strong>{{ report.score.soft_violations }}</strong> preference{{ 's' if report.score.soft_violations != 1 }}
+                        broken, costing <strong>{{ report.score.soft_total_points }} points</strong> in total.
+                    </li>
+                    <li class="mb-1">
+                        Divide by <strong>{{ report.tiles.sessions_scheduled }}</strong> sessions (so a
+                        bigger trimester with more classes to check isn't punished just for its size):
+                        <strong>{{ report.score.avg_weighted_penalty }}</strong> points per session, on average.
+                    </li>
+                    <li>
+                        That average is placed on a 0-100 scale, where 0 points/session = 100 and
+                        {{ report.score.ceiling }}+ points/session = 0.
+                        <strong>{{ report.score.avg_weighted_penalty }} of {{ report.score.ceiling }} &rarr; {{ report.score.value }}/100.</strong>
+                    </li>
+                </ol>
+                <div class="small text-muted" style="font-size:0.72rem;">
+                    <i class="bi bi-info-circle me-1"></i>Self-defined score, not an official metric.
+                    <a href="#scoring-matrix" class="ms-1">See every rule's own points below &darr;</a>
                 </div>
                 {% endif %}
             </div>
