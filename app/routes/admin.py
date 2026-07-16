@@ -2934,6 +2934,14 @@ def system_info():
                      'sessions, which blocks generation outright. Added one basic replacement Lecture session '
                      '(bootstrap/41) - no hard constraints, same student group and standard weekly pattern every '
                      'other lecture uses - so ASE2210 stays part of the output instead of silently disappearing.'},
+            {'label': '22 Year-3 ASE sessions had no student group at all - not even the group was missing, the whole cohort was', 'value': 'Created "ASE-Y3" group, intake 55 (estimated)',
+             'note': 'ASE3106/3108/3109/3110 (all Trimester 1) had zero sessions with a student_group_id set. Unlike '
+                     'ASE2210 (where a real ASE-Y2 group already existed to attach), there was no ASE-Y3 group '
+                     'anywhere in the system to begin with - ASE only had Y1 (75 students) and Y2 (62 students). '
+                     'Without a group the solver can\'t size a room, so it deliberately skips the class rather than '
+                     'guess (previously shown as a "no student group" warning). Confirmed with Brian: create the '
+                     'group so these 22 sessions get scheduled. intake_size=55 is a disclosed ESTIMATE, not real '
+                     'data - continues ASE\'s observed Y1->Y2 decline, not measured. See bootstrap/44.'},
         ]},
     ]
 
