@@ -5288,6 +5288,30 @@ def timetable_export_template2():
             staff_ws.cell(row_idx, 1, prof.user.name)
             staff_ws.cell(row_idx, 2, prof.staff_id)
 
+    # 'Sheet2' and 'Sheet3' are ALSO real SIT-wide staff directories (found
+    # 2026-07-18, one export cycle after the 'Staff' sheet fix above - same
+    # kind of leak, real names + real staff IDs, just hiding under generic
+    # unlabelled sheet names I hadn't checked yet: 2,066 and 1,413 real
+    # records respectively, covering staff across the whole university, not
+    # just this system's professors). Same treatment as 'Staff': clear and
+    # rebuild from only the professors that actually appear here, using
+    # their existing mock staff_id. Only Name/Host Key are populated - the
+    # richer columns these sheets have (Email, Department, Shared With,
+    # Primary/Other Suitabilities, Contract/Maximum Periods) are Ms. Yang's
+    # own facilities-scheduling fields with no equivalent data on our side,
+    # left blank rather than guessed.
+    for sheet_name in ('Sheet2', 'Sheet3'):
+        if sheet_name not in wb.sheetnames:
+            continue
+        extra_ws = wb[sheet_name]
+        if extra_ws.max_row > 1:
+            extra_ws.delete_rows(2, extra_ws.max_row - 1)
+        for row_idx, prof in enumerate(
+            Professor.query.join(Professor.user).order_by(User.name).all(), start=2
+        ):
+            extra_ws.cell(row_idx, 1, prof.user.name)
+            extra_ws.cell(row_idx, 2, prof.staff_id)
+
     # The base template's 'Location' lookup sheet only lists Ms. Yang's own
     # Dover-campus venues (e.g. 'DV-AP-LT1A') - none of this system's real
     # Punggol-campus room codes (e.g. 'E2-01-01') are in it at all, so a
