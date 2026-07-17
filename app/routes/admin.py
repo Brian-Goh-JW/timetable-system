@@ -5259,6 +5259,29 @@ def timetable_export_template2():
             staff_ws.cell(row_idx, 1, prof.user.name)
             staff_ws.cell(row_idx, 2, prof.staff_id)
 
+    # The base template's 'Location' lookup sheet only lists Ms. Yang's own
+    # Dover-campus venues (e.g. 'DV-AP-LT1A') - none of this system's real
+    # Punggol-campus room codes (e.g. 'E2-01-01') are in it at all, so a
+    # downstream system validating Room1 against this sheet would reject
+    # every single row (found 2026-07-18). Ms. Yang's own Dover rows are left
+    # untouched (real venue data, not confidential, and may still be needed
+    # elsewhere) - this only appends our own rooms so they're recognised too.
+    # Only Name/Host Key/Capacity are populated from data this system
+    # actually has; Department/Zone/Suitabilities/etc are Ms. Yang's own
+    # facilities-management fields with no equivalent here, left blank rather
+    # than guessed (see System Info for the disclosure). 18 of these rooms
+    # use a bracketed placeholder code (e.g. '[CVE-Lab-1]') rather than a
+    # real physical room number - included since they're genuinely what
+    # appears in Room1, but they are NOT real bookable venues.
+    if 'Location' in wb.sheetnames:
+        loc_ws = wb['Location']
+        next_row = loc_ws.max_row + 1
+        for room in Room.query.filter_by(is_active=True).order_by(Room.room_code).all():
+            loc_ws.cell(next_row, 1, room.room_code)
+            loc_ws.cell(next_row, 2, room.room_code)
+            loc_ws.cell(next_row, 3, str(room.capacity))
+            next_row += 1
+
     # Clear existing data rows (keep header row 1 with its formatting).
     if ws.max_row > 1:
         ws.delete_rows(2, ws.max_row - 1)
