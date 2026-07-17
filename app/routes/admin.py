@@ -3249,6 +3249,13 @@ def system_info():
                      'blank Tri Week in the Template 2 export instead. Not fixed with a guessed value, same '
                      'reasoning as the elective-overlap and "lectures fully online" gaps above - would need the '
                      'real weeks pattern from Ms. Yang\'s team.'},
+            {'label': 'Template 2 Location sheet: 18 rooms use a placeholder code, not a real venue', 'count': 18,
+             'note': 'The Location lookup sheet added to Template 2 (2026-07-18, so Room1 codes resolve against '
+                     'it) includes every active room in this system, but 18 of them are internal placeholders '
+                     'like "[CVE-Lab-1]" - used when a real lab room code was never given for that programme, '
+                     'not an actual bookable venue. Also, only Name/Host Key/Capacity are populated for every '
+                     'room - Department, Zone, and the other facilities-management columns are Ms. Yang\'s own '
+                     'fields with no equivalent source data on our side, left blank rather than guessed.'},
         ]},
     ]
 
