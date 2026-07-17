@@ -23,6 +23,11 @@ class ClassSession(db.Model):
     shared_module_group_id = db.Column(db.Integer, db.ForeignKey('shared_module_groups.id'), nullable=True)
     # ^ set when this session must be scheduled together with other programmes'
     # sessions for "the same" module (see SharedModuleGroup) - same room+slot, combined capacity.
+    deferred_from_solve = db.Column(db.Boolean, nullable=False, default=False)
+    # ^ True = temporarily excluded from CP-SAT generation for this trimester
+    # (see bootstrap/48) - not a data gap, a deliberate scope decision
+    # disclosed on System Info, reversible by clearing the flag once a
+    # follow-up generation pass covers this session's programme too.
 
     course             = db.relationship('Course',    backref='class_sessions')
     student_group      = db.relationship('StudentGroup', backref='class_sessions')

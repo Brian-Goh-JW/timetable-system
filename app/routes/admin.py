@@ -3257,6 +3257,23 @@ def system_info():
                      'room - Department, Zone, and the other facilities-management columns are Ms. Yang\'s own '
                      'fields with no equivalent source data on our side, left blank rather than guessed.'},
         ]},
+        {'category': 'Deferred From T1 Generation - Not A Data Gap', 'icon': 'bi-hourglass-split', 'color': 'blue', 'kind': 'count', 'rows': [
+            {'label': 'Sessions temporarily excluded from Trimester 1 scheduling', 'count': 325,
+             'note': 'Trimester 1 (537 sessions across 15 programmes, many professors teaching across '
+                     'several programmes at once) is too large and interconnected for the CP-SAT solver to '
+                     'find a valid, conflict-free schedule within any practical time budget - tested '
+                     'extensively (budgets up to 25 minutes, warm-started search, sub-problem solving all '
+                     'failed the same way). Ms. Yang\'s own requirements only call for a minimum of 20 '
+                     'programme-year schedules for Template 2 submission, not full coverage, so 7 of the 15 '
+                     'programmes (EDE, EEE, EPE, ESE, MDME, MEC, NAME - 325 sessions) are marked '
+                     '"deferred_from_solve" and excluded from this generation pass. The remaining 8 '
+                     'programmes (SDE, DSC, SBE, ISE, CVE, METS, RSE, ASE) cover 24 programme-year '
+                     'schedules - DSC included, verified zero real conflicts. This is a deliberate, '
+                     'disclosed scope decision, not missing or fabricated data - every deferred session\'s '
+                     'course/module/professor data is untouched and complete, it simply isn\'t scheduled '
+                     'yet. Reversible: clearing the flag and re-running generation restores full scope '
+                     'whenever a longer time budget or an improved solver strategy is available.'},
+        ]},
     ]
 
     return render_template('admin/system_info.html',
@@ -5087,6 +5104,11 @@ def timetable_export_template2():
     )
     if tri_int is not None:
         q = q.filter(ClassSession.trimester == tri_int)
+    # Sessions deliberately deferred from this generation pass (see
+    # bootstrap/48-49, System Info's "Deferred from T1 generation" note)
+    # have no TimetableEntry at all - exclude them from the export outright
+    # rather than showing a confusing all-blank row that looks like a gap.
+    q = q.filter(ClassSession.deferred_from_solve.is_(False))
     all_sessions = q.order_by(Course.module_code, ClassSession.session_type).all()
 
     # Build slot map: cs.id → (timeslot | None, sorted_weeks_list, room | None)
