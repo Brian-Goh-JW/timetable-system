@@ -5240,6 +5240,25 @@ def timetable_export_template2():
     wb = openpyxl.load_workbook(base_path)
     ws = wb['Timetable']
 
+    # The base template's 'Staff' lookup sheet (used for the Staff1/Staff2
+    # dropdown validation) ships with Ms. Yang's own full SIT staff directory
+    # (~2,300 real names + real staff IDs) - copied through unmodified by
+    # every export until now, even after staff_id was mocked on the
+    # Timetable data sheet itself (2026-07-17: "replace all of the staff id
+    # with mock id" - real IDs flagged as likely NDA/confidential). Replace
+    # its contents with only the staff who actually appear in this system,
+    # using the same mock IDs already on their Professor record, instead of
+    # carrying through ~2,000 unrelated real staff records with real IDs.
+    if 'Staff' in wb.sheetnames:
+        staff_ws = wb['Staff']
+        if staff_ws.max_row > 1:
+            staff_ws.delete_rows(2, staff_ws.max_row - 1)
+        for row_idx, prof in enumerate(
+            Professor.query.join(Professor.user).order_by(User.name).all(), start=2
+        ):
+            staff_ws.cell(row_idx, 1, prof.user.name)
+            staff_ws.cell(row_idx, 2, prof.staff_id)
+
     # Clear existing data rows (keep header row 1 with its formatting).
     if ws.max_row > 1:
         ws.delete_rows(2, ws.max_row - 1)
