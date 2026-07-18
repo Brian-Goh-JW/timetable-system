@@ -5010,30 +5010,48 @@ def timetable_export():
             dc.border = BORDER
 
             col = 2
+            max_stack = 1
             for day, start, end, period in col_slots:
                 cell_entries = cell_map.get((wk, day, start), [])
                 if cell_entries:
-                    e = cell_entries[0]
-                    cs  = e.class_session
-                    crs = cs.course
-                    prof = (e.override_professor.user.name if e.override_professor
-                            else (cs.primary_professor.user.name if cs.primary_professor else ''))
-                    room = e.room.room_code if e.room else 'Online'
-                    text = f'{crs.module_code}\n{cs.session_type.capitalize()}\n{room}'
-                    if prof:
-                        text += f'\n{prof}'
-                    colour = TYPE_COLOURS.get(cs.session_type, DEFAULT_COLOUR)
+                    # More than one class can legitimately land in the same
+                    # slot here (two parallel sections of the same cohort
+                    # meeting simultaneously in different rooms) - list every
+                    # one, separated by a divider, instead of keeping only
+                    # the first and silently dropping the rest (found
+                    # 2026-07-18: was dropping up to 69% of a sheet's classes
+                    # when this grid covered a whole year level across every
+                    # programme at once - scoping below to one sheet per
+                    # programme+year cuts collisions to a handful of genuine
+                    # parallel sections, so this loop is now a safety net,
+                    # not the main case).
+                    max_stack = max(max_stack, len(cell_entries))
+                    blocks = []
+                    colour = None
+                    for e in cell_entries:
+                        cs  = e.class_session
+                        crs = cs.course
+                        prof = (e.override_professor.user.name if e.override_professor
+                                else (cs.primary_professor.user.name if cs.primary_professor else ''))
+                        room = e.room.room_code if e.room else 'Online'
+                        block = f'{crs.module_code}\n{cs.session_type.capitalize()}\n{room}'
+                        if prof:
+                            block += f'\n{prof}'
+                        blocks.append(block)
+                        if colour is None:
+                            colour = TYPE_COLOURS.get(cs.session_type, DEFAULT_COLOUR)
+                    text = '\n---\n'.join(blocks)
                     fill = PatternFill('solid', fgColor=colour)
                     c = ws.cell(data_row, col, text)
                     c.fill = fill
                     c.font = SMALL
                     c.alignment = LEFT
                     c.border = BORDER
-                    ws.row_dimensions[data_row].height = 52
                 else:
                     c = ws.cell(data_row, col, '')
                     c.border = BORDER
                 col += 1
+            ws.row_dimensions[data_row].height = 52 * max_stack
 
             # Second sub-row for date label already written; border remaining cells
             for col2 in range(2, col):
@@ -5046,21 +5064,31 @@ def timetable_export():
     wb = openpyxl.Workbook()
     wb.remove(wb.active)  # remove default sheet
 
-    # Group entries by trimester then year level
+    # One sheet per trimester + programme + year level, not per year level
+    # across every programme at once - a shared year level (e.g. "Y1") spans
+    # many different programmes, most of which run at the same handful of
+    # popular timeslots, so a year-wide grid was mostly simultaneous classes
+    # from OTHER programmes competing for the same cells (found 2026-07-18:
+    # up to 69% of a T1 Y1 sheet's classes were being silently dropped down
+    # to "whichever one happened to be first"). Scoping to one programme's
+    # own cohort makes genuine same-cell collisions rare - they only happen
+    # now for a real parallel split (two sections of the same cohort meeting
+    # at once in different rooms), which the cell-stacking above still
+    # displays in full rather than dropping.
     from collections import defaultdict
-    tri_year_map = defaultdict(lambda: defaultdict(list))
+    groups = defaultdict(list)
     for e in entries:
-        yr = e.class_session.course.year_level or 0
-        tri_year_map[e.trimester][yr].append(e)
+        crs = e.class_session.course
+        prog = crs.programme.code if crs.programme else 'Other'
+        yr = crs.year_level or 0
+        groups[(e.trimester, prog, yr)].append(e)
 
-    for tri_key in sorted(tri_year_map.keys()):
-        yr_map = tri_year_map[tri_key]
-        for yr in sorted(yr_map.keys()):
-            sheet_entries = yr_map[yr]
-            yr_label = f'Y{yr}' if yr else 'All'
-            short_tri = tri_key.replace('AY', '').replace('-T', ' T')
-            sheet_title = f'{short_tri} {yr_label}'[:31]  # Excel limit
-            _make_sheet(wb, sheet_title, sheet_entries)
+    for (tri_key, prog, yr) in sorted(groups.keys()):
+        sheet_entries = groups[(tri_key, prog, yr)]
+        yr_label = f'Y{yr}' if yr else 'All'
+        short_tri = tri_key.replace('AY', '').replace('-T', ' T')
+        sheet_title = f'{short_tri} {prog} {yr_label}'[:31]  # Excel limit
+        _make_sheet(wb, sheet_title, sheet_entries)
 
     if not wb.sheetnames:
         ws = wb.create_sheet('No data')
