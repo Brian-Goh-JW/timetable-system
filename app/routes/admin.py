@@ -2825,19 +2825,20 @@ def system_info():
     fixed_room_count = ClassSession.query.filter(ClassSession.fixed_room_id.isnot(None)).count()
 
     # Live check: classes locked to a real, named room (fixed_room_id) whose
-    # capacity is smaller than the linked student group's full intake_size.
+    # capacity is smaller than the group size actually shown for that class.
     # solver.py deliberately skips the capacity check for these (see
     # _room_compatible's require_capacity=False) - a human-confirmed real
     # room assignment from the cleaned files is treated as more trustworthy
-    # than the capacity heuristic, since labs/tutorials are commonly split
-    # into several smaller parallel groups that aren't yet modelled as
-    # separate sessions. Found 2026-07-18 while double-checking a Template 2
-    # export against every constraint: 14 classes (mostly MET/ENG labs) show
-    # a Class Size figure bigger than their locked room's real capacity.
+    # than the capacity heuristic. Found 2026-07-18 while double-checking a
+    # Template 2 export against every constraint: uses effective_group_size
+    # (see ClassSession), not the raw student_group.intake_size, since a lab
+    # split into simultaneous P1/P2 sections shares one StudentGroup record
+    # and effective_group_size already corrects for that - this count is
+    # what's left after that correction, genuinely unsplit single sessions.
     over_capacity_fixed_rooms = []
     for s in ClassSession.query.filter(ClassSession.fixed_room_id.isnot(None)).all():
-        if s.fixed_room and s.fixed_room.capacity and s.student_group and \
-                s.student_group.intake_size > s.fixed_room.capacity:
+        size = s.effective_group_size
+        if s.fixed_room and s.fixed_room.capacity and size and size > s.fixed_room.capacity:
             over_capacity_fixed_rooms.append(s)
 
     # Change Log - dated, one-off audit-trail entries (bugs found & fixed, data
@@ -3229,17 +3230,23 @@ def system_info():
                      'into - see the Dashboard warning.'},
             {'label': 'Classes with a manually-set time slot', 'count': no_fixed_room_sessions,
              'note': 'These were placed by an admin directly, not worked out by the system.'},
-            {'label': 'Classes locked to a real room smaller than their full group size', 'count': len(over_capacity_fixed_rooms),
+            {'label': 'Classes locked to a real room smaller than their group size', 'count': len(over_capacity_fixed_rooms),
              'note': f'Spans CVE, ISE (the ENG-prefixed shared modules) and METS - mostly labs and lectorials, '
                      f'plus a handful of lectures, tutorials and quizzes. Each one\'s room was locked from the '
                      f'cleaned files\' real venue data (see Cleaned Data Migration above) - the room itself is '
-                     f'real, just smaller than the linked group\'s full intake_size. Deliberate, not a bug: '
-                     f'solver.py trusts a human-confirmed real room over the capacity check for these, on the '
-                     f'assumption that classes this size are normally split into several smaller parallel '
-                     f'sections that this system doesn\'t yet model as separate sessions. Shows up as Class Size '
-                     f'exceeding the room\'s listed Capacity if you cross-check the Template 2 export\'s '
-                     f'Timetable and Location sheets against each other - worth knowing before handing the file '
-                     f'off, not a scheduling conflict.'},
+                     f'real, just smaller than the class. Already corrected for the one case that was fixable '
+                     f'from data already on hand: a lab split into simultaneous parallel sections (Template 2 '
+                     f'"Group" P1/P2/...) shared one StudentGroup record, so every section wrongly showed the '
+                     f'FULL cohort instead of its own share - effective_group_size on ClassSession (added '
+                     f'2026-07-18) now divides fairly between confirmed-concurrent sections, which resolved 3 '
+                     f'of the original 14 rows found in the T1 export (MET2002, MET4004\'s two lab sections). '
+                     f'Everyone remaining here is a single, unsplit session - Ms. Yang\'s own real sample data '
+                     f'confirms a proper fix needs that class turned into several separate sessions like she '
+                     f'does for oversized cohorts, not a number correction; needs the original cleaned source '
+                     f'files\' per-session sizes to do that safely rather than guessing a split. Shows up as '
+                     f'Class Size exceeding the room\'s listed Capacity if you cross-check the Template 2 '
+                     f'export\'s Timetable and Location sheets against each other - worth knowing before handing '
+                     f'the file off, not a scheduling conflict.'},
             {'label': f'Single classes longer than {sv.LONG_SESSION_THRESHOLD_HOURS} hours', 'count': long_sessions,
              'note': 'For information only - a class\'s length is fixed before scheduling even starts, so this '
                      'isn\'t something the system controls. Some engineering labs are legitimately this long; '
@@ -5272,7 +5279,7 @@ def timetable_export_template2():
             'Day':                    day_str,
             'Start':                  start_str,
             'End':                    end_str,
-            'Class Size':             cs.student_group.intake_size if cs.student_group else '',
+            'Class Size':             cs.effective_group_size if cs.student_group else '',
             'Sector':                 sector,
             'RoomGrouping':           '',
             'Room1':                  room.room_code if room else '',

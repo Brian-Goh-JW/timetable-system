@@ -70,6 +70,44 @@ class ClassSession(db.Model):
     def all_professor_ids(self):
         return [a.professor_id for a in self.professor_assignments]
 
+    @property
+    def effective_group_size(self):
+        """The real number of students in THIS session, correcting for
+        StudentGroup.intake_size representing the whole cohort even when a
+        lab is split into several simultaneous parallel sections (group_label
+        "P1", "P2", ...) sharing that one StudentGroup - a cleaned-data import
+        limitation (one intake_size per programme-year, not per session) that
+        made every parallel section claim the full cohort. Found 2026-07-18
+        cross-checking a Template 2 export's Class Size against real room
+        capacities.
+
+        Only kicks in for a "P<n>" label with at least one OTHER "P<n>"
+        sibling (same course + session_type + student_group) whose teaching
+        weeks actually overlap this session's - confirming they run in
+        parallel, not sequentially across the trimester (e.g. MEC1151's two
+        P-sections never share a week, so each really is the full cohort at
+        a different point in term, not a capacity split). Every other
+        group_label ("All", "T1", "Q1", ...) is unaffected."""
+        if not self.student_group:
+            return None
+        import re
+        if not self.group_label or not re.match(r'^P\d+$', self.group_label):
+            return self.student_group.intake_size
+        from app.engine.solver import _weeks_overlap
+        siblings = ClassSession.query.filter_by(
+            course_id=self.course_id, session_type=self.session_type,
+            student_group_id=self.student_group_id,
+        ).all()
+        concurrent = [
+            s for s in siblings
+            if s.group_label and re.match(r'^P\d+$', s.group_label)
+            and (s.id == self.id or _weeks_overlap(self, s))
+        ]
+        if len(concurrent) < 2:
+            return self.student_group.intake_size
+        import math
+        return math.ceil(self.student_group.intake_size / len(concurrent))
+
     def __repr__(self):
         code = self.course.module_code if self.course else '?'
         return f'<ClassSession {code} {self.session_type} ({self.delivery_mode})>'
