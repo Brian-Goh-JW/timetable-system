@@ -220,7 +220,7 @@
                             T{{ row.tri_num }}
                         </span>
                     </td>
-                    <td class="fw-medium">{{ row.module_code }}</td>
+                    <td class="fw-medium">{{ row.module_code }}{% if row.group_label and row.group_label != 'All' %} <span class="text-muted fw-normal">({{ row.group_label }})</span>{% endif %}</td>
                     <td class="text-capitalize">{{ row.session_type }}</td>
                     <td class="text-center">
                         {% if row.base_slot %}

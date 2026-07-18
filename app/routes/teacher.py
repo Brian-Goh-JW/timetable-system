@@ -183,12 +183,12 @@ def timetable():
                             )
                             .all())
 
-        week_grid = {day: {ts.period_label: None for ts in period_slots} for day in DAYS_ALL}
+        week_grid = {day: {ts.period_label: [] for ts in period_slots} for day in DAYS_ALL}
         for entry in week_entries_raw:
             d = entry.timeslot.day_of_week
             p = entry.timeslot.period_label
             if d in week_grid and p in week_grid[d]:
-                week_grid[d][p] = entry
+                week_grid[d][p].append(entry)
 
     return render_template(
         'teacher/timetable.html',

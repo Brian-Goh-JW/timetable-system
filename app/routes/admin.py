@@ -4679,7 +4679,14 @@ def timetable_similarity():
             entries = q.all()
             slot_map = {}
             for e in entries:
-                key = (e.class_session.course.module_code, e.class_session.session_type)
+                # Include group_label - module+session_type alone collapses
+                # parallel sections (e.g. 4 separate seminar groups) into one
+                # comparison row, silently keeping only whichever one was
+                # queried first (found 2026-07-18: 42 collision keys in T1
+                # alone, e.g. UCS1001's 4 real seminar sections merging into
+                # a single misleading "same/different slot" verdict).
+                key = (e.class_session.course.module_code, e.class_session.session_type,
+                       e.class_session.group_label)
                 if key not in slot_map:
                     ts = e.timeslot
                     slot_map[key] = {
@@ -4765,10 +4772,11 @@ def timetable_similarity():
             if not base_map and not compare_map:
                 continue
 
-            all_keys = sorted(set(base_map.keys()) | set(compare_map.keys()))
-            for mod, stype in all_keys:
-                bd = base_map.get((mod, stype))
-                cd = compare_map.get((mod, stype))
+            all_keys = sorted(set(base_map.keys()) | set(compare_map.keys()),
+                               key=lambda k: (k[0], k[1], k[2] or ''))
+            for mod, stype, glabel in all_keys:
+                bd = base_map.get((mod, stype, glabel))
+                cd = compare_map.get((mod, stype, glabel))
                 base_slot    = bd['label'] if bd else None
                 compare_slot = cd['label'] if cd else None
 
@@ -4821,6 +4829,7 @@ def timetable_similarity():
                     'tri_num'         : tri_num,
                     'module_code'     : mod,
                     'session_type'    : stype,
+                    'group_label'     : glabel,
                     'base_slot'       : base_slot,
                     'compare_slot'    : compare_slot,
                     'consistency'     : consistency,

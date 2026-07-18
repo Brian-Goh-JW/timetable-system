@@ -143,12 +143,17 @@
                         <div class="text-muted">{{ ts.end_time.strftime('%H:%M') }}</div>
                     </td>
                     {% for day in days_all %}
-                    {% set entry = week_grid[day][ts.period_label] if ts.period_label in week_grid[day] else None %}
+                    {% set cell_entries = week_grid[day][ts.period_label] if ts.period_label in week_grid[day] else [] %}
                     <td class="p-1 {% if day in ['Saturday','Sunday'] %}bg-light{% endif %}" style="vertical-align: top;">
-                        {% if entry %}
+                        {% if cell_entries|length > 1 %}
+                        <div class="text-danger fw-semibold text-center mb-1" style="font-size:0.62rem;" title="More than one class is scheduled at this exact time - check with your programme office if this looks wrong.">
+                            <i class="bi bi-exclamation-triangle-fill"></i> {{ cell_entries|length }} classes at once
+                        </div>
+                        {% endif %}
+                        {% for entry in cell_entries %}
                         {% set stype = entry.class_session.session_type %}
                         {% set is_online = entry.class_session.delivery_mode == 'online' %}
-                        <div class="session-block rounded p-1 h-100 session-{{ stype }} {% if is_online %}session-online{% endif %}"
+                        <div class="session-block rounded p-1 session-{{ stype }} {% if is_online %}session-online{% endif %} {% if not loop.last %}mb-1{% endif %}"
                              style="cursor:pointer; font-size:0.72rem; overflow:hidden;"
                              data-bs-toggle="modal" data-bs-target="#sessionDetailModal"
                              data-module="{{ entry.class_session.course.module_code }}"
@@ -171,7 +176,7 @@
                             <div style="font-size:0.65rem; opacity:0.75;">{{ entry.class_session.student_group.group_label }}</div>
                             {% endif %}
                         </div>
-                        {% endif %}
+                        {% endfor %}
                     </td>
                     {% endfor %}
                 </tr>
