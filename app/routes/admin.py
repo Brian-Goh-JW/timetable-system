@@ -2431,7 +2431,14 @@ def flag_notify(flag_id):
         return redirect(url_for('admin.timetable_flags',
                                 trimester=flag.timetable_entry.trimester))
 
-    flag.response_deadline = date_type.fromisoformat(deadline)
+    try:
+        parsed_deadline = date_type.fromisoformat(deadline)
+    except ValueError:
+        flash('Response deadline was not a valid date - please use the date picker.', 'danger')
+        return redirect(url_for('admin.timetable_flags',
+                                trimester=flag.timetable_entry.trimester))
+
+    flag.response_deadline = parsed_deadline
     db.session.commit()
 
     # Send email to professor
@@ -3517,7 +3524,11 @@ def import_template1():
     if request.method == 'GET':
         return render_template('admin/import_template1.html')
 
-    trimester    = int(request.form.get('trimester', 1))
+    trimester_raw = request.form.get('trimester', '1').strip()
+    if trimester_raw not in ('1', '2', '3'):
+        flash('Trimester was not a valid selection - please choose from the dropdown.', 'danger')
+        return redirect(url_for('admin.import_template1'))
+    trimester    = int(trimester_raw)
     confirm      = request.form.get('confirm') == '1'
     token        = request.form.get('token', '').strip()
     orig_filename = request.form.get('orig_filename', '')
