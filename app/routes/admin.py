@@ -2632,6 +2632,9 @@ def _build_constraints_reference(sv, sv_shared_group_count):
                             'overwhelm the rest of the schedule\'s quality'},
                 {'id': 'S11', 'title': 'Keep the same room for back-to-back classes (same professor or group)',
                  'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_CONSISTENT_VENUE}'},
+                {'id': 'S12', 'title': "Cluster a programme's online classes onto one Monday-or-Tuesday day",
+                 'status': 'Implemented', 'value': f'Priority {sv.WEIGHT_ONLINE_DAY_PATTERN} - from Ms. Yang\'s '
+                            'requirements doc, confirmed against another team\'s copy of the same source on 2026-07-18'},
             ]},
             {'category': 'Pedagogical Ordering', 'icon': 'bi-mortarboard', 'color': 'green', 'rows': [
                 {'id': 'S-lec-tut', 'title': "A module's lecture comes before its tutorial",
@@ -2664,6 +2667,8 @@ _SOFT_STAT_MAP = {
     'S9':        lambda s: (f"{s.get('late_end_violations', 0)} violated", s.get('late_end_violations', 0)),
     'S10':       lambda s: (f"{s.get('room_best_fit_wasted_seats', 0)} wasted seats total (informational, not a violation count)", 0),
     'S11':       lambda s: (f"{s.get('consistent_venue_violations', 0)} violated", s.get('consistent_venue_violations', 0)),
+    'S12':       lambda s: (f"{s.get('online_wrong_day_violations', 0)} off Mon/Tue, {s.get('online_day_mismatch_violations', 0)} day-mismatched pairs",
+                             s.get('online_wrong_day_violations', 0) + s.get('online_day_mismatch_violations', 0)),
     'S-lec-tut': lambda s: (f"{s.get('lec_tut_ordered', 0)} correctly ordered", 0),
     'S-lec-lab': lambda s: (f"{s.get('lec_lab_ordered', 0)} correctly ordered", 0),
 }

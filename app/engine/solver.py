@@ -27,6 +27,10 @@ from app.models.availability_declaration import AvailabilityDeclaration
 WED_AFTERNOON_CUTOFF   = dtime(13, 0)   # Wed: no classes starting at/after this time
 FRI_BLOCK_START        = dtime(12, 0)   # Fri: protected window start
 FRI_BLOCK_END          = dtime(14, 0)   # Fri: protected window end (exclusive)
+FRI_EVENING_CUTOFF     = dtime(17, 0)   # Fri: no classes running past this time (stricter than the
+                                         # general EVENING_CUTOFF below - confirmed 2026-07-18 against
+                                         # the same source requirements another team's slides quoted
+                                         # verbatim: "No Friday classes after 17:00")
 EVENING_CUTOFF         = dtime(18, 0)   # any day: no unpinned classes starting at/after this time
 # Lunch is NOT a fixed block (corrected by Ms. Yang, 9 Jul 2026) - each student
 # group just needs >=1 fully free hour somewhere in this window, any day.
@@ -53,6 +57,11 @@ WEIGHT_ROOM_BEST_FIT            = 2    # f2f session in a room with wasted (unus
 WEIGHT_CONSISTENT_VENUE         = 2    # adjacent-slot room change for the same professor/group
 WEIGHT_EXTREMAL_SLOT   = 2     # group placed in first/last slot of the day
 WEIGHT_DAY_CLUSTER     = 1     # group's sessions spread across more days than needed
+WEIGHT_ONLINE_DAY_PATTERN = 10 # online session not on Mon/Tue, or not matching its
+                                # programme's other online sessions' day (Ms. Yang's
+                                # requirements doc: online classes clustered onto one
+                                # Monday-or-Tuesday day per programme - confirmed
+                                # 2026-07-18)
 
 LATE_END_CUTOFF        = dtime(17, 0)   # soft: prefer sessions end by this time
 PROF_IDLE_GAP_THRESHOLD_HOURS  = 2      # soft: professor idle time between classes in a day
@@ -83,6 +92,7 @@ SOFT_CONSTRAINT_DEFAULTS = {
     'S11':       WEIGHT_CONSISTENT_VENUE,
     'S-lec-tut': WEIGHT_LEC_TUT_ORDER,
     'S-lec-lab': WEIGHT_LEC_LAB_ORDER,
+    'S12':       WEIGHT_ONLINE_DAY_PATTERN,
 }
 
 
@@ -169,6 +179,11 @@ def _institutional_blocked_indices(timeslots):
     Indices of timeslots blocked by SIT institutional policy:
       - Wednesday:   any slot starting at or after 13:00 (CCA afternoon policy)
       - Friday:      any slot starting at or after 12:00 and before 14:00
+      - Friday:      any slot still running past 17:00 (stricter than the
+                      general evening cutoff below - checked by END time, not
+                      start time, since a slot starting before 17:00 but
+                      running past it still puts students on campus after
+                      the cutoff)
       - Any day:     any slot starting at or after 18:00 (no evening classes)
     Lunch is NOT a fixed block (corrected by Ms. Yang) - each group just needs
     >=1 free hour somewhere in [11:00, 14:00), enforced separately by the
@@ -183,6 +198,8 @@ def _institutional_blocked_indices(timeslots):
         if ts.day_of_week == 'Wednesday' and ts.start_time >= WED_AFTERNOON_CUTOFF:
             blocked.add(i)
         if ts.day_of_week == 'Friday' and FRI_BLOCK_START <= ts.start_time < FRI_BLOCK_END:
+            blocked.add(i)
+        if ts.day_of_week == 'Friday' and ts.end_time > FRI_EVENING_CUTOFF:
             blocked.add(i)
         if ts.start_time >= EVENING_CUTOFF:
             blocked.add(i)
@@ -1145,6 +1162,47 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             for j in range(i + 1, len(sess_list)):
                 model.Add(day_var_map[sess_list[i].id] != day_var_map[sess_list[j].id])
 
+    # Soft constraint S12 - cluster online classes onto one Monday-or-Tuesday
+    # day per programme. Only synchronous online sessions reach here at all
+    # (is_async sessions are filtered out of `sessions` before slot/day
+    # assignment even begins, near the top of solve() - they have no
+    # meaningful "day" to cluster). Two components, both soft since forcing
+    # either as a hard rule could make some programmes' real data infeasible:
+    #   (a) penalise a synchronous online session landing on a day that
+    #       isn't Monday or Tuesday
+    #   (b) penalise two of the same programme's online sessions landing on
+    #       DIFFERENT days from each other
+    online_wrong_day_vars = []
+    online_by_prog = defaultdict(list)
+    for s in sessions:
+        if s.delivery_mode == 'online':
+            online_by_prog[s.course.programme_id].append(s)
+
+    _MON_TUE_DAYS = {0, 1}
+    not_mon_tue_map = [0 if slot_to_day[i] in _MON_TUE_DAYS else 1 for i in range(len(timeslots))]
+    for s in sessions:
+        if s.delivery_mode != 'online':
+            continue
+        s_slots = list(compat_slots[s.id])
+        if not any(not_mon_tue_map[i] for i in s_slots):
+            continue  # every compatible slot is already Mon/Tue - nothing to penalise
+        if all(not_mon_tue_map[i] for i in s_slots):
+            continue  # no Mon/Tue option exists at all - penalty would be a constant, useless
+        wrong_day = model.NewIntVar(0, 1, f's12_wrongday_{s.id}')
+        model.AddElement(slot_vars[s.id], not_mon_tue_map, wrong_day)
+        online_wrong_day_vars.append(wrong_day)
+
+    online_day_mismatch_vars = []
+    for _prog_id, sess_list in online_by_prog.items():
+        n = len(sess_list)
+        for i in range(n):
+            for j in range(i + 1, n):
+                si, sj = sess_list[i], sess_list[j]
+                mismatch = model.NewBoolVar(f's12_daymismatch_{si.id}_{sj.id}')
+                model.Add(day_var_map[si.id] != day_var_map[sj.id]).OnlyEnforceIf(mismatch)
+                model.Add(day_var_map[si.id] == day_var_map[sj.id]).OnlyEnforceIf(mismatch.Not())
+                online_day_mismatch_vars.append(mismatch)
+
     cluster_cost_vars = []
     for i in range(len(sessions)):
         for j in range(i + 1, len(sessions)):
@@ -1432,6 +1490,10 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         obj_terms.append(W['S7'] * iv)
     for dv in cluster_cost_vars:
         obj_terms.append(W['S5'] * dv)
+    for v in online_wrong_day_vars:
+        obj_terms.append(W['S12'] * v)
+    for v in online_day_mismatch_vars:
+        obj_terms.append(W['S12'] * v)
 
     if obj_terms:
         model.Minimize(sum(obj_terms))
@@ -1582,4 +1644,6 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         'late_end_violations'       : sum(1 for v in late_end_cost_vars if cp_solver.Value(v) == 1),
         'extremal_slot_violations'  : sum(1 for v in extremal_cost_vars if cp_solver.Value(v) == 1),
         'day_spread_pairs'          : sum(1 for v in cluster_cost_vars if cp_solver.Value(v) == 1),
+        'online_wrong_day_violations': sum(1 for v in online_wrong_day_vars if cp_solver.Value(v) == 1),
+        'online_day_mismatch_violations': sum(1 for v in online_day_mismatch_vars if cp_solver.Value(v) == 1),
     }
