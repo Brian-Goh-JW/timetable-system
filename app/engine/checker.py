@@ -26,7 +26,12 @@ def get_blocking_issues(trimester_num=None):
     warnings = []
 
     def session_base():
-        q = ClassSession.query
+        # Deferred sessions (deferred_from_solve=True) are never solved or
+        # exported (solver.py and the Template 2 export route both filter
+        # them out) - excluding them here too keeps these warnings scoped to
+        # what will actually appear in the output, instead of flagging gaps
+        # in sessions the admin can't even see on the export.
+        q = ClassSession.query.filter(ClassSession.deferred_from_solve.is_(False))
         if trimester_num is not None:
             q = q.filter(ClassSession.trimester == trimester_num)
         return q
