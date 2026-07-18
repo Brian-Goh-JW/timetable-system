@@ -74,24 +74,28 @@ class ClassSession(db.Model):
     def effective_group_size(self):
         """The real number of students in THIS session, correcting for
         StudentGroup.intake_size representing the whole cohort even when a
-        lab is split into several simultaneous parallel sections (group_label
-        "P1", "P2", ...) sharing that one StudentGroup - a cleaned-data import
-        limitation (one intake_size per programme-year, not per session) that
-        made every parallel section claim the full cohort. Found 2026-07-18
-        cross-checking a Template 2 export's Class Size against real room
-        capacities.
+        class is split into several simultaneous parallel sections
+        (group_label "P1"/"P2", "L1"/"L2", "T1"/"T2", ...) sharing that one
+        StudentGroup - a cleaned-data import limitation (one intake_size per
+        programme-year, not per session) that made every parallel section
+        claim the full cohort. Found 2026-07-18 cross-checking a Template 2
+        export's Class Size against real room capacities.
 
-        Only kicks in for a "P<n>" label with at least one OTHER "P<n>"
-        sibling (same course + session_type + student_group) whose teaching
-        weeks actually overlap this session's - confirming they run in
-        parallel, not sequentially across the trimester (e.g. MEC1151's two
-        P-sections never share a week, so each really is the full cohort at
-        a different point in term, not a capacity split). Every other
-        group_label ("All", "T1", "Q1", ...) is unaffected."""
+        Only kicks in for a "<letter><n>" label (any of GROUP_LABEL_PREFIX's
+        letters, not just lab's "P" - e.g. MET1101's lectorial split is
+        "L1"/"L2") with at least one OTHER same-lettered sibling (same course
+        + session_type + student_group) whose teaching weeks actually
+        overlap this session's - confirming they run in parallel, not
+        sequentially across the trimester. This is the important guard: some
+        "L1"/"L2" pairs (e.g. ASE1011's lecture) are the SAME cohort meeting
+        at two different points in the term, never simultaneously - each of
+        those genuinely is the full cohort, not a capacity split, and
+        _weeks_overlap correctly returns False for that pair so this leaves
+        them unchanged. Every unsplit group_label ("All") is unaffected."""
         if not self.student_group:
             return None
         import re
-        if not self.group_label or not re.match(r'^P\d+$', self.group_label):
+        if not self.group_label or not re.match(r'^[A-Z]\d+$', self.group_label):
             return self.student_group.intake_size
         from app.engine.solver import _weeks_overlap
         siblings = ClassSession.query.filter_by(
@@ -100,7 +104,7 @@ class ClassSession(db.Model):
         ).all()
         concurrent = [
             s for s in siblings
-            if s.group_label and re.match(r'^P\d+$', s.group_label)
+            if s.group_label and re.match(r'^[A-Z]\d+$', s.group_label)
             and (s.id == self.id or _weeks_overlap(self, s))
         ]
         if len(concurrent) < 2:
