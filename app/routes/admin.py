@@ -3444,7 +3444,7 @@ def data_import():
 @admin_bp.route('/import/template1', methods=['GET', 'POST'])
 @login_required
 def import_template1():
-    import os, uuid, re, tempfile
+    import os, uuid, re, secrets, tempfile
     import pandas as pd
     from app.engine.template1_parser import (
         load_module_sheet, PROG_NAMES, SKIP_NAMES, SKIP_SHEETS,
@@ -3524,7 +3524,10 @@ def import_template1():
             attempt += 1
             email = f'{email_local}.{attempt}@sit.edu.sg'
         user = User(name=name, email=email, role='professor')
-        user.set_password('SIT@2526')
+        # Imported accounts are inaccessible until an administrator assigns a
+        # password from the Professors page; no shared default credential is
+        # embedded in source code or distributed across the imported cohort.
+        user.set_password(secrets.token_urlsafe(24))
         db.session.add(user)
         db.session.flush()
         prof = Professor(user_id=user.id, staff_id=sid, department='ENG')
@@ -3648,6 +3651,11 @@ def import_template1():
             pass
 
         flash(f'Import complete: {created} sessions created, {skipped} skipped.', 'success')
+        flash(
+            'Any newly created professor accounts received random passwords. '
+            'Set individual credentials from the Professors page before distribution.',
+            'info',
+        )
         return redirect(url_for('admin.import_template1'))
 
     # Step 1: upload + parse for preview

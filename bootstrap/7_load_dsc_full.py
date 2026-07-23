@@ -12,7 +12,7 @@ Usage:
     python bootstrap/7_load_dsc_full.py
 """
 
-import sys, os, datetime
+import sys, os, datetime, secrets
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -150,7 +150,7 @@ def load_professors(xl):
     created = 0
     for staff_id, name in seen.items():
         user = User(name=name, email=f'{staff_id.lower()}@sit.edu.sg', role='professor')
-        user.set_password('password')
+        user.set_password(secrets.token_urlsafe(24))
         db.session.add(user)
         db.session.flush()
         db.session.add(Professor(user_id=user.id, staff_id=staff_id, department='Engineering'))

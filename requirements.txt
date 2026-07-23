@@ -7,5 +7,6 @@ pymysql
 ortools
 pandas
 openpyxl
+xlrd
 holidays
 anthropic

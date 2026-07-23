@@ -1,9 +1,9 @@
 """
 Pre-solve readiness checker.
 Returns (blockers, warnings) - only blockers prevent generation.
-The solver still schedules sessions with no professor (blank staff field);
-it skips f2f sessions with no student group entirely. Both are warnings,
-not blockers.
+The solver can still schedule sessions with no professor (blank staff field),
+but every synchronous session must have a student group so it appears in the
+student timetable and is included in group constraints.
 """
 
 from app.models.course import Course
@@ -37,10 +37,13 @@ def get_blocking_issues(trimester_num=None):
         return q
 
     # 1. F2f/hybrid courses with no split count AND no sessions yet
-    missing_split = Course.query.filter(
+    missing_split_query = Course.query.filter(
         Course.delivery_mode.in_(['f2f', 'hybrid']),
         Course.split_count.is_(None)
-    ).all()
+    )
+    if trimester_num is not None:
+        missing_split_query = missing_split_query.filter(Course.trimester == trimester_num)
+    missing_split = missing_split_query.all()
     for c in missing_split:
         if not c.class_sessions:
             blockers.append(f'{c.module_code}: no sessions and split count not set.')
@@ -56,15 +59,15 @@ def get_blocking_issues(trimester_num=None):
             f'timetable and Template 2 export will show a blank staff field until one is assigned.'
         )
 
-    # 3. F2f sessions with no student group - solver skips these, so warning only
+    # 3. Synchronous sessions with no student group cannot be displayed to
+    # students or checked for group conflicts, so generation must stop.
     no_group = session_base().filter(
-        ClassSession.delivery_mode == 'f2f',
+        ClassSession.is_async.is_(False),
         ClassSession.student_group_id.is_(None),
-        exists().where(ClassSessionProfessor.session_id == ClassSession.id),
     ).all()
     if no_group:
-        warnings.append(
-            f'{len(no_group)} f2f session(s) have no student group assigned and will be skipped.'
+        blockers.append(
+            f'{len(no_group)} synchronous session(s) have no student group assigned.'
         )
 
     # 4. Fixed timeslot incompatibilities - these would make the model infeasible (blocker)

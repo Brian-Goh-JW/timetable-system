@@ -20,7 +20,7 @@ mixing unrelated programmes under one fabricated "professor").
 Run ONCE:
     python bootstrap/51_placeholder_prof_for_dsc2302.py
 """
-import sys, os
+import sys, os, secrets
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app import create_app, db
@@ -41,7 +41,7 @@ with app.app_context():
         prof = Professor.query.filter_by(user_id=existing.id).first()
     else:
         user = User(name=NAME, email=EMAIL, role='professor')
-        user.set_password('Placeholder1!')
+        user.set_password(secrets.token_urlsafe(24))
         db.session.add(user)
         db.session.flush()
         prof = Professor(user_id=user.id, staff_id='PLACEHOLDER0005',

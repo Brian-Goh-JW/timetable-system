@@ -148,11 +148,9 @@ def _room_compatible(room, session, group_size_override=None, require_capacity=T
     SharedModuleGroup (see solve()) instead of this session's own
     student_group size.
 
-    require_capacity=False is for explicitly-pinned rooms (fixed_room_id):
-    the group's full intake_size often overstates the real room need, since
-    labs/tutorials are commonly split into several smaller parallel groups
-    that aren't yet modelled as separate sessions - a human-confirmed real
-    room assignment is more trustworthy here than the capacity heuristic."""
+    require_capacity=False is retained for diagnostic callers only. Solver
+    generation always checks capacity, including for explicitly pinned rooms,
+    because a fixed assignment must not bypass a hard safety constraint."""
     LARGE_ROOM_TYPES = ('lecture', 'lectorial', 'quiz')
     if session.session_type == 'lab':
         if room.room_type != 'lab':
@@ -170,7 +168,7 @@ def _room_compatible(room, session, group_size_override=None, require_capacity=T
     if group_size_override is not None:
         group_size = group_size_override
     else:
-        group_size = session.student_group.intake_size if session.student_group else 1
+        group_size = session.effective_group_size if session.student_group else 1
     return room.capacity >= group_size
 
 
@@ -221,6 +219,57 @@ def _conflicting_group_ids(group_id):
     for sub in group.sub_groups:
         ids.add(sub.id)
     return ids
+
+
+def _collapse_for_overlap(sess_list):
+    """Collapse only records representing the same jointly taught class.
+
+    Independent sessions remain distinct even when both are fixed to the same
+    timeslot; AddNoOverlap must see both so that contradictory hard inputs make
+    the model infeasible instead of disappearing from conflict detection.
+    """
+    seen = set()
+    out = []
+    for session in sess_list:
+        if session.shared_module_group_id is not None:
+            key = ('shared', session.shared_module_group_id)
+        else:
+            key = ('unique', session.id)
+        if key not in seen:
+            seen.add(key)
+            out.append(session)
+    return out
+
+
+def _build_group_session_families(sessions):
+    """Return parent/sub-group session families for hard student rules."""
+    by_group = defaultdict(list)
+    for session in sessions:
+        if session.student_group_id:
+            by_group[session.student_group_id].append(session)
+
+    group_parent = {group_id: group_id for group_id in by_group}
+
+    def find(group_id):
+        while group_parent[group_id] != group_id:
+            group_parent[group_id] = group_parent[group_parent[group_id]]
+            group_id = group_parent[group_id]
+        return group_id
+
+    def union(a, b):
+        root_a, root_b = find(a), find(b)
+        if root_a != root_b:
+            group_parent[root_a] = root_b
+
+    for group_id in by_group:
+        for other_group_id in _conflicting_group_ids(group_id):
+            if other_group_id in by_group:
+                union(group_id, other_group_id)
+
+    families = defaultdict(list)
+    for group_id, group_sessions in by_group.items():
+        families[find(group_id)].extend(group_sessions)
+    return families
 
 
 def _get_sg_holidays(start_date, end_date):
@@ -498,18 +547,10 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     if term_break_weeks is None:
         term_break_weeks = DEFAULT_TERM_BREAK_WEEKS
 
-    # 1. Load sessions that are ready:
-    #    - f2f sessions need a student group (room/time can still be assigned
-    #      without a professor - a class missing its lecturer's name still
-    #      needs to happen; the gap is disclosed on System Info instead of
-    #      silently dropping the class from the timetable)
-    #    - online sessions need neither a room nor a group
-    from sqlalchemy import or_
+    # 1. Load every session in scope. Each synchronous session needs a student
+    # group: without one, its generated entry cannot appear in a student's
+    # timetable, so treating the run as successful would be misleading.
     filters = [
-        or_(
-            ClassSession.delivery_mode == 'online',
-            ClassSession.student_group_id.isnot(None),
-        ),
         # Deliberately excluded from this generation pass (see bootstrap/48-49
         # and the "Deferred from T1 generation" note on System Info) - not a
         # data gap, a disclosed scope decision made when the full trimester
@@ -524,6 +565,23 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         filters.append(ClassSession.id.in_(session_id_filter))
 
     all_sessions = ClassSession.query.filter(*filters).all()
+
+    missing_group_sessions = [
+        s for s in all_sessions
+        if not s.is_async and s.student_group_id is None
+    ]
+    if missing_group_sessions:
+        labels = ', '.join(
+            f'{s.course.module_code} ({s.session_type})'
+            for s in missing_group_sessions[:5]
+        )
+        suffix = '...' if len(missing_group_sessions) > 5 else ''
+        return False, (
+            f'Generation blocked: {len(missing_group_sessions)} synchronous session(s) '
+            f'have no student group and would be invisible to students: {labels}{suffix}'
+        ), {
+            'sessions_missing_group': len(missing_group_sessions),
+        }
 
     # Async sessions: no timeslot needed - excluded from solver, no TimetableEntry created
     async_sessions = [s for s in all_sessions if s.is_async]
@@ -629,15 +687,26 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         # Remove institutionally blocked slots unless the session has a fixed pin there
         if not s.fixed_timeslot_id:
             compat = [i for i in compat if i not in inst_blocked]
-        if not compat:
-            # A session with zero matching time slots is a DATA gap (nothing
-            # of the right length/day exists yet), not a scheduling conflict -
-            # skip it and keep going rather than fail the whole trimester, the
-            # same way a no-compatible-room session is already handled below
-            # (found 2026-07-11: one such session used to abort 500+ others).
+        if s.fixed_timeslot_id:
+            fixed_idx = ts_id_to_index.get(s.fixed_timeslot_id)
+            if fixed_idx is None:
+                no_timeslot_warnings.append(
+                    f'{s.course.module_code} ({s.session_type}) - fixed timeslot '
+                    f'{s.fixed_timeslot_id} no longer exists.'
+                )
+                continue
+            if fixed_idx not in compat:
+                ts = timeslots[fixed_idx]
+                no_timeslot_warnings.append(
+                    f'{s.course.module_code} ({s.session_type}, {s.duration_hours}h) - '
+                    f'fixed slot {ts.day_of_week} {ts.period_label} has an incompatible duration.'
+                )
+                continue
+            compat = [fixed_idx]
+        elif not compat:
             no_timeslot_warnings.append(
                 f'{s.course.module_code} ({s.session_type}, {s.duration_hours}h) - '
-                f'no time slot of this length exists in the system - skipped.'
+                f'no time slot of this length exists in the system.'
             )
             continue
         if _session_teaching_weeks_outside_calendar(s):
@@ -648,7 +717,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             # rather than left to silently vanish after solving.
             no_timeslot_warnings.append(
                 f'{s.course.module_code} ({s.session_type}) - teaching week(s) {s.teaching_weeks} '
-                f"fall outside this trimester's {len(non_break_weeks)}-week calendar - skipped."
+                f"fall outside this trimester's {len(non_break_weeks)}-week calendar."
             )
             continue
         compat_after_calendar = [i for i in compat if not _all_occurrences_blocked(s, timeslots[i])]
@@ -656,19 +725,19 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             no_timeslot_warnings.append(
                 f'{s.course.module_code} ({s.session_type}) - every candidate day/time falls on a '
                 f"public holiday or cancelled event for this session's teaching week(s) "
-                f'({s.teaching_weeks}) - skipped rather than silently producing zero sessions.'
+                f'({s.teaching_weeks}).'
             )
             continue
         compat_slots[s.id] = compat_after_calendar
 
     if no_timeslot_warnings:
-        sessions = [s for s in sessions if s.id in compat_slots]
-
-    if not sessions:
         return False, (
-            'No sessions could be scheduled - none have a compatible time slot. '
-            'Check the Timeslots page.'
-        ), {}
+            f'Generation blocked: {len(no_timeslot_warnings)} session(s) have no valid '
+            f'timeslot. {no_timeslot_warnings[0]}'
+        ), {
+            'sessions_no_timeslot_skipped': len(no_timeslot_warnings),
+            'no_timeslot_warnings': no_timeslot_warnings,
+        }
 
     # Combined enrollment for sessions linked via a SharedModuleGroup (Common
     # Modules / Programme Grouping) - room must fit ALL linked programmes'
@@ -678,8 +747,15 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         if s.shared_module_group_id and s.student_group:
             shared_group_combined_size[s.shared_module_group_id] = (
                 shared_group_combined_size.get(s.shared_module_group_id, 0)
-                + s.student_group.intake_size
+                + s.effective_group_size
             )
+
+    def _session_group_size(session):
+        """Enrollment used consistently by room hard and soft constraints."""
+        return shared_group_combined_size.get(
+            session.shared_module_group_id,
+            session.effective_group_size if session.student_group else 1,
+        )
 
     compat_rooms = {}           # session.id → [room indices]  (f2f only)
     no_room_warnings = []       # sessions skipped due to room capacity
@@ -687,30 +763,38 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         if s.delivery_mode == 'f2f':
             size_override = shared_group_combined_size.get(s.shared_module_group_id)
             compat = [i for i, r in enumerate(rooms) if _room_compatible(r, s, size_override)]
-            # A pinned room (fixed_room_id) must be in this session's domain
-            # even if it fails the capacity check - see _room_compatible's
-            # require_capacity docstring for why capacity is skipped here.
-            if s.fixed_room_id and s.fixed_room_id in room_id_to_index:
+            if s.fixed_room_id:
+                if s.fixed_room_id not in room_id_to_index:
+                    return False, (
+                        f'Generation blocked: {s.course.module_code} ({s.session_type}) '
+                        f'references missing or inactive fixed room {s.fixed_room_id}.'
+                    ), {}
                 pinned_idx = room_id_to_index[s.fixed_room_id]
-                if pinned_idx not in compat and _room_compatible(rooms[pinned_idx], s, require_capacity=False):
-                    compat.append(pinned_idx)
+                if pinned_idx not in compat:
+                    room = rooms[pinned_idx]
+                    return False, (
+                        f'Generation blocked: fixed room {room.room_code} is incompatible '
+                        f'with {s.course.module_code} ({s.session_type}) or cannot fit its '
+                        f'group size of {_session_group_size(s)}.'
+                    ), {}
+                compat = [pinned_idx]
             if not compat:
-                group_size = size_override if size_override is not None else (
-                    s.student_group.intake_size if s.student_group else '?'
-                )
+                group_size = _session_group_size(s)
                 no_room_warnings.append(
                     f'{s.course.module_code} ({s.session_type}, group size {group_size}): '
-                    f'no compatible room - skipped.'
+                    f'no compatible room.'
                 )
             else:
                 compat_rooms[s.id] = compat
 
-    # Drop sessions with no compatible room (can't be scheduled - skip gracefully)
     if no_room_warnings:
-        skip_ids = {s.id for s in sessions if s.delivery_mode == 'f2f' and s.id not in compat_rooms}
-        for sid in skip_ids:
-            compat_slots.pop(sid, None)
-        sessions = [s for s in sessions if s.id not in skip_ids]
+        return False, (
+            f'Generation blocked: {len(no_room_warnings)} session(s) have no compatible '
+            f'room. {no_room_warnings[0]}'
+        ), {
+            'sessions_no_room_skipped': len(no_room_warnings),
+            'no_room_warnings': no_room_warnings,
+        }
 
     # 3. Load classified availability declarations
     #    strict  → hard block (solver must never place professor here)
@@ -882,28 +966,6 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         dur_min = s.duration_hours * 60
         interval_var[s.id] = model.NewIntervalVar(sv, dur_min, sv + dur_min, f'ivl_{s.id}')
 
-    def _collapse_for_overlap(sess_list):
-        """Within one entity's session list, keep only one representative per
-        group of sessions already forced to share an identical slot (co-taught
-        via shared_module_group_id, or independently pinned to the same
-        fixed_timeslot_id - mirrors the old pairwise exemption checks).
-        Including duplicates in one AddNoOverlap call would otherwise flag
-        them as trivially self-overlapping (identical start + duration)
-        even though that's the deliberate, correct behaviour."""
-        seen = set()
-        out = []
-        for s in sess_list:
-            if s.shared_module_group_id is not None:
-                key = ('shared', s.shared_module_group_id)
-            elif s.fixed_timeslot_id is not None:
-                key = ('fixed', s.fixed_timeslot_id)
-            else:
-                key = ('unique', s.id)
-            if key not in seen:
-                seen.add(key)
-                out.append(s)
-        return out
-
     def _weeks_clusters(sess_list):
         """Partition sess_list via union-find over _weeks_overlap edges, so
         sessions with genuinely non-overlapping teaching weeks (e.g. one
@@ -953,27 +1015,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     # sub-groups) are merged into one family first via union-find over
     # _conflicting_group_ids, so the whole family's sessions get one
     # AddNoOverlap call together instead of a separate check per group pair.
-    by_group = defaultdict(list)
-    for s in sessions:
-        if s.student_group_id:
-            by_group[s.student_group_id].append(s)
-    group_parent = {gid: gid for gid in by_group}
-    def _gfind(x):
-        while group_parent[x] != x:
-            group_parent[x] = group_parent[group_parent[x]]
-            x = group_parent[x]
-        return x
-    def _gunion(a, b):
-        ra, rb = _gfind(a), _gfind(b)
-        if ra != rb:
-            group_parent[ra] = rb
-    for gid in by_group:
-        for other_gid in _conflicting_group_ids(gid):
-            if other_gid in by_group:
-                _gunion(gid, other_gid)
-    families = defaultdict(list)
-    for gid, sess_list in by_group.items():
-        families[_gfind(gid)].extend(sess_list)
+    families = _build_group_session_families(sessions)
     for sess_list in families.values():
         _add_no_overlap_for_entity(sess_list)
 
@@ -1008,8 +1050,9 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
 
     # Hard constraint D - fixed timeslot pins
     # Priority: fixed_timeslot_id (admin-set permanent pin) > pinned_slots (Option A carry-over)
-    # Safety: never pin to a slot that is strictly blocked for any professor - that would make
-    # the model infeasible.  Instead, quietly drop the pin so the solver can find a new slot.
+    # A permanent fixed slot and strict professor unavailability are both hard
+    # constraints. If they conflict, surface the data conflict instead of
+    # silently weakening either rule. Carry-over pins remain optional.
     pins_applied    = 0
     pins_dropped    = 0
     for s in sessions:
@@ -1025,23 +1068,26 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         if pinned_idx is None or pinned_idx not in compat_slots[s.id]:
             continue
 
-        # Drop pin silently if any professor has a strict block on that slot
         is_strictly_blocked = any(
             pinned_idx in strict_blocked.get(prof_id, set())
             for prof_id in s.all_professor_ids
         )
         if is_strictly_blocked:
+            if s.fixed_timeslot_id:
+                ts = timeslots[pinned_idx]
+                return False, (
+                    f'Generation blocked: fixed slot {ts.day_of_week} '
+                    f'{ts.period_label} for {s.course.module_code} conflicts '
+                    f'with a professor strict-unavailability declaration.'
+                ), {}
             pins_dropped += 1
             continue
 
         model.Add(slot_vars[s.id] == pinned_idx)
         pins_applied += 1
 
-    # Hard constraint D2 - fixed room pins (from cleaned-data venue codes)
-    # Same silently-drop-if-infeasible safety as the timeslot pins above: a
-    # named venue that turns out to be the wrong type/too small for this
-    # session's group would make the model infeasible, so skip enforcing it
-    # rather than block generation entirely.
+    # Hard constraint D2 - fixed room pins (from cleaned-data venue codes).
+    # Compatibility and capacity were validated while building room domains.
     room_pins_applied = 0
     room_pins_dropped = 0
     for s in sessions:
@@ -1049,8 +1095,10 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             continue
         room_idx = room_id_to_index.get(s.fixed_room_id)
         if room_idx is None or room_idx not in compat_rooms.get(s.id, []):
-            room_pins_dropped += 1
-            continue
+            return False, (
+                f'Generation blocked: fixed room {s.fixed_room_id} for '
+                f'{s.course.module_code} is unavailable or incompatible.'
+            ), {}
         model.Add(room_vars[s.id] == room_idx)
         room_pins_applied += 1
 
@@ -1087,7 +1135,10 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         if s.student_group_id:
             grp_to_sessions[s.student_group_id].append(s)
 
-    for grp_id, grp_sess in grp_to_sessions.items():
+    # Use the same parent/sub-group families as hard non-overlap. A subgroup
+    # student attends both parent-cohort and subgroup sessions, so lunch must
+    # be evaluated against the union of those sessions.
+    for grp_id, grp_sess in families.items():
         for day in ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'):
             chunk_occ_vars = []
             for h in LUNCH_HOURS:
@@ -1376,7 +1427,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     for s in sessions:
         if s.delivery_mode != 'f2f' or s.id not in room_vars:
             continue
-        group_size = s.student_group.intake_size if s.student_group else 1
+        group_size = _session_group_size(s)
         util_array = _room_util_indicator_array(rooms, group_size, threshold=ROOM_UTIL_THRESHOLD)
         if not any(util_array[r] for r in compat_rooms[s.id]):
             continue
@@ -1395,7 +1446,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     for s in sessions:
         if s.delivery_mode != 'f2f' or s.id not in room_vars:
             continue
-        group_size = s.student_group.intake_size if s.student_group else 1
+        group_size = _session_group_size(s)
         wasted_array = [min(max(0, r.capacity - group_size), ROOM_BEST_FIT_CAP) for r in rooms]
         if not any(wasted_array[r] for r in compat_rooms[s.id]):
             continue  # every compatible room is already a perfect/near-perfect fit

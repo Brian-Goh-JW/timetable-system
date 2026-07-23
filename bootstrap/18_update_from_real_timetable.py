@@ -24,7 +24,7 @@ What is NOT touched:
 Safe to re-run (professors and rooms are get-or-create).
 """
 
-import sys, os, re
+import sys, os, re, secrets
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -329,7 +329,7 @@ def get_or_create_professor(name_norm):
         i += 1
 
     user = User(name=name_norm, email=email, role='professor')
-    user.set_password('password')
+    user.set_password(secrets.token_urlsafe(24))
     db.session.add(user)
     db.session.flush()
     prof = Professor(user_id=user.id, staff_id=staff_id, department='Engineering')

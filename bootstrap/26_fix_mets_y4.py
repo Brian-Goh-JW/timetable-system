@@ -1,7 +1,7 @@
 """
 Bootstrap 26 — Fix METS-Y4 sessions that were mistakenly loaded as METS-Y2.
 
-Root cause: normalise_prog_year('METS/2022') matched pattern r'^([A-Z]+)\s*/\s*(\d)'
+Root cause: normalise_prog_year('METS/2022') matched pattern r'^([A-Z]+)\\s*/\\s*(\\d)'
 and extracted '2' (first digit of 2022), assigning all METS Y4 modules to METS-Y2.
 
 This script:
@@ -11,7 +11,7 @@ This script:
 Run AFTER bootstrap/23 parser fix:
     python bootstrap/26_fix_mets_y4.py
 """
-import sys, os, re
+import sys, os, re, secrets
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -191,7 +191,7 @@ def get_or_create_professor(name_raw, sid_raw, app_context):
         attempt += 1
         email = f'{email_local}.{attempt}@sit.edu.sg'
     user = User(name=name, email=email, role='professor')
-    user.set_password('SIT@2526')
+    user.set_password(secrets.token_urlsafe(24))
     db.session.add(user)
     db.session.flush()
     prof = Professor(user_id=user.id, staff_id=sid, department='ENG')

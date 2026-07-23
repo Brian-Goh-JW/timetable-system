@@ -11,7 +11,7 @@ Each sheet = one programme (METS, RSE, ASE, etc.)
 Run AFTER step 23:
     python bootstrap/24_load_fixed_lab_sessions.py
 """
-import sys, os, re
+import sys, os, re, secrets
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 sys.stdout.reconfigure(encoding='utf-8')
 
@@ -326,7 +326,7 @@ def get_or_create_professor_lab(name_raw, sid_raw):
         email = f'{email_local}.{att}@sit.edu.sg'
 
     user = User(name=name, email=email, role='professor')
-    user.set_password('SIT@2526')
+    user.set_password(secrets.token_urlsafe(24))
     db.session.add(user)
     db.session.flush()
     prof = Professor(user_id=user.id, staff_id=sid, department='ENG')

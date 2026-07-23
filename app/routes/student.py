@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request
+from flask import Blueprint, render_template, request, abort
 from flask_login import login_required, current_user
 
 from app import db
@@ -10,6 +10,14 @@ from app.models.student_group import StudentGroup
 student_bp = Blueprint('student', __name__, url_prefix='/student')
 
 DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+
+
+@student_bp.before_request
+@login_required
+def require_student():
+    """Reject non-student accounts trying to access student routes."""
+    if current_user.role != 'student':
+        abort(403)
 
 
 # ---------------------------------------------------------------------------

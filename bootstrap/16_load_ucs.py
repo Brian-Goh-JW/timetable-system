@@ -17,7 +17,7 @@ Usage:
     python bootstrap/16_load_ucs.py
 """
 
-import sys, os, re
+import sys, os, re, secrets
 from datetime import datetime, timedelta, date, time as dt_time
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -171,7 +171,7 @@ with app.app_context():
         existing = User.query.filter_by(email=cfg['email']).first()
         if not existing:
             u = User(name=cfg['professor_name'], email=cfg['email'], role='professor')
-            u.set_password('password')
+            u.set_password(secrets.token_urlsafe(24))
             db.session.add(u)
             db.session.flush()
             p = Professor(user_id=u.id, staff_id=cfg['staff_id'], department='Common Programme Core')
@@ -226,7 +226,7 @@ with app.app_context():
                 role             = 'student',
                 student_group_id = sub_groups[grp].id,
             )
-            u.set_password('Student1234!')
+            u.set_password(secrets.token_urlsafe(24))
             db.session.add(u)
             print(f'  Created student: {cfg["student_email"]} → {cfg["label"]}')
         else:
