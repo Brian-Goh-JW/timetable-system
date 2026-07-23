@@ -1,5 +1,13 @@
 # SIT Timetable System
 
+A constraint-based academic timetable scheduling system for SIT's engineering
+cluster. Teaching requirements are imported or maintained in the system, and a
+Google OR-Tools CP-SAT solver assigns every class session a room and a time slot
+that satisfies a set of hard constraints (rules that can never be broken) while
+optimising a set of weighted soft constraints (preferences). The result can be
+reviewed, corrected, and exported in the institution's required Template 2
+format.
+
 ---
 
 ## Tech Stack
@@ -10,8 +18,12 @@
 | Database | MySQL 8, SQLAlchemy ORM |
 | Solver | Google OR-Tools CP-SAT |
 | Frontend | Bootstrap 5, Bootstrap Icons, Jinja2 |
+| Auth | Flask-Login (session-based, role-based access) |
+| Security | Flask-WTF (CSRF protection on every form) |
+| Import / export | openpyxl, pandas, xlrd |
+| Calendar | `holidays` (Singapore public holidays) |
 | Email | Flask-Mail (Gmail SMTP for demo) |
-| Auth | Flask-Login |
+| AI summary | Anthropic API (optional) |
 
 ---
 
@@ -19,28 +31,16 @@
 
 ### Step 1 — Download the project
 
-Open a terminal (VS Code → Terminal → New Terminal) and run:
-
 ```bash
 git clone https://github.com/Brian-Goh-JW/timetable-system.git
 cd timetable-system
 ```
 
-> This downloads the project files to your machine and moves into the project folder.
-
----
-
-### Step 2 — Create a virtual environment
-
-Still in the same terminal:
+### Step 2 — Create and activate a virtual environment
 
 ```bash
 python -m venv venv
-```
 
-Then activate it:
-
-```bash
 # Windows
 venv\Scripts\activate
 
@@ -48,9 +48,7 @@ venv\Scripts\activate
 source venv/bin/activate
 ```
 
-> A virtual environment keeps project dependencies isolated from your system Python. You should see `(venv)` appear at the start of your terminal prompt once it's active.
-
----
+> You should see `(venv)` at the start of your prompt once it is active.
 
 ### Step 3 — Install dependencies
 
@@ -58,101 +56,75 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> This installs all the Python packages the app needs to run. It may take a minute.
-
----
-
 ### Step 4 — Create the MySQL database
 
-Open **MySQL Workbench** (or any MySQL client) and run:
+In MySQL Workbench (or any MySQL client), run once:
 
 ```sql
 CREATE DATABASE timetable_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-> This creates a blank database that the app will write its tables into. You only need to do this once.
+### Step 5 — Configure environment variables
 
----
+`config.py` is committed to Git and contains configuration logic only, with no
+secrets. All deployment-specific values are read from environment variables. If
+they are not set, the app falls back to a passwordless local MySQL connection
+and a random per-run Flask secret, which is convenient for local development.
 
-### Step 5 — Create the config file
+For a PowerShell development session:
 
-In VS Code, create a new file called `config.py` in the **project root** (same folder as `run.py`).
-
-> This file holds your database password and email credentials. It is listed in `.gitignore` and will never be committed to GitHub.
-
-Paste this template and fill in your own values:
-
-```python
-class Config:
-    SECRET_KEY = 'your-secret-key'
-    SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://root:yourpassword@127.0.0.1/timetable_db'
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-
-    # Flask-Mail — Gmail SMTP (see note below)
-    MAIL_SERVER   = 'smtp.gmail.com'
-    MAIL_PORT     = 587
-    MAIL_USE_TLS  = True
-    MAIL_USE_SSL  = False
-    MAIL_USERNAME = 'your.email@gmail.com'
-    MAIL_PASSWORD = 'your-app-password'   # 16-character Gmail App Password
-    MAIL_DEFAULT_SENDER = ('SIT Timetable System', 'your.email@gmail.com')
-
-    # Admin inbox — receives "cannot proceed" notifications from professors
-    ADMIN_EMAIL = 'your.email@gmail.com'
+```powershell
+$env:FLASK_SECRET_KEY = 'replace-with-a-long-random-value'
+$env:DATABASE_URL = 'mysql+pymysql://root:yourpassword@127.0.0.1/timetable_db'
+$env:MAIL_USERNAME = 'your.email@gmail.com'
+$env:MAIL_PASSWORD = 'your-app-password'
+$env:MAIL_DEFAULT_SENDER = 'your.email@gmail.com'
+$env:ADMIN_EMAIL = 'your.email@gmail.com'
 ```
 
-**Getting a Gmail App Password:**
-1. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) (requires 2FA to be enabled on your Google account first)
-2. Create a new app password with any name (e.g. "SIT Timetable")
-3. Copy the 16-character code and paste it as `MAIL_PASSWORD`
+`ANTHROPIC_API_KEY` is optional and needed only for the timetable-summary
+feature. `FLASK_DEBUG=1` may be set for local debugging; debug mode is off by
+default.
 
-> **Why Gmail instead of SIT email?** Microsoft 365 SMTP AUTH is disabled for SIT student accounts by institutional policy, so the SIT email cannot send emails programmatically. Gmail with an App Password is used as a workaround for demo purposes.
+**Getting a Gmail App Password:** enable 2FA on your Google account, then create
+an app password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+and copy the 16-character code into `MAIL_PASSWORD`.
 
----
+> **Why Gmail instead of SIT email?** Microsoft 365 SMTP AUTH is disabled for SIT
+> student accounts by institutional policy, so Gmail with an App Password is used
+> for demo purposes.
 
 ### Step 6 — Create the database tables
-
-Back in your VS Code terminal (make sure `(venv)` is still active), run:
 
 ```bash
 python -c "from app import create_app, db; app = create_app(); app.app_context().push(); db.create_all()"
 ```
 
-> This tells SQLAlchemy to read all the model definitions and create the corresponding tables inside `timetable_db`. Run this once before any data is loaded.
+> This creates the base tables from the SQLAlchemy models. Some later schema
+> additions are applied by the numbered `bootstrap/` migration scripts below.
 
----
+### Step 7 — Seed accounts and load data
 
-### Step 7 — Run the bootstrap scripts (in order)
+The `bootstrap/` folder contains numbered scripts that seed accounts, apply
+schema migrations, and load the project's datasets. They are designed to run in
+numeric order, and each is idempotent where possible (re-running a completed
+migration is safe). The essential ones for a fresh setup are:
 
-These one-time scripts set up the database with initial data and apply schema migrations.
-
-| Script | What it does | Tables affected |
-|--------|-------------|-----------------|
-| `1_seed_admin.py` | Creates the admin login account | `users` |
-| `2_excel_loader.py` | Loads courses, timeslots, and rooms from Excel/CSV | `programmes`, `courses`, `class_sessions`, `timeslots`, `rooms` |
-| `3_migrate.py` | Applies all column and table additions needed after initial setup | `class_sessions`, `timetable_entries`, `timetable_flags`, `audit_logs`, `users` |
-| `4_seed_student.py` | *(Optional)* Creates a test student login for demo | `users` |
-
-Run them in this order:
-
-```bash
-# 1. Create the admin account
+```powershell
+# Create the admin account
+$env:SEED_ADMIN_PASSWORD = 'a-strong-temporary-password'
 python bootstrap/1_seed_admin.py
 
-# 2. Load DSC programme data
-#    Open bootstrap/2_excel_loader.py first and update DSC_EXCEL and VENUE_CSV paths
-python bootstrap/2_excel_loader.py
-
-# 3. Apply all schema migrations (run once)
-python bootstrap/3_migrate.py
-
-# 4. (Optional) Create a test student account
+# (Optional) create a test student account
+$env:SEED_STUDENT_PASSWORD = 'a-strong-temporary-password'
 python bootstrap/4_seed_student.py
 ```
 
-> Each script prints a confirmation message when done. If a script says a column already exists, that's fine — it means you have already run it before.
-
----
+The remaining scripts (`2_*` onward) apply incremental schema migrations and
+load the engineering-cluster datasets from the supplied Excel files. They are
+specific to this project's source data and file paths, and record the full
+history of how the dataset was built. Data can also be created and maintained
+through the admin interface once the app is running (see Feature Guide).
 
 ### Step 8 — Start the application
 
@@ -160,109 +132,83 @@ python bootstrap/4_seed_student.py
 python run.py
 ```
 
-Then open your browser and go to: **http://127.0.0.1:5000/login**
-
-> The app runs locally on your machine. Keep the terminal open while using the app — closing it stops the server.
+Open **http://127.0.0.1:5000/login** in your browser. Keep the terminal open
+while using the app; closing it stops the server.
 
 ---
 
 ## Demo Accounts
 
-| Role | Email | Password |
-|------|-------|----------|
-| **Admin** | admin@sit.edu.sg | Admin1234! |
-| **Professor** | braingohjw@gmail.com | David123! |
-| **Student** | student@sit.edu.sg | Student1234! |
-
-The professor account is David Lin Weidong (Staff ID: A100909).  
-The student account is a generic test account — select a student group on the My Timetable page.
+Demo credentials are deployment-specific and are not stored in the repository.
+Create the administrator and optional student accounts with the seed environment
+variables above. Imported professor accounts receive random passwords and must
+be assigned individual credentials by an administrator before distribution.
 
 ---
 
 ## Feature Guide
 
-### Admin Workflow
+### Admin
 
-#### 1. Set up courses and sessions
-- Go to **Courses** → select a course → **Sessions**
-- Assign a professor and student group to each session
-- Set a **Fixed Slot** if the course must always fall on a specific day/time (e.g. industry engagement events)
+- **Import** teaching requirements from Excel (Template 1), with validation and
+  error reporting, or create and maintain data directly.
+- **Manage data** — full create / edit / delete plus bulk import and export for
+  professors, rooms, courses, student groups, students, time slots, and calendar
+  events, each with search and filtering.
+- **Fixed sessions** — mark a session's room and time as fixed so the solver
+  never moves it; every other session is scheduled around it.
+- **Generate** a timetable for a chosen trimester (e.g. `AY2526-T1`) with the
+  CP-SAT solver.
+- **Review** the result as a list or a weekly grid, with any clash flagged
+  directly on screen; compare schedules across trimesters for consistency.
+- **Correct** a single entry or a full run of weeks, with non-overlap re-checked
+  before the change is saved. All manual edits are recorded in the audit log.
+- **Constraint settings** — adjust the weight of every soft constraint through a
+  settings page, without touching code.
+- **Constraint reference** — inspect every hard and soft constraint in effect.
+- **Export** the schedule in the institution's Template 2 format (export is
+  blocked while any unresolved hard conflict remains), or a full weekly Excel
+  view.
+- **Reports & oversight** — a per-run scheduling report, a system-status page
+  disclosing data-quality gaps and assumptions, and an audit log of admin
+  actions.
 
-#### 2. Manage professors and rooms
-- Go to **Professors** → Add / Edit professors and set their temporary passwords
-- Go to **Rooms** → Add / Edit teaching venues
+### Teaching staff
 
-#### 3. Classify availability declarations
-- Go to **Declarations** → review what professors have submitted
-- Classify each as **Strict** (the solver will never assign that slot) or **Preferred** (the solver avoids it but may use it if necessary)
+- View their own schedule as a weekly grid.
+- Declare their own availability for a trimester.
 
-#### 4. Generate the timetable
-- Go to **Timetable** → enter a Trimester Code (e.g. `2025-T3`) and the Week 1 Start Date
-- Click **Run CP-SAT Solver**
-- After it finishes, check the summary: how many strict constraints were applied and how many preferred violations occurred
-- If there are preferred violations, a conflict report appears listing the affected sessions
+### Student
 
-#### 5. Handle conflict flags
-- Go to **Flags** → flags are automatically created for any preferred violations
-- Set a response deadline and click **Notify** to email the professor
-- The professor logs in, reviews the flag, and responds either "Can Proceed" or "Cannot Proceed"
-- If they say "Cannot Proceed", the admin receives an email to arrange next steps
-
-#### 6. Manual editing
-- Go to **Timetable** → click the ✏️ pencil icon on any session → **View All Weeks**
-- You can change the timeslot, room, or professor for individual weeks
-- The system checks for double-booking conflicts on save
-- Use **Force Save** to override a warning if needed
-- All manual edits are recorded in the **Audit Log**
-
-#### 7. Publish the timetable
-- Go to **Timetable** → click **Publish**
-- Once published, professors and students can see their timetable when they log in
-
-#### 8. View modes
-- **List View** — a table showing the recurring weekly slot for each session
-- **Weekly View** — a calendar grid (Mon–Sun) for a specific week, with navigation arrows
+- View their own cohort's schedule as a list or weekly grid.
 
 ---
 
-### Professor Workflow
+## The Constraint Model
 
-1. Log in → the **Dashboard** shows your assigned sessions, any pending declarations, and open flags
-2. Go to **My Timetable** → view your published schedule in List or Weekly view
-3. Go to **Availability** → submit dates/times you are unavailable, with a reason
-   - The admin will classify your submission as Strict or Preferred
-   - You can delete a pending declaration; once classified you cannot
-4. Go to **My Flags** → respond to conflict notifications sent by the admin
-   - **I can proceed** → the flag is resolved automatically
-   - **I cannot proceed** → the admin is notified by email to arrange a substitute
+**Hard constraints** define whether a timetable is valid. They cover professor,
+room, and student-group non-overlap (compared by actual wall-clock start and end
+time, not time-slot label); room type and capacity; fixed timeslots and rooms;
+strict professor availability; online-vs-in-person room rules; odd/even week
+patterns; public-holiday and term-break exclusion; a guaranteed daily lunch
+window; university-wide module day separation; cross-programme shared-module
+equality; and named institutional windows (no classes before 09:00 or after
+18:00, none on Saturday, Wednesday afternoon blocked, Friday 12:00–14:00
+protected, and no Friday class ending after 17:00).
 
----
+**Soft constraints** rank valid schedules by preference. They include avoiding
+online/in-person mode switches back-to-back, professor idle gaps, excessive
+consecutive teaching hours, spreading a group's classes across too many days,
+under-utilised or over-sized rooms, first/last slots of the day, late finishes,
+venue inconsistency, and clustering a programme's online classes onto one day.
+Each carries a weight editable through the admin settings page.
 
-### Student Workflow
-
-1. Log in → the **Dashboard** shows published trimester information
-2. Go to **My Timetable** → select your cohort group (e.g. DSC-Y1-A)
-3. Toggle between **List View** and **Weekly View**
-4. Click any session block to see full details
-
----
-
-## Weekly View
-
-The weekly calendar grid is available on all timetable pages (admin, professor, student).
-
-| Colour | Session Type |
-|--------|-------------|
-| Green | Tutorial |
-| Blue | Lecture |
-| Orange | Lab |
-| Purple | Seminar |
-| Striped overlay | Online session |
-
-- Use the **← / →** buttons or the **week dropdown** to move between weeks
-- Weeks that fall in a term break show a warning banner and no sessions
-- Click any session block to open a details popup
-- The admin popup includes a direct **Edit** link to the week editor for that session
+The solver runs 8 parallel search workers within a 400-second budget and returns
+one of three statuses: **Optimal** (a valid schedule proven best under the
+current weights), **Feasible** (a valid schedule found within the budget without
+that proof), or **Infeasible** (no valid schedule exists within the current
+scope). A Feasible schedule satisfies every hard constraint exactly as an Optimal
+one does.
 
 ---
 
@@ -272,16 +218,23 @@ The weekly calendar grid is available on all timetable pages (admin, professor, 
 |-------|---------|
 | `users` | Login accounts (admin / professor / student) |
 | `professors` | Professor profiles linked to users |
-| `courses` | Module catalogue |
+| `programmes` | Degree programmes |
+| `courses` | Module catalogue per programme and trimester |
 | `class_sessions` | Individual teaching sessions per course |
-| `timeslots` | SIT period blocks (P1–P4, Lab AM/PM/EV) |
-| `rooms` | Teaching venues |
+| `class_session_professors` | Session-to-professor links (supports co-teaching) |
+| `student_groups` | Cohort groups (e.g. DSC-Y1) |
+| `shared_module_groups` | Links sessions that are one class taught under several codes |
+| `timeslots` | SIT period blocks (P1–P4, Lab AM/PM/EV, etc.) |
+| `rooms` | Teaching venues with type and capacity |
 | `timetable_entries` | Generated schedule (one row per session per week) |
-| `academic_calendar` | Week dates and term break flags |
+| `solve_runs` | Per-trimester record of each generation run's status and stats |
+| `solver_settings` | Editable soft-constraint weights |
+| `academic_calendar` | Week dates and term-break flags |
+| `events` | Calendar events and blocked dates |
 | `availability_declarations` | Professor unavailability submissions |
 | `timetable_flags` | Conflict notifications |
 | `flag_responses` | Professor responses to flags |
-| `audit_logs` | Manual edit history |
+| `audit_logs` | Manual edit and admin-action history |
 
 ---
 
@@ -291,40 +244,39 @@ The weekly calendar grid is available on all timetable pages (admin, professor, 
 timetable-system/
 ├── app/
 │   ├── engine/
-│   │   ├── solver.py          # CP-SAT timetable generator
-│   │   └── checker.py         # Pre-solve validation
-│   ├── models/                # SQLAlchemy ORM models (one file per table)
+│   │   ├── solver.py            # CP-SAT timetable generator (hard + soft constraints)
+│   │   ├── checker.py           # Pre-generation validation and blocking checks
+│   │   └── template1_parser.py  # Template 1 (Excel) import parsing
+│   ├── models/                  # SQLAlchemy ORM models (one file per table)
 │   ├── routes/
-│   │   ├── admin.py           # Admin blueprint  (/admin/*)
-│   │   ├── teacher.py         # Professor blueprint (/teacher/*)
-│   │   ├── student.py         # Student blueprint (/student/*)
-│   │   └── auth.py            # Login / logout (/login, /logout)
-│   ├── templates/             # Jinja2 HTML templates (admin/, teacher/, student/, auth/)
+│   │   ├── admin.py             # Admin blueprint (/admin/*)
+│   │   ├── teacher.py           # Professor blueprint (/teacher/*)
+│   │   ├── student.py           # Student blueprint (/student/*)
+│   │   └── auth.py              # Login / logout
+│   ├── templates/               # Jinja2 templates (admin/, teacher/, student/, auth/)
 │   └── utils/
-│       └── email.py           # Flask-Mail notifications
-├── bootstrap/                 # One-time setup scripts — run in numbered order
-│   ├── 1_seed_admin.py        # Creates admin account → users
-│   ├── 2_excel_loader.py      # Loads Excel/CSV data → programmes, courses, timeslots, rooms
-│   ├── 3_migrate.py           # Schema additions → class_sessions, timetable_entries, timetable_flags, audit_logs
-│   └── 4_seed_student.py      # (Optional) test student account → users
-├── config.py                  # Credentials — gitignored, create from README template
-├── requirements.txt           # Python dependencies
-├── run.py                     # App entry point
+│       └── email.py             # Flask-Mail notifications
+├── bootstrap/                   # Numbered one-time setup, migration, and data-load scripts
+├── config.py                    # Configuration (env-var driven, no secrets)
+├── requirements.txt             # Python dependencies
+├── run.py                       # App entry point
 └── README.md
 ```
 
 ---
 
-## Known Limitations
+## Operational Scope
 
-- **Single professor:** The DSC dataset only lists one teaching staff (David Lin Weidong), so all sessions are assigned to him. The system is built to handle multiple professors.
-- **Student account creation:** Student accounts must be created manually via `bootstrap/seed_student.py`. An admin UI for managing student accounts is planned.
-- **Email SMTP:** SIT Microsoft 365 SMTP AUTH is blocked for student accounts. Gmail App Password is used for the demo.
-- **No mobile layout:** The app is designed for laptop/desktop screens. The weekly calendar grid uses horizontal scroll on smaller screens.
+The system holds data for the engineering cluster's 16 degree programmes. Each
+generation run schedules a group of programmes whose shared-professor
+connections allow them to be solved together, selected to meet the required
+minimum of 20 programme-year schedules. Data for every programme remains in the
+database regardless of which group a given run covers; scope is a property of
+each run, set through a per-session flag, not a limit on what the system stores.
 
 ---
 
 ## Group Members
 
-DSC2204 IT Project — Group 8  
+DSC2204 Integrative Team Project — Group 8
 Singapore Institute of Technology
