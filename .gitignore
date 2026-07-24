@@ -8,3 +8,10 @@ instance/
 # AI tools
 .claude/
 .vscode/
+
+# Report deliverables and working artefacts, kept out of the application repo.
+# Anchored to the repository root so images used by the application itself,
+# for example under app/static/, are still tracked normally.
+/*.docx
+/Figure*.png
+/diagnose_conflicts.py

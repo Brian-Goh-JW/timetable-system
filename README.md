@@ -141,6 +141,21 @@ while using the app; closing it stops the server.
 
 ---
 
+## Running the Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+The suite covers the scheduling logic most likely to produce an invalid
+timetable if broken: shared-module collapsing, fixed-session overlap handling,
+effective group size for split cohorts, parent and subgroup relationships, and
+the readiness checks that block generation when a synchronous session has no
+student group. The tests run against an isolated in-memory database, so they
+need no configuration and never touch the bundled `database/timetable.db`.
+
+---
+
 ## Demo Accounts
 
 Demo credentials are deployment-specific and are not stored in the repository.
