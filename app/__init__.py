@@ -1,9 +1,28 @@
+import sqlite3
+
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_mail import Mail
 from flask_wtf import CSRFProtect
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from config import Config
+
+
+@event.listens_for(Engine, 'connect')
+def _enforce_sqlite_foreign_keys(dbapi_connection, connection_record):
+    """SQLite ignores foreign keys unless asked to enforce them per connection.
+
+    The schema relies on foreign keys to reject a session that references a
+    professor, room, or student group that does not exist, so enforcement is
+    switched on for every SQLite connection. Other backends are unaffected.
+    """
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute('PRAGMA foreign_keys=ON')
+        cursor.close()
+
 
 db           = SQLAlchemy()
 login_manager = LoginManager()

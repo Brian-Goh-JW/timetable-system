@@ -8,9 +8,15 @@ class Config:
     # making sessions intentionally non-persistent across restarts unless the
     # operator supplies FLASK_SECRET_KEY.
     SECRET_KEY = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
+    # The database is a SQLite file kept inside the project at
+    # database/timetable.db. It needs no server, no password, and travels
+    # with the project folder. Set DATABASE_URL to point elsewhere (for
+    # example at a MySQL server) if a different backend is ever needed.
+    _BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+    _SQLITE_PATH = os.path.join(_BASE_DIR, 'database', 'timetable.db')
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         'DATABASE_URL',
-        'mysql+pymysql://root@127.0.0.1/timetable_db',
+        'sqlite:///' + _SQLITE_PATH.replace('\\', '/'),
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {

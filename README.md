@@ -15,7 +15,7 @@ format.
 | Layer | Technology |
 |-------|-----------|
 | Backend | Python 3.12, Flask 3.x |
-| Database | MySQL 8, SQLAlchemy ORM |
+| Database | SQLite (file-based, bundled in `database/`), SQLAlchemy ORM |
 | Solver | Google OR-Tools CP-SAT |
 | Frontend | Bootstrap 5, Bootstrap Icons, Jinja2 |
 | Auth | Flask-Login (session-based, role-based access) |
@@ -56,35 +56,35 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Step 4 — Create the MySQL database
+### Step 4 — The database
 
-In MySQL Workbench (or any MySQL client), run once:
+No database server, installation, or password is required. The application uses
+SQLite, and the database file ships with the project at
+`database/timetable.db`. It is created and read automatically, so there is
+nothing to set up for this step.
 
-```sql
-CREATE DATABASE timetable_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-```
-
-### Step 5 — Configure environment variables
+### Step 5 — Configure environment variables (optional)
 
 `config.py` is committed to Git and contains configuration logic only, with no
-secrets. All deployment-specific values are read from environment variables. If
-they are not set, the app falls back to a passwordless local MySQL connection
-and a random per-run Flask secret, which is convenient for local development.
-
-For a PowerShell development session:
+secrets. The database needs no configuration. The remaining values are read
+from environment variables and are only needed if you want email notifications
+or the timetable-summary feature:
 
 ```powershell
 $env:FLASK_SECRET_KEY = 'replace-with-a-long-random-value'
-$env:DATABASE_URL = 'mysql+pymysql://root:yourpassword@127.0.0.1/timetable_db'
 $env:MAIL_USERNAME = 'your.email@gmail.com'
 $env:MAIL_PASSWORD = 'your-app-password'
 $env:MAIL_DEFAULT_SENDER = 'your.email@gmail.com'
 $env:ADMIN_EMAIL = 'your.email@gmail.com'
 ```
 
-`ANTHROPIC_API_KEY` is optional and needed only for the timetable-summary
-feature. `FLASK_DEBUG=1` may be set for local debugging; debug mode is off by
-default.
+If `FLASK_SECRET_KEY` is not set, a random key is generated per run, which
+simply means login sessions do not survive a restart. `ANTHROPIC_API_KEY` is
+optional and needed only for the timetable-summary feature. `FLASK_DEBUG=1` may
+be set for local debugging; debug mode is off by default.
+
+`DATABASE_URL` may be set to point at a different database (for example a MySQL
+server) if one is ever needed, but this is not required.
 
 **Getting a Gmail App Password:** enable 2FA on your Google account, then create
 an app password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
@@ -94,21 +94,25 @@ and copy the 16-character code into `MAIL_PASSWORD`.
 > student accounts by institutional policy, so Gmail with an App Password is used
 > for demo purposes.
 
-### Step 6 — Create the database tables
+### Step 6 — Start the application
+
+The bundled `database/timetable.db` already contains the full working dataset
+(programmes, courses, sessions, professors, rooms, and generated timetables), so
+you can go straight to Step 8 and run the app.
+
+### Step 7 — Seed accounts and load data (only for a fresh, empty database)
+
+Skip this step unless you are starting from an empty database. To build one from
+scratch, first create the tables:
 
 ```bash
 python -c "from app import create_app, db; app = create_app(); app.app_context().push(); db.create_all()"
 ```
 
-> This creates the base tables from the SQLAlchemy models. Some later schema
-> additions are applied by the numbered `bootstrap/` migration scripts below.
-
-### Step 7 — Seed accounts and load data
-
-The `bootstrap/` folder contains numbered scripts that seed accounts, apply
+The `bootstrap/` folder then contains numbered scripts that seed accounts, apply
 schema migrations, and load the project's datasets. They are designed to run in
 numeric order, and each is idempotent where possible (re-running a completed
-migration is safe). The essential ones for a fresh setup are:
+migration is safe). The essential ones are:
 
 ```powershell
 # Create the admin account
@@ -257,6 +261,9 @@ timetable-system/
 │   └── utils/
 │       └── email.py             # Flask-Mail notifications
 ├── bootstrap/                   # Numbered one-time setup, migration, and data-load scripts
+├── database/
+│   └── timetable.db             # SQLite database (no server or password needed)
+├── tests/                       # Unit tests (python -m unittest discover -s tests)
 ├── config.py                    # Configuration (env-var driven, no secrets)
 ├── requirements.txt             # Python dependencies
 ├── run.py                       # App entry point
