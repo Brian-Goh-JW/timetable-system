@@ -995,58 +995,60 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
-<!-- ===== Async Solver Progress Modal ===== -->
-<div class="modal fade" id="solverProgressModal" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header border-0">
-        <h5 class="modal-title fw-semibold" id="solverModalTitle">Generating Timetable</h5>
-      </div>
-      <div class="modal-body text-center py-4">
+<!-- ===== Async Solver Progress (non-blocking floating indicator) ===== -->
+<div id="solverProgress" class="shadow-lg"
+     style="display:none; position:fixed; bottom:1.25rem; right:1.25rem; z-index:1080;
+            width:340px; max-width:calc(100vw - 2rem); background:#fff; border-radius:.75rem;
+            border:1px solid rgba(0,0,0,.08); overflow:hidden;">
+  <div class="d-flex align-items-center gap-2 px-3 py-2 border-bottom">
+    <span id="solverModalTitle" class="fw-semibold small flex-grow-1">Generating Timetable</span>
+    <button type="button" class="btn-close" id="solver-close-btn" style="display:none; font-size:.6rem;" aria-label="Dismiss"></button>
+  </div>
+  <div class="px-3 py-3">
 
-        <!-- Running state -->
-        <div id="solver-running">
-          <div class="spinner-border text-danger mb-3" style="width:3rem;height:3rem;" role="status"></div>
-          <p id="solver-status-msg" class="mb-1 fw-medium">Starting solver…</p>
-          <p class="text-muted small mb-0">
-            Elapsed: <span id="solver-elapsed">0</span>s
-            &nbsp;·&nbsp;
-            <span class="text-muted">This usually takes 1–3 minutes</span>
-          </p>
-          <div class="progress mt-3" style="height:6px;">
-            <div class="progress-bar progress-bar-striped progress-bar-animated bg-danger"
-                 style="width:100%"></div>
+    <!-- Running state -->
+    <div id="solver-running">
+      <div class="d-flex align-items-center gap-3">
+        <div class="spinner-border spinner-border-sm text-danger flex-shrink-0" role="status"></div>
+        <div class="flex-grow-1">
+          <div id="solver-status-msg" class="small fw-medium">Starting solver…</div>
+          <div class="text-muted" style="font-size:.75rem;">
+            Elapsed <span id="solver-elapsed">0</span>s · you can keep using the app
           </div>
         </div>
-
-        <!-- Success state -->
-        <div id="solver-success" style="display:none;">
-          <div class="text-success mb-3" style="font-size:3rem;"><i class="bi bi-check-circle-fill"></i></div>
-          <p id="solver-success-msg" class="fw-medium mb-1"></p>
-          <p id="solver-success-stats" class="text-muted small"></p>
-        </div>
-
-        <!-- Error state -->
-        <div id="solver-error" style="display:none;">
-          <div class="text-danger mb-3" style="font-size:3rem;"><i class="bi bi-x-circle-fill"></i></div>
-          <p class="fw-medium mb-1">Generation failed</p>
-          <p id="solver-error-msg" class="text-muted small"></p>
-        </div>
-
-        <!-- Timeout warning (shown after 5 min, solver still running) -->
-        <div id="solver-timeout-warn" class="alert alert-warning mt-3 py-2 small text-start" style="display:none;">
-          <i class="bi bi-exclamation-triangle me-1"></i>
-          This is taking longer than expected. The solver is still running - you can wait or close this and check back later.
-        </div>
       </div>
-      <div class="modal-footer border-0 justify-content-center">
-        <button class="btn btn-outline-secondary btn-sm" id="solver-close-btn" style="display:none;"
-                data-bs-dismiss="modal">Close</button>
-        <a href="#" class="btn btn-danger btn-sm" id="solver-view-btn" style="display:none;">
-          <i class="bi bi-table me-1"></i>View Timetable
-        </a>
+      <div class="progress mt-2" style="height:4px;">
+        <div class="progress-bar progress-bar-striped progress-bar-animated bg-danger" style="width:100%"></div>
       </div>
     </div>
+
+    <!-- Success state -->
+    <div id="solver-success" style="display:none;">
+      <div class="d-flex align-items-center gap-2 text-success">
+        <i class="bi bi-check-circle-fill"></i>
+        <span id="solver-success-msg" class="small fw-medium"></span>
+      </div>
+      <div id="solver-success-stats" class="text-muted mt-1" style="font-size:.75rem;"></div>
+    </div>
+
+    <!-- Error state -->
+    <div id="solver-error" style="display:none;">
+      <div class="d-flex align-items-center gap-2 text-danger">
+        <i class="bi bi-x-circle-fill"></i>
+        <span class="small fw-medium">Generation failed</span>
+      </div>
+      <div id="solver-error-msg" class="text-muted mt-1" style="font-size:.75rem;"></div>
+    </div>
+
+    <!-- Timeout warning (shown after 5 min, solver still running) -->
+    <div id="solver-timeout-warn" class="text-warning mt-2" style="display:none; font-size:.72rem;">
+      <i class="bi bi-exclamation-triangle me-1"></i>
+      Taking longer than usual - still running, feel free to check back later.
+    </div>
+
+    <a href="#" class="btn btn-danger btn-sm w-100 mt-2" id="solver-view-btn" style="display:none;">
+      <i class="bi bi-table me-1"></i>View Timetable
+    </a>
   </div>
 </div>
 
@@ -1055,14 +1057,18 @@ document.addEventListener('DOMContentLoaded', function () {
     var _pollInterval = null;
     var _taskId = null;
     var _startTs = null;
-    var _modal = null;
 
     function elapsedSec() { return Math.floor((Date.now() - _startTs) / 1000); }
+
+    function showWidget() { document.getElementById('solverProgress').style.display = ''; }
+    function hideWidget() { document.getElementById('solverProgress').style.display = 'none'; }
 
     function showState(state) {
         document.getElementById('solver-running').style.display = (state === 'running') ? '' : 'none';
         document.getElementById('solver-success').style.display = (state === 'success') ? '' : 'none';
         document.getElementById('solver-error').style.display   = (state === 'error')   ? '' : 'none';
+        // Close (dismiss) available once the run finishes; hidden while running so
+        // the indicator stays put, but the rest of the app is always usable.
         document.getElementById('solver-close-btn').style.display = (state !== 'running') ? '' : 'none';
     }
 
@@ -1113,8 +1119,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function startSolve(formEl) {
         var formData = new FormData(formEl);
-        // Show modal
-        _modal = _modal || new bootstrap.Modal(document.getElementById('solverProgressModal'));
+        // Show the non-blocking floating indicator (does not trap the UI)
         document.getElementById('solverModalTitle').textContent = 'Generating Timetable';
         document.getElementById('solver-timeout-warn').style.display = 'none';
         document.getElementById('solver-view-btn').style.display = 'none';
@@ -1122,7 +1127,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('solver-status-msg').textContent = 'Starting…';
         document.getElementById('solver-elapsed').textContent = '0';
         showState('running');
-        _modal.show();
+        showWidget();
 
         _startTs = Date.now();
         fetch('/admin/timetable/solve-async', { method: 'POST', body: formData })
@@ -1148,6 +1153,7 @@ document.addEventListener('DOMContentLoaded', function () {
             e.preventDefault();
             startSolve(this);
         });
+        document.getElementById('solver-close-btn').addEventListener('click', hideWidget);
     });
 })();
 </script>
