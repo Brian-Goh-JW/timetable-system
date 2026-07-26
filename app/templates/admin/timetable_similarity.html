@@ -173,7 +173,7 @@
                     <option value="3">T3</option>
                 </select>
             </div>
-            <div class="col-6 col-md-3">
+            <div class="col-6 col-md-4">
                 <label class="form-label small text-muted fw-medium mb-1">Programme</label>
                 <select class="form-select form-select-sm" id="filter-prog" onchange="setProg(this.value)">
                     <option value="all">All programmes</option>
@@ -181,19 +181,6 @@
                     <option value="{{ code }}">{{ code }}</option>
                     {% endfor %}
                 </select>
-            </div>
-            <div class="col-6 col-md-4">
-                <label class="form-label small text-muted fw-medium mb-1 d-block">Export {{ compare_label }} timetable</label>
-                <div class="d-flex gap-2">
-                    <select class="form-select form-select-sm" id="export-tri" style="max-width:150px;" onchange="updateExportLink()">
-                        <option value="1">Trimester 1</option>
-                        <option value="2">Trimester 2</option>
-                        <option value="3">Trimester 3</option>
-                    </select>
-                    <a id="export-link" href="#" class="btn btn-sm btn-outline-dark flex-shrink-0">
-                        <i class="bi bi-download me-1"></i>Export
-                    </a>
-                </div>
             </div>
         </div>
     </div>
@@ -371,15 +358,6 @@ function setStatus(val) { _statusFilter = val; applyFilters(); }
 function setTri(val)    { _triFilter    = val; applyFilters(); }
 function setProg(val)   { _progFilter   = val; applyFilters(); }
 
-var COMPARE_AY  = '{{ compare_ay }}';
-var EXPORT_BASE = '{{ url_for("admin.timetable_export") }}';
-
-function updateExportLink() {
-    var n = document.getElementById('export-tri').value;
-    document.getElementById('export-link').href =
-        EXPORT_BASE + '?trimester=' + encodeURIComponent(COMPARE_AY + '-T' + n);
-}
-
 function generateSummary(trimester) {
     var btn  = document.getElementById('summary-btn');
     var text = document.getElementById('summary-text');
@@ -404,8 +382,7 @@ function generateSummary(trimester) {
         });
 }
 
-// Initialise stat cards and export link once everything above is defined.
+// Initialise stat cards once everything above is defined.
 recomputeStats();
-updateExportLink();
 </script>
 {% endblock %}
