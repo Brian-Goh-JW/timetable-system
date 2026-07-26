@@ -5,7 +5,7 @@
 
 <div class="d-flex justify-content-end align-items-center mb-4">
     <div class="d-flex align-items-center gap-2">
-        <span class="badge bg-secondary fs-6">{{ logs | length }} entries</span>
+        <span class="badge bg-secondary fs-6" id="audit-count">{{ logs | length }} entries</span>
         <div class="action-dropdown">
             <a href="{{ url_for('admin.audit_log_export', trimester=active_trimester) }}" class="btn btn-sm">
                 <span class="icon-chip icon-chip-blue"><i class="bi bi-download"></i></span>Export CSV
@@ -14,20 +14,15 @@
     </div>
 </div>
 
-<!-- Trimester filter -->
-{% if trimesters %}
-<div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
-    <span class="small text-muted me-1">Filter:</span>
-    <a href="{{ url_for('admin.audit_log') }}"
-       class="btn btn-sm {% if not active_trimester %}btn-dark{% else %}btn-outline-secondary{% endif %}">
-        All
-    </a>
-    {% for t in trimesters %}
-    <a href="{{ url_for('admin.audit_log', trimester=t) }}"
-       class="btn btn-sm {% if active_trimester == t %}btn-dark{% else %}btn-outline-secondary{% endif %}">
-        {{ t }}
-    </a>
-    {% endfor %}
+{% if logs %}
+<!-- Search -->
+<div class="mb-3" style="max-width:380px;">
+    <div class="input-group input-group-sm">
+        <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+        <input type="text" id="audit-search" class="form-control"
+               placeholder="Search edits (module, admin, trimester, room, professor…)"
+               oninput="filterAudit()" autocomplete="off">
+    </div>
 </div>
 {% endif %}
 
@@ -119,4 +114,23 @@
 </div>
 {% endif %}
 
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+var _auditTotal = {{ logs | length }};
+function filterAudit() {
+    var q = document.getElementById('audit-search').value.trim().toLowerCase();
+    var shown = 0;
+    document.querySelectorAll('tbody tr').forEach(function(r) {
+        var match = r.textContent.toLowerCase().indexOf(q) !== -1;
+        r.style.display = match ? '' : 'none';
+        if (match) { shown += 1; }
+    });
+    var badge = document.getElementById('audit-count');
+    if (badge) {
+        badge.textContent = (q ? shown + ' of ' + _auditTotal : _auditTotal) + ' entries';
+    }
+}
+</script>
 {% endblock %}
