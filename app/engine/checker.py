@@ -2,7 +2,8 @@
 Pre-solve readiness checker.
 Returns (blockers, warnings) - only blockers prevent generation.
 The solver can still schedule sessions with no professor (blank staff field),
-but every synchronous session must have a student group so it appears in the
+and a course with no sessions at all is only a warning (nothing to place), but
+every synchronous session must have a student group so it appears in the
 student timetable and is included in group constraints.
 """
 
@@ -36,17 +37,24 @@ def get_blocking_issues(trimester_num=None):
             q = q.filter(ClassSession.trimester == trimester_num)
         return q
 
-    # 1. F2f/hybrid courses with no split count AND no sessions yet
+    # 1. F2f/hybrid courses with no split count AND no sessions yet.
+    # Warning, not a blocker: a course with zero sessions has nothing for the
+    # solver to place, so it cannot make the model infeasible - it simply is
+    # not scheduled. It is surfaced so the admin notices an unconfigured or
+    # leftover course, but it never stops the rest of the timetable generating.
     missing_split_query = Course.query.filter(
         Course.delivery_mode.in_(['f2f', 'hybrid']),
         Course.split_count.is_(None)
     )
     if trimester_num is not None:
         missing_split_query = missing_split_query.filter(Course.trimester == trimester_num)
-    missing_split = missing_split_query.all()
-    for c in missing_split:
-        if not c.class_sessions:
-            blockers.append(f'{c.module_code}: no sessions and split count not set.')
+    missing_split = [c for c in missing_split_query.all() if not c.class_sessions]
+    if missing_split:
+        codes = ', '.join(c.module_code for c in missing_split)
+        warnings.append(
+            f'{len(missing_split)} course(s) have no sessions and no split count set '
+            f'({codes}) - they will not appear in the timetable until configured.'
+        )
 
     # 2. Sessions with no professor - still scheduled (room + time), just
     # exported with a blank staff field - warning only, not a blocker
