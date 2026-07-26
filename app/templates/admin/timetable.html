@@ -144,7 +144,11 @@
 
                     <button type="submit" class="btn w-100 text-white"
                             style="background-color:#c0272d;">
+                        {% if gen_has_existing %}
                         <i class="bi bi-arrow-repeat me-1"></i>Re-generate Trimester
+                        {% else %}
+                        <i class="bi bi-cpu me-1"></i>Generate Trimester
+                        {% endif %}
                     </button>
                 </form>
                 {% else %}

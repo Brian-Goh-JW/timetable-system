@@ -2389,19 +2389,9 @@ def _auto_create_flags(trimester, preferred_violations):
 def timetable_flags():
     from app.models.timetable_flag import TimetableFlag
 
-    trimester_filter = request.args.get('trimester', '')
-
-    trimesters = [r[0] for r in
-                  db.session.query(TimetableEntry.trimester).distinct()
-                  .order_by(TimetableEntry.trimester).all()]
-
-    # Default to most recent trimester
-    if not trimester_filter and trimesters:
-        trimester_filter = trimesters[-1]
-
+    # All flags across every trimester (no trimester filter).
     flags_query = (TimetableFlag.query
                    .join(TimetableFlag.timetable_entry)
-                   .filter(TimetableEntry.trimester == trimester_filter)
                    .order_by(TimetableFlag.created_at.desc()))
 
     open_flags         = flags_query.filter(TimetableFlag.status == 'open').all()
@@ -2411,9 +2401,7 @@ def timetable_flags():
     return render_template('admin/timetable_flags.html',
                            open_flags=open_flags,
                            acknowledged_flags=acknowledged_flags,
-                           resolved_flags=resolved_flags,
-                           trimesters=trimesters,
-                           active_trimester=trimester_filter)
+                           resolved_flags=resolved_flags)
 
 
 @admin_bp.route('/timetable-flags/<int:flag_id>/notify', methods=['POST'])
@@ -4373,6 +4361,7 @@ def timetable():
     # single trimester to generate for, so gen_trimester stays None there.
     gen_ay = gen_tri_num = gen_trimester = None
     gen_start_date = ''
+    gen_has_existing = False
     if trimester and trimester[-4:] != '-all' and '-T' in trimester:
         _gen_ay_part, _gen_tri_part = trimester.split('-T')
         if _gen_tri_part in ('1', '2', '3'):
@@ -4380,12 +4369,19 @@ def timetable():
             gen_tri_num = int(_gen_tri_part)
             gen_trimester = trimester
             gen_start_date = SIT_ACADEMIC_CALENDAR.get(gen_ay, {}).get(gen_tri_num, '')
+            # Whether a generated (non-backbone) timetable already exists for
+            # this trimester - drives the Generate vs Re-generate button label.
+            # Becomes False again once the admin clears/deletes the entries.
+            gen_has_existing = (TimetableEntry.query
+                                .filter_by(trimester=gen_trimester, is_backbone=False)
+                                .first() is not None)
 
     return render_template('admin/timetable.html',
                            gen_ay=gen_ay,
                            gen_tri_num=gen_tri_num,
                            gen_trimester=gen_trimester,
                            gen_start_date=gen_start_date,
+                           gen_has_existing=gen_has_existing,
                            issues=issues,
                            issue_warnings=issue_warnings,
                            trimesters=trimesters,

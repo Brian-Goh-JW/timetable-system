@@ -11,18 +11,6 @@
     {% endif %}
 </div>
 
-<!-- Trimester tabs -->
-{% if trimesters %}
-<div class="mb-3 d-flex flex-wrap gap-2">
-    {% for t in trimesters %}
-    <a href="{{ url_for('admin.timetable_flags', trimester=t) }}"
-       class="btn btn-sm {% if active_trimester == t %}btn-dark{% else %}btn-outline-secondary{% endif %}">
-        {{ t }}
-    </a>
-    {% endfor %}
-</div>
-{% endif %}
-
 <!-- Open flags -->
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-header bg-white border-bottom fw-semibold">
@@ -53,6 +41,7 @@
                     </td>
                     <td>
                         {{ f.timetable_entry.class_session.course.module_code }}
+                        <span class="badge bg-light text-secondary border ms-1" style="font-size:.68rem;">{{ f.timetable_entry.trimester }}</span>
                         <div class="text-muted text-capitalize">
                             {{ f.timetable_entry.class_session.session_type }}
                         </div>
@@ -112,7 +101,7 @@
     {% else %}
     <div class="card-body text-center text-muted py-4">
         <i class="bi bi-check-circle fs-2 text-success d-block mb-2"></i>
-        No open flags for {{ active_trimester }}.
+        No open flags.
     </div>
     {% endif %}
 </div>
@@ -143,6 +132,7 @@
                     <td class="ps-3 fw-medium">{{ f.professor.user.name }}</td>
                     <td>
                         {{ f.timetable_entry.class_session.course.module_code }}
+                        <span class="badge bg-light text-secondary border ms-1" style="font-size:.68rem;">{{ f.timetable_entry.trimester }}</span>
                         <div class="text-muted text-capitalize">
                             {{ f.timetable_entry.class_session.session_type }}
                         </div>
@@ -197,6 +187,7 @@
                     <td class="ps-3">{{ f.professor.user.name }}</td>
                     <td>
                         {{ f.timetable_entry.class_session.course.module_code }}
+                        <span class="badge bg-light text-secondary border ms-1" style="font-size:.68rem;">{{ f.timetable_entry.trimester }}</span>
                         <span class="text-muted text-capitalize">
                             - {{ f.timetable_entry.class_session.session_type }}
                         </span>
