@@ -4751,6 +4751,25 @@ def timetable_similarity():
                         sg = cs.student_group.group_label if cs.student_group else 'the same group'
                         return ('group_overlap',
                                 f"Group {sg} already has {clash_cs.course.module_code} {clash_cs.session_type} at {slot_str}.")
+            # Institutional time blocks - a backbone slot may itself fall in a
+            # window the institution's own hard rules forbid (e.g. a real
+            # timetable that placed a workshop on Wednesday afternoon), in which
+            # case the solver could never reuse it. Only applies to unpinned
+            # sessions, matching the solver's own institutional-block rule.
+            if base_ts and not cs.fixed_timeslot_id:
+                from app.engine import solver as _sv
+                if base_ts.day_of_week == 'Wednesday' and base_ts.start_time >= _sv.WED_AFTERNOON_CUTOFF:
+                    return ('institutional_block',
+                            f"{slot_str} falls in the blocked Wednesday-afternoon window (no classes from {_sv.WED_AFTERNOON_CUTOFF.strftime('%H:%M')}), so the solver could not reuse it.")
+                if base_ts.day_of_week == 'Friday' and _sv.FRI_BLOCK_START <= base_ts.start_time < _sv.FRI_BLOCK_END:
+                    return ('institutional_block',
+                            f"{slot_str} falls in the protected Friday {_sv.FRI_BLOCK_START.strftime('%H:%M')}-{_sv.FRI_BLOCK_END.strftime('%H:%M')} window, so the solver could not reuse it.")
+                if base_ts.day_of_week == 'Friday' and base_ts.end_time > _sv.FRI_EVENING_CUTOFF:
+                    return ('institutional_block',
+                            f"{slot_str} runs past the Friday {_sv.FRI_EVENING_CUTOFF.strftime('%H:%M')} cutoff, so the solver could not reuse it.")
+                if base_ts.start_time >= _sv.EVENING_CUTOFF:
+                    return ('institutional_block',
+                            f"{slot_str} starts at or after the {_sv.EVENING_CUTOFF.strftime('%H:%M')} evening cutoff, so the solver could not reuse it.")
             if base_room_id:
                 room_clash = TimetableEntry.query.filter_by(
                     trimester=compare_tri_key,
@@ -4778,6 +4797,23 @@ def timetable_similarity():
         )
         # Also include all courses that exist in the system (curriculum-level check)
         all_curriculum_mods = set(c.module_code.upper() for c in Course.query.all())
+
+        # Resolve each session's real programme (from its course), so the
+        # programme filter groups by the actual owning programme rather than
+        # the module-code prefix. A common module such as INF1101 taught in the
+        # DSC curriculum then filters under DSC, not "INF".
+        _prog_cache = {}
+        def _prog_for_session(csid):
+            if csid not in _prog_cache:
+                cs = ClassSession.query.get(csid)
+                code = None
+                if cs and cs.course:
+                    if cs.course.programme:
+                        code = cs.course.programme.code
+                    else:
+                        code = cs.course.module_code[:3]
+                _prog_cache[csid] = code or '?'
+            return _prog_cache[csid]
 
         for tri_num in [1, 2, 3]:
             base_map    = _build_map(f'{base_ay}-T{tri_num}',    base_source)
@@ -4838,11 +4874,13 @@ def timetable_similarity():
                 else:  # same
                     explanation = ''
 
+                _csid = (bd or cd)['class_session_id']
                 cross_rows.append({
                     'tri_num'         : tri_num,
                     'module_code'     : mod,
                     'session_type'    : stype,
                     'group_label'     : glabel,
+                    'prog_code'       : _prog_for_session(_csid),
                     'base_slot'       : base_slot,
                     'compare_slot'    : compare_slot,
                     'consistency'     : consistency,
@@ -4869,8 +4907,9 @@ def timetable_similarity():
             'pct':   round(s / total * 100) if total > 0 else None,
         }
 
-    # Programme codes for the filter chips (derived from module code prefix)
-    prog_codes = sorted(set(r['module_code'][:3] for r in cross_rows))
+    # Programme codes for the filter (each session's real owning programme,
+    # so a common module in DSC's curriculum filters under DSC, not its prefix)
+    prog_codes = sorted(set(r['prog_code'] for r in cross_rows))
 
     return render_template('admin/timetable_similarity.html',
                            similarity_options=similarity_options,

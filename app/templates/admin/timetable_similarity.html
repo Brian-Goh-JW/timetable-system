@@ -59,7 +59,7 @@
     <div class="col-md-3">
         <div class="card border-0 shadow-sm text-center">
             <div class="card-body py-3">
-                <div class="fs-3 fw-bold">{{ cross_rows | length }}</div>
+                <div class="fs-3 fw-bold" id="stat-total">{{ cross_rows | length }}</div>
                 <div class="text-muted small">Total sessions compared</div>
             </div>
         </div>
@@ -67,7 +67,7 @@
     <div class="col-md-3">
         <div class="card border-0 shadow-sm text-center border-start border-success border-3">
             <div class="card-body py-3">
-                <div class="fs-3 fw-bold text-success">{{ same_count }}</div>
+                <div class="fs-3 fw-bold text-success" id="stat-same">{{ same_count }}</div>
                 <div class="text-muted small">Same slot (historical kept)</div>
             </div>
         </div>
@@ -75,7 +75,7 @@
     <div class="col-md-3">
         <div class="card border-0 shadow-sm text-center border-start border-warning border-3">
             <div class="card-body py-3">
-                <div class="fs-3 fw-bold text-warning">{{ diff_count }}</div>
+                <div class="fs-3 fw-bold text-warning" id="stat-changed">{{ diff_count }}</div>
                 <div class="text-muted small">Slot changed</div>
             </div>
         </div>
@@ -84,7 +84,7 @@
         <div class="card border-0 shadow-sm text-center border-start border-primary border-3">
             <div class="card-body py-3">
                 {% set pct = ((same_count / total_comparable) * 100) | round(0) | int if total_comparable > 0 else 0 %}
-                <div class="fs-3 fw-bold text-primary">{{ pct }}%</div>
+                <div class="fs-3 fw-bold text-primary" id="stat-pct">{{ pct }}%</div>
                 <div class="text-muted small">Historical constraint effectiveness</div>
             </div>
         </div>
@@ -94,8 +94,8 @@
 <div class="alert alert-light border mb-3 small">
     <i class="bi bi-info-circle me-1"></i>
     Comparing <strong>{{ base_label }}</strong> (baseline) → <strong>{{ compare_label }}</strong>.
-    <span class="text-success fw-medium">{{ same_count }} sessions</span> kept their historical slot.
-    <span class="text-warning fw-medium">{{ diff_count }} sessions</span> were moved (availability conflict or room clash).
+    <span class="text-success fw-medium"><span id="alert-same">{{ same_count }}</span> sessions</span> kept their historical slot.
+    <span class="text-warning fw-medium"><span id="alert-diff">{{ diff_count }}</span> sessions</span> were moved (availability conflict or room clash).
     Entries only in one side are shown as <span class="badge bg-info text-dark">New</span> or <span class="badge bg-secondary">Removed</span>.
 </div>
 
@@ -116,7 +116,7 @@
         <div class="card border-0 shadow-sm">
             <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
                 <span class="badge {% if tri_num==1 %}bg-primary{% elif tri_num==2 %}bg-success{% else %}bg-warning text-dark{% endif %} fs-6">T{{ tri_num }}</span>
-                <div class="flex-grow-1">
+                <div class="flex-grow-1" id="tristat-body-{{ tri_num }}">
                     {% if ts.total == 0 %}
                     <span class="text-muted small">Not generated for {{ compare_ay }}</span>
                     {% else %}
@@ -150,46 +150,53 @@
     </div>
 </div>
 
-<!-- Filter + Export -->
-<div class="d-flex align-items-start justify-content-between gap-3 mb-3 flex-wrap">
-    <div>
-        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
-            <span class="text-muted small fw-medium" style="min-width:44px;">Status</span>
-            <button class="filter-chip active" id="chip-status-all" onclick="setStatus('all')">All</button>
-            <button class="filter-chip chip-success" id="chip-status-same" onclick="setStatus('same')">
-                <i class="bi bi-check-circle"></i>Kept
-            </button>
-            <button class="filter-chip chip-warning" id="chip-status-different" onclick="setStatus('different')">
-                <i class="bi bi-arrow-left-right"></i>Changed
-            </button>
-            <button class="filter-chip chip-info" id="chip-status-compare_only" onclick="setStatus('compare_only')">
-                <i class="bi bi-plus-circle"></i>New in {{ compare_ay }}
-            </button>
-            <button class="filter-chip" id="chip-status-base_only" onclick="setStatus('base_only')">
-                <i class="bi bi-dash-circle"></i>Only in {{ base_ay }}
-            </button>
+<!-- Filters + Export -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body py-3">
+        <div class="row g-3 align-items-end">
+            <div class="col-6 col-md-3">
+                <label class="form-label small text-muted fw-medium mb-1">Status</label>
+                <select class="form-select form-select-sm" id="filter-status" onchange="setStatus(this.value)">
+                    <option value="all">All</option>
+                    <option value="same">Kept</option>
+                    <option value="different">Changed</option>
+                    <option value="compare_only">New in {{ compare_ay }}</option>
+                    <option value="base_only">Only in {{ base_ay }}</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small text-muted fw-medium mb-1">Trimester</label>
+                <select class="form-select form-select-sm" id="filter-tri" onchange="setTri(this.value)">
+                    <option value="all">All</option>
+                    <option value="1">T1</option>
+                    <option value="2">T2</option>
+                    <option value="3">T3</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label small text-muted fw-medium mb-1">Programme</label>
+                <select class="form-select form-select-sm" id="filter-prog" onchange="setProg(this.value)">
+                    <option value="all">All programmes</option>
+                    {% for code in prog_codes %}
+                    <option value="{{ code }}">{{ code }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-4">
+                <label class="form-label small text-muted fw-medium mb-1 d-block">Export {{ compare_label }} timetable</label>
+                <div class="d-flex gap-2">
+                    <select class="form-select form-select-sm" id="export-tri" style="max-width:150px;" onchange="updateExportLink()">
+                        <option value="1">Trimester 1</option>
+                        <option value="2">Trimester 2</option>
+                        <option value="3">Trimester 3</option>
+                    </select>
+                    <a id="export-link" href="#" class="btn btn-sm btn-outline-dark flex-shrink-0">
+                        <i class="bi bi-download me-1"></i>Export
+                    </a>
+                </div>
+            </div>
         </div>
-        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
-            <span class="text-muted small fw-medium" style="min-width:44px;">Tri</span>
-            <button class="filter-chip active" id="chip-tri-all" onclick="setTri('all')">All</button>
-            <button class="filter-chip chip-info" id="chip-tri-1" onclick="setTri('1')">T1</button>
-            <button class="filter-chip chip-success" id="chip-tri-2" onclick="setTri('2')">T2</button>
-            <button class="filter-chip chip-warning" id="chip-tri-3" onclick="setTri('3')">T3</button>
-        </div>
-        {% if prog_codes %}
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-            <span class="text-muted small fw-medium" style="min-width:44px;">Prog</span>
-            <button class="filter-chip active" id="chip-prog-all" onclick="setProg('all')">All</button>
-            {% for code in prog_codes %}
-            <button class="filter-chip" id="chip-prog-{{ code }}" onclick="setProg('{{ code }}')">{{ code }}</button>
-            {% endfor %}
-        </div>
-        {% endif %}
     </div>
-    <a href="{{ url_for('admin.timetable_export', trimester=compare_ay ~ '-T1') }}"
-       class="btn btn-sm btn-outline-dark align-self-start">
-        <i class="bi bi-download me-1"></i>Export {{ compare_ay }} T1
-    </a>
 </div>
 
 <!-- Cross-AY table -->
@@ -214,7 +221,7 @@
             </thead>
             <tbody>
                 {% for row in cross_rows %}
-                <tr data-cross="{{ row.consistency }}" data-tri="{{ row.tri_num }}" data-prog="{{ row.module_code[:3] }}">
+                <tr data-cross="{{ row.consistency }}" data-tri="{{ row.tri_num }}" data-prog="{{ row.prog_code }}">
                     <td class="ps-3">
                         <span class="badge {% if row.tri_num==1 %}bg-primary{% elif row.tri_num==2 %}bg-success{% else %}bg-warning text-dark{% endif %}">
                             T{{ row.tri_num }}
@@ -263,6 +270,8 @@
                         <span class="badge bg-danger me-1" title="Another session for the same student group occupies this slot">Group overlap</span>
                         {% elif row.reason_tag == 'room_conflict' %}
                         <span class="badge bg-warning text-dark me-1" title="The original room is already booked at this slot in the new AY">Room conflict</span>
+                        {% elif row.reason_tag == 'institutional_block' %}
+                        <span class="badge bg-danger me-1" title="The backbone slot falls in a window blocked by institutional policy (e.g. Wednesday afternoon)">Blocked slot</span>
                         {% elif row.reason_tag == 'rescheduled' %}
                         <span class="badge bg-secondary me-1" title="Solver rescheduled this session - no specific hard constraint identified">Rescheduled</span>
                         {% endif %}
@@ -293,27 +302,82 @@ function applyFilters() {
         var progOk   = (_progFilter   === 'all' || row.dataset.prog  === _progFilter);
         row.style.display = (statusOk && triOk && progOk) ? '' : 'none';
     });
+    recomputeStats();
 }
 
-function setStatus(val) {
-    _statusFilter = val;
-    document.querySelectorAll('[id^="chip-status-"]').forEach(function(c) { c.classList.remove('active'); });
-    document.getElementById('chip-status-' + val).classList.add('active');
-    applyFilters();
+function _pctClass(p) {
+    return p >= 85 ? 'text-success' : (p >= 70 ? 'text-warning' : 'text-danger');
 }
 
-function setTri(val) {
-    _triFilter = val;
-    document.querySelectorAll('[id^="chip-tri-"]').forEach(function(c) { c.classList.remove('active'); });
-    document.getElementById('chip-tri-' + val).classList.add('active');
-    applyFilters();
+// Recompute the summary cards and per-trimester breakdown from the current
+// Programme + Trimester scope filters. The Status chip only toggles which rows
+// are listed in the table, so it deliberately does not change these totals.
+function recomputeStats() {
+    var total = 0, same = 0, changed = 0;
+    var triSame = {1:0,2:0,3:0}, triChanged = {1:0,2:0,3:0}, triAny = {1:0,2:0,3:0};
+
+    document.querySelectorAll('tbody tr[data-cross]').forEach(function(row) {
+        var cons = row.dataset.cross;
+        var tri  = row.dataset.tri;
+        var triN = parseInt(tri, 10);
+        var progOk = (_progFilter === 'all' || row.dataset.prog === _progFilter);
+        var triOk  = (_triFilter  === 'all' || tri === _triFilter);
+
+        if (triAny[triN] !== undefined) { triAny[triN] += 1; }
+
+        if (progOk && triOk) {
+            total += 1;
+            if (cons === 'same')       same += 1;
+            else if (cons === 'different') changed += 1;
+        }
+        if (progOk && triSame[triN] !== undefined) {
+            if (cons === 'same')       triSame[triN]    += 1;
+            else if (cons === 'different') triChanged[triN] += 1;
+        }
+    });
+
+    document.getElementById('stat-total').textContent   = total;
+    document.getElementById('stat-same').textContent    = same;
+    document.getElementById('stat-changed').textContent = changed;
+    var comparable = same + changed;
+    document.getElementById('stat-pct').textContent =
+        (comparable > 0 ? Math.round(same / comparable * 100) : 0) + '%';
+
+    var aSame = document.getElementById('alert-same');
+    var aDiff = document.getElementById('alert-diff');
+    if (aSame) { aSame.textContent = same; }
+    if (aDiff) { aDiff.textContent = changed; }
+
+    [1, 2, 3].forEach(function(t) {
+        var body = document.getElementById('tristat-body-' + t);
+        if (!body) { return; }
+        var s = triSame[t], c = triChanged[t], comp = s + c;
+        if (triAny[t] === 0) {
+            body.innerHTML = '<span class="text-muted small">Not generated for {{ compare_ay }}</span>';
+        } else if (comp === 0) {
+            body.innerHTML = '<span class="text-muted small">No comparable sessions'
+                + (_progFilter !== 'all' ? ' for ' + _progFilter : '') + '</span>';
+        } else {
+            var p = Math.round(s / comp * 100);
+            body.innerHTML = '<div class="d-flex align-items-center gap-2">'
+                + '<span class="fw-bold ' + _pctClass(p) + '">' + p + '%</span>'
+                + '<span class="text-muted small">' + s + ' kept / ' + c
+                + ' moved (' + comp + ' comparable)</span></div>';
+        }
+    });
 }
 
-function setProg(val) {
-    _progFilter = val;
-    document.querySelectorAll('[id^="chip-prog-"]').forEach(function(c) { c.classList.remove('active'); });
-    document.getElementById('chip-prog-' + val).classList.add('active');
-    applyFilters();
+function setStatus(val) { _statusFilter = val; applyFilters(); }
+function setTri(val)    { _triFilter    = val; applyFilters(); }
+function setProg(val)   { _progFilter   = val; applyFilters(); }
+
+var COMPARE_AY  = '{{ compare_ay }}';
+var EXPORT_BASE = '{{ url_for("admin.timetable_export") }}';
+
+function updateExportLink() {
+    var n = document.getElementById('export-tri').value;
+    document.getElementById('export-link').href =
+        EXPORT_BASE + '?trimester=' + encodeURIComponent(COMPARE_AY + '-T' + n);
 }
 
 function generateSummary(trimester) {
@@ -339,5 +403,9 @@ function generateSummary(trimester) {
             btn.innerHTML = '<i class="bi bi-file-text me-1"></i>Generate Summary';
         });
 }
+
+// Initialise stat cards and export link once everything above is defined.
+recomputeStats();
+updateExportLink();
 </script>
 {% endblock %}
