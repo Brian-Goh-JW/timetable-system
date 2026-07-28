@@ -579,6 +579,35 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual(1, ClassSession.query.filter_by(course_id=course.id).count())
 
+    def test_timetable_entry_suggestions_returns_json(self):
+        client, _ = self._admin_client()
+        _, group, course = self._base_data()
+        slot = TimeSlot(
+            day_of_week='Monday', period_label='P1',
+            start_time=time(9), end_time=time(11),
+        )
+        session = ClassSession(
+            course=course, session_type='lecture', delivery_mode='online',
+            duration_hours=2, student_group=group, trimester=1,
+            teaching_weeks='1,2,3', group_label='All',
+        )
+        db.session.add_all([slot, session])
+        db.session.flush()
+        entry = TimetableEntry(
+            class_session_id=session.id, timeslot_id=slot.id,
+            week_number=1, trimester='AY2526-T1',
+            academic_year='AY2526', is_backbone=False,
+        )
+        db.session.add(entry)
+        db.session.commit()
+
+        response = client.get(
+            f'/admin/timetable/entries/{entry.id}/suggestions'
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIsInstance(response.get_json()['suggestions'], list)
+
     def test_saved_solve_stats_are_loaded(self):
         db.session.add(SolveRun(
             trimester='AY2526-T1', solver_status='Feasible',

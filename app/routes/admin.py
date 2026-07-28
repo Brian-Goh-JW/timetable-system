@@ -2861,6 +2861,7 @@ def _write_audit(user_id, trimester, action,
 @login_required
 def timetable_entry_suggestions(entry_id):
     """Rank valid local repairs while keeping every other occurrence fixed."""
+    from collections import defaultdict
     from datetime import timedelta
     from app.engine.solver import (
         _institutional_blocked_indices, _room_compatible,
