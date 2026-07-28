@@ -50,8 +50,9 @@ from app.models.timeslot import TimeSlot
 from app.models.timetable_entry import TimetableEntry
 from app.engine.template1_parser import load_module_sheet, PROG_NAMES, SKIP_NAMES
 
-BASE = (r'C:\Users\brain\AppData\Local\Temp\claude\C--Users-brain-OneDrive-Documents-SIT-ProjectTimetable'
-        r'\0e44374e-3794-4de2-873c-e66fbc6f7593\scratchpad\data_provided\Provided Data\Cleaned data ENG cluster')
+BASE = os.environ.get('CLEANED_ENG_DIR', '').strip()
+if not BASE or not os.path.isdir(BASE):
+    raise SystemExit('Set CLEANED_ENG_DIR to the cleaned ENG workbook folder.')
 
 FILES = {
     'CVE':  '(CVE) Civil Engineering.xlsx',

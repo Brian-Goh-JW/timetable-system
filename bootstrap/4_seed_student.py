@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import create_app, db
 from app.models.user import User
+from app.models.student_group import StudentGroup
 
 STUDENT_NAME = os.environ.get('SEED_STUDENT_NAME', 'Test Student')
 STUDENT_EMAIL = os.environ.get('SEED_STUDENT_EMAIL', 'student@sit.edu.sg').strip().lower()
@@ -26,11 +27,26 @@ if __name__ == '__main__':
         )
     app = create_app()
     with app.app_context():
+        demo_group = StudentGroup.query.filter_by(group_label='DSC-Y1').first()
         existing = User.query.filter_by(email=STUDENT_EMAIL).first()
         if existing:
-            print(f'Student account already exists: {STUDENT_EMAIL}')
+            if existing.role != 'student':
+                raise SystemExit(
+                    f'{STUDENT_EMAIL} already belongs to a non-student account.'
+                )
+            existing.name = STUDENT_NAME
+            existing.set_password(STUDENT_PASSWORD)
+            if demo_group:
+                existing.student_group = demo_group
+            db.session.commit()
+            print('Student account password updated.')
         else:
-            student = User(name=STUDENT_NAME, email=STUDENT_EMAIL, role='student')
+            student = User(
+                name=STUDENT_NAME,
+                email=STUDENT_EMAIL,
+                role='student',
+                student_group=demo_group,
+            )
             student.set_password(STUDENT_PASSWORD)
             db.session.add(student)
             db.session.commit()

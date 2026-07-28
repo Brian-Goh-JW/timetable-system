@@ -27,10 +27,11 @@ from app.models.professor import Professor
 from app.models.user import User
 from app.models.class_session_professor import ClassSessionProfessor
 
-LAB_FILE = (
-    r'C:\Users\brain\Downloads\Data_extracted\Data\Requirements_ENG'
-    r'\Requirements Template_Lab (ENG) - AY25 Tri 1.xlsx'
-)
+LAB_FILE = os.environ.get('ENG_LAB_REQUIREMENTS_XLSX', '').strip()
+if not LAB_FILE or not os.path.isfile(LAB_FILE):
+    raise SystemExit(
+        'Set ENG_LAB_REQUIREMENTS_XLSX to the lab requirements workbook.'
+    )
 
 SKIP_SHEETS = frozenset({'mod list', 'uni wide mod', 'sample', 'sheet1', 'dsc', 'csm', 'msc'})
 

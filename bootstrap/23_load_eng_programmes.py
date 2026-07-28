@@ -8,7 +8,7 @@ The single 'Module' sheet contains all sessions.
 Run AFTER step 22:
     python bootstrap/23_load_eng_programmes.py
 
-Data directory: C:/Users/brain/Downloads/Data_extracted/Data/Requirements_ENG/
+Set ENG_REQUIREMENTS_DIR to the directory containing the source workbooks.
 """
 import sys, os, re, secrets
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -26,7 +26,9 @@ from app.models.user import User
 from app.models.timeslot import TimeSlot
 from app.models.class_session_professor import ClassSessionProfessor
 
-DATA_DIR = r'C:\Users\brain\Downloads\Data_extracted\Data\Requirements_ENG'
+DATA_DIR = os.environ.get('ENG_REQUIREMENTS_DIR', '').strip()
+if not DATA_DIR or not os.path.isdir(DATA_DIR):
+    raise SystemExit('Set ENG_REQUIREMENTS_DIR to the ENG requirements folder.')
 
 TRIMESTER = 1  # All 2510 files are Tri 1
 

@@ -143,6 +143,7 @@ def main():
         'layers_published': [],
         'layers_unpublished': [],
         'calendars_rebuilt': [],
+        'demo_student_password_updated': False,
     }
 
     with app.app_context():
@@ -238,7 +239,10 @@ def main():
         dsc_group = StudentGroup.query.filter_by(group_label='DSC-Y1').first()
         if student and dsc_group:
             student.student_group_id = dsc_group.id
-            student.set_password('Test1234')
+            demo_password = os.environ.get('DEMO_STUDENT_PASSWORD', '').strip()
+            if demo_password:
+                student.set_password(demo_password)
+                report['demo_student_password_updated'] = True
 
         db.session.commit()
         print(json.dumps(report, indent=2))

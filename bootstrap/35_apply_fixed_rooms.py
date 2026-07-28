@@ -26,8 +26,9 @@ from app.models.course import Course
 from app.models.room import Room
 from app.engine.template1_parser import build_col_map, SKIP_SHEETS
 
-BASE = (r'C:\Users\brain\AppData\Local\Temp\claude\C--Users-brain-OneDrive-Documents-SIT-ProjectTimetable'
-        r'\0e44374e-3794-4de2-873c-e66fbc6f7593\scratchpad\data_provided\Provided Data\Cleaned data ENG cluster')
+BASE = os.environ.get('CLEANED_ENG_DIR', '').strip()
+if not BASE or not os.path.isdir(BASE):
+    raise SystemExit('Set CLEANED_ENG_DIR to the cleaned ENG workbook folder.')
 
 FILES = {
     'CVE':  '(CVE) Civil Engineering.xlsx',

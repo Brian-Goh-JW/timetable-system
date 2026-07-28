@@ -45,9 +45,13 @@ from app.models.timeslot import TimeSlot
 # ---------------------------------------------------------------------------
 # File paths
 # ---------------------------------------------------------------------------
-T1_FILE = r"C:\Users\brain\Downloads\2510 DSC Year 1-2 Timetable.xlsx"
-T2_FILE = r"C:\Users\brain\Downloads\2520 DSC Year 1-3 Timetable 1.xlsx"
-T3_FILE = r"C:\Users\brain\Downloads\2530 DSC Year 1-2 Timetable 1.xlsx"
+T1_FILE = os.environ.get('T1_TIMETABLE_XLSX', '').strip()
+T2_FILE = os.environ.get('T2_TIMETABLE_XLSX', '').strip()
+T3_FILE = os.environ.get('T3_TIMETABLE_XLSX', '').strip()
+if not all(os.path.isfile(path) for path in (T1_FILE, T2_FILE, T3_FILE)):
+    raise SystemExit(
+        'Set T1_TIMETABLE_XLSX, T2_TIMETABLE_XLSX, and T3_TIMETABLE_XLSX.'
+    )
 
 AY = 'AY2526'
 

@@ -4,9 +4,9 @@ Full DSC data loader — wipes and reloads all DSC data from Excel.
 Wipes:  timetable_entries, flag_responses, timetable_flags,
         availability_declarations, audit_logs, class_sessions,
         courses, student_groups, programmes,
-        professor user accounts (keeps admin + Brian Goh)
+        professor user accounts (keeps admin + optional configured accounts)
 
-Keeps:  admin@sit.edu.sg, braingohjw@gmail.com, timeslots, rooms
+Keeps:  admin@sit.edu.sg, accounts listed in DSC_KEEP_USER_EMAILS, timeslots, rooms
 
 Usage:
     python bootstrap/7_load_dsc_full.py
@@ -31,9 +31,12 @@ from app.models.flag_response import FlagResponse
 from app.models.availability_declaration import AvailabilityDeclaration
 from app.models.audit_log import AuditLog
 
-DSC_EXCEL = "C:\\Users\\brain\\Downloads\\dsc' (1).xlsx"
-
-KEEP_EMAILS = {'admin@sit.edu.sg', 'braingohjw@gmail.com'}
+DSC_EXCEL = os.environ.get('DSC_EXCEL_PATH', '').strip()
+KEEP_EMAILS = {'admin@sit.edu.sg'} | {
+    email.strip().lower()
+    for email in os.environ.get('DSC_KEEP_USER_EMAILS', '').split(',')
+    if email.strip()
+}
 
 TRIMESTER_SHEETS = [
     ('DSC Tri 1', 1),
@@ -336,6 +339,10 @@ def load_courses_and_sessions(xl, programme):
 # ---------------------------------------------------------------------------
 
 if __name__ == '__main__':
+    if not DSC_EXCEL or not os.path.isfile(DSC_EXCEL):
+        raise SystemExit(
+            'Set DSC_EXCEL_PATH to the source DSC workbook before running this loader.'
+        )
     app = create_app()
     with app.app_context():
 

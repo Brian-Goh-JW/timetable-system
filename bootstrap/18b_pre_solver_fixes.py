@@ -11,8 +11,9 @@ Fixes:
   3. UCS1001 seminar student groups -- set parent_id=NULL so the solver
      treats S6/S7/S8 as independent parallel groups (no cross-conflict).
 """
+import os
 import sys
-sys.path.insert(0, r'C:\Users\brain\OneDrive\Documents\SIT\ProjectTimetable')
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app import create_app, db
 from app.models.course import Course

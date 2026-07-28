@@ -32,7 +32,7 @@ from app.models.course import Course
 from app.models.programme import Programme
 from app.models.shared_module_group import SharedModuleGroup
 
-DEFAULT_PATH = r'C:\Users\brain\AppData\Local\Temp\claude\C--Users-brain-OneDrive-Documents-SIT-ProjectTimetable\0e44374e-3794-4de2-873c-e66fbc6f7593\scratchpad\data_provided\Provided Data\Common modules.xlsx'
+DEFAULT_PATH = os.environ.get('COMMON_MODULES_XLSX', '').strip()
 LINKABLE_SESSION_TYPES = ('lecture', 'lectorial')
 
 
@@ -153,4 +153,8 @@ def main(path):
 
 if __name__ == '__main__':
     path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_PATH
+    if not path or not os.path.isfile(path):
+        raise SystemExit(
+            'Pass the workbook path or set COMMON_MODULES_XLSX before running this loader.'
+        )
     main(path)

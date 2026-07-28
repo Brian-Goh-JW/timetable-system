@@ -37,7 +37,9 @@ from app.models.timeslot import TimeSlot
 from app.models.room import Room
 from app.models.academic_calendar import AcademicCalendar
 
-RAW_FILE = r'C:\Users\brain\Downloads\2520 DSC Year 1-3 Timetable 1.xlsx'
+RAW_FILE = os.environ.get('UCS_SOURCE_XLSX', '').strip()
+if not RAW_FILE or not os.path.isfile(RAW_FILE):
+    raise SystemExit('Set UCS_SOURCE_XLSX to the source timetable workbook.')
 AY        = 'AY2526'
 TRI_KEY   = 'AY2526-T2'
 TRI_NUM   = 2

@@ -51,12 +51,16 @@ def link_professor(session, prof):
 # ---------------------------------------------------------------------------
 # File paths
 # ---------------------------------------------------------------------------
-BASE = r'C:\Users\brain\Downloads'
+BASE = os.environ.get('HISTORICAL_TIMETABLE_DIR', '').strip()
 FILES = [
     (os.path.join(BASE, '2510 DSC Year 1-2 Timetable.xlsx'),    'Sheet', 1, 'AY2526-T1', 'AY2526'),
     (os.path.join(BASE, '2520 DSC Year 1-3 Timetable 1.xlsx'),  'raw',   2, 'AY2526-T2', 'AY2526'),
     (os.path.join(BASE, '2530 DSC Year 1-2 Timetable 1.xlsx'),  None,    3, 'AY2526-T3', 'AY2526'),  # grid only
 ]
+if not BASE or not os.path.isdir(BASE):
+    raise SystemExit(
+        'Set HISTORICAL_TIMETABLE_DIR to the folder containing the three source workbooks.'
+    )
 
 # ---------------------------------------------------------------------------
 # Session type mapping

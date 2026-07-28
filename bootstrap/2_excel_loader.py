@@ -26,10 +26,12 @@ from app.models.room import Room
 from app.models.timeslot import TimeSlot
 
 # -------------------------------------------------
-# Update these paths to your local Excel/CSV files
+# Supply these paths through environment variables
 # -------------------------------------------------
-DSC_EXCEL = r'C:\Users\brain\Downloads\2510_DSC (1).xlsx'
-VENUE_CSV  = r'C:\Users\brain\Downloads\Venue Information(Campus Court).csv'
+DSC_EXCEL = os.environ.get('DSC_SOURCE_XLSX', '').strip()
+VENUE_CSV = os.environ.get('VENUE_CSV_PATH', '').strip()
+if not os.path.isfile(DSC_EXCEL) or not os.path.isfile(VENUE_CSV):
+    raise SystemExit('Set DSC_SOURCE_XLSX and VENUE_CSV_PATH before running this loader.')
 # -------------------------------------------------
 
 

@@ -29,7 +29,14 @@ if __name__ == '__main__':
     with app.app_context():
         existing = User.query.filter_by(email=ADMIN_EMAIL).first()
         if existing:
-            print(f'Admin account already exists: {ADMIN_EMAIL}')
+            if existing.role != 'admin':
+                raise SystemExit(
+                    f'{ADMIN_EMAIL} already belongs to a non-admin account.'
+                )
+            existing.name = ADMIN_NAME
+            existing.set_password(ADMIN_PASSWORD)
+            db.session.commit()
+            print('Admin account password updated.')
         else:
             admin = User(name=ADMIN_NAME, email=ADMIN_EMAIL, role='admin')
             admin.set_password(ADMIN_PASSWORD)

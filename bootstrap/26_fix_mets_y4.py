@@ -28,7 +28,9 @@ from app.models.timeslot import TimeSlot
 from app.models.class_session_professor import ClassSessionProfessor
 from app.models.timetable_entry import TimetableEntry
 
-DATA_FILE = r'C:\Users\brain\Downloads\Data_extracted\Data\Requirements_ENG\METS_Year 4.xlsx'
+DATA_FILE = os.environ.get('METS_Y4_XLSX', '').strip()
+if not DATA_FILE or not os.path.isfile(DATA_FILE):
+    raise SystemExit('Set METS_Y4_XLSX to the METS Year 4 source workbook.')
 TRIMESTER = 1
 
 # --- Helpers (copied from bootstrap/23 with the fixed normalise_prog_year) ---
