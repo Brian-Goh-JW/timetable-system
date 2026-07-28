@@ -266,6 +266,124 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(302, response.status_code)
         self.assertEqual(0, db.session.query(User).filter_by(role='professor').count())
 
+    def test_student_export_never_includes_password_hashes(self):
+        client, _ = self._admin_client()
+        _, group, _ = self._base_data()
+        student = User(
+            name='Student One', email='student.one@sit.edu.sg', role='student',
+            student_group=group,
+        )
+        student.set_password('LocalTest123!')
+        db.session.add(student)
+        db.session.commit()
+
+        response = client.get('/admin/students/export')
+        workbook = openpyxl.load_workbook(io.BytesIO(response.data), data_only=False)
+        sheet = workbook['Students']
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn('students.xlsx', response.headers['Content-Disposition'])
+        self.assertEqual(
+            [
+                'Account ID', 'Name', 'Email', 'Student Group Label',
+                'Temporary Password (new or reset only)',
+            ],
+            [cell.value for cell in sheet[1]],
+        )
+        self.assertEqual(student.id, sheet['A2'].value)
+        self.assertEqual('TST-Y1', sheet['D2'].value)
+        self.assertIsNone(sheet['E2'].value)
+        exported_values = {
+            str(cell.value)
+            for row in sheet.iter_rows()
+            for cell in row
+            if cell.value is not None
+        }
+        self.assertNotIn(student.password_hash, exported_values)
+
+    def test_student_import_creates_updates_and_assigns_groups(self):
+        client, _ = self._admin_client()
+        _, group, _ = self._base_data()
+        existing = User(
+            name='Old Name', email='old.student@sit.edu.sg', role='student',
+            password_hash='existing-password-hash',
+        )
+        db.session.add(existing)
+        db.session.commit()
+
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'Students'
+        sheet.append([
+            'Account ID', 'Name', 'Email', 'Student Group Label',
+            'Temporary Password (new or reset only)',
+        ])
+        sheet.append([
+            existing.id, 'Updated Student', 'updated.student@sit.edu.sg',
+            group.group_label, '',
+        ])
+        sheet.append([
+            '', 'New Student', 'new.student@sit.edu.sg',
+            group.group_label, 'LocalTest123!',
+        ])
+        stream = io.BytesIO()
+        workbook.save(stream)
+        stream.seek(0)
+
+        response = client.post(
+            '/admin/students/import',
+            data={'file': (stream, 'students.xlsx')},
+            content_type='multipart/form-data',
+        )
+        db.session.refresh(existing)
+        created = User.query.filter_by(email='new.student@sit.edu.sg').one()
+
+        self.assertEqual(302, response.status_code)
+        self.assertEqual('Updated Student', existing.name)
+        self.assertEqual('updated.student@sit.edu.sg', existing.email)
+        self.assertEqual(group.id, existing.student_group_id)
+        self.assertEqual('existing-password-hash', existing.password_hash)
+        self.assertEqual('student', created.role)
+        self.assertEqual(group.id, created.student_group_id)
+        self.assertTrue(created.check_password('LocalTest123!'))
+
+    def test_student_import_rejects_entire_file_on_role_email_collision(self):
+        client, admin = self._admin_client()
+        existing = User(
+            name='Original Student', email='original.student@sit.edu.sg',
+            role='student', password_hash='unchanged',
+        )
+        db.session.add(existing)
+        db.session.commit()
+
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.title = 'Students'
+        sheet.append([
+            'Account ID', 'Name', 'Email', 'Student Group Label',
+            'Temporary Password (new or reset only)',
+        ])
+        sheet.append([
+            existing.id, 'Should Not Save', existing.email, '', '',
+        ])
+        sheet.append([
+            '', 'Invalid New Student', admin.email, '', 'LocalTest123!',
+        ])
+        stream = io.BytesIO()
+        workbook.save(stream)
+        stream.seek(0)
+
+        response = client.post(
+            '/admin/students/import',
+            data={'file': (stream, 'students.xlsx')},
+            content_type='multipart/form-data',
+        )
+        db.session.refresh(existing)
+
+        self.assertEqual(302, response.status_code)
+        self.assertEqual('Original Student', existing.name)
+        self.assertEqual(1, User.query.filter_by(role='student').count())
+
     def test_subgroup_regeneration_preserves_assigned_student(self):
         client, _ = self._admin_client()
         programme, _, _ = self._base_data()

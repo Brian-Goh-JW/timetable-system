@@ -4,9 +4,61 @@
 {% block content %}
 
 <div class="d-flex justify-content-end align-items-center mb-4">
-    <a href="{{ url_for('admin.student_add') }}" class="btn text-white" style="background-color:#c0272d;">
-        <i class="bi bi-plus-lg me-1"></i>Add Student
-    </a>
+    <div class="d-flex gap-2">
+        <div class="btn-group action-dropdown">
+            <button type="button" class="btn dropdown-toggle" data-bs-toggle="dropdown">
+                <span class="icon-chip icon-chip-blue"><i class="bi bi-file-earmark-spreadsheet"></i></span>Import / Export
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" href="{{ url_for('admin.student_export') }}">
+                    <span class="icon-chip icon-chip-green"><i class="bi bi-download"></i></span>
+                    <span class="item-text">
+                        <span class="fw-medium">Download Current Data</span>
+                        <span class="text-muted" style="font-size:0.72rem;">Every student, ready to edit and re-upload</span>
+                    </span>
+                </a></li>
+                <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#studentImportModal">
+                    <span class="icon-chip icon-chip-red"><i class="bi bi-upload"></i></span>
+                    <span class="item-text">
+                        <span class="fw-medium">Upload &amp; Import</span>
+                        <span class="text-muted" style="font-size:0.72rem;">Apply validated bulk account changes</span>
+                    </span>
+                </a></li>
+            </ul>
+        </div>
+        <a href="{{ url_for('admin.student_add') }}" class="btn text-white" style="background-color:#c0272d;">
+            <i class="bi bi-plus-lg me-1"></i>Add Student
+        </a>
+    </div>
+</div>
+
+<!-- Import modal -->
+<div class="modal fade" id="studentImportModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form method="POST" action="{{ url_for('admin.student_import') }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Import Students from Excel</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted">
+                        Upload a file downloaded from <strong>Download Current Data</strong> above.
+                        Existing students are matched by Account ID. Leave Account ID blank to add a
+                        student. Passwords are never exported, and one invalid row rejects the entire file.
+                    </p>
+                    <input type="file" name="file" accept=".xlsx,.xls" class="form-control" required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn text-white" style="background-color:#c0272d;">
+                        <i class="bi bi-upload me-1"></i>Import
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
 </div>
 
 {% if students %}

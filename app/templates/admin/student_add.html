@@ -52,19 +52,21 @@
                             <option value="">- Not assigned yet -</option>
                             {% for g in all_groups %}
                                 {% if g.parent_id is none %}
-                                    <optgroup label="{{ g.group_label }} (Year {{ g.year_level }})">
-                                        {% for sub in g.sub_groups | sort(attribute='group_label') %}
-                                        <option value="{{ sub.id }}"
-                                                {% if form.get('student_group_id', '') == sub.id | string %}selected{% endif %}>
-                                            {{ sub.group_label }}
-                                        </option>
-                                        {% endfor %}
-                                    </optgroup>
+                                    <option value="{{ g.id }}"
+                                            {% if form.get('student_group_id', '') == g.id | string %}selected{% endif %}>
+                                        {{ g.group_label }}
+                                    </option>
+                                    {% for sub in g.sub_groups | sort(attribute='group_label') %}
+                                    <option value="{{ sub.id }}"
+                                            {% if form.get('student_group_id', '') == sub.id | string %}selected{% endif %}>
+                                        &nbsp;&nbsp;↳ {{ sub.group_label }}
+                                    </option>
+                                    {% endfor %}
                                 {% endif %}
                             {% endfor %}
                         </select>
                         <div class="form-text">
-                            Assign a sub-group (e.g. DSC-Y1-A). The student's timetable will auto-load based on this.
+                            Assign a cohort/group or sub-group. The student's timetable will auto-load based on this.
                             You can leave it blank and assign later.
                         </div>
                     </div>

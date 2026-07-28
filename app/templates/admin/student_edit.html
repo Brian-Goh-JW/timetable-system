@@ -42,14 +42,16 @@
                             <option value="">- Not assigned -</option>
                             {% for g in all_groups %}
                                 {% if g.parent_id is none %}
-                                    <optgroup label="{{ g.group_label }} (Year {{ g.year_level }})">
-                                        {% for sub in g.sub_groups | sort(attribute='group_label') %}
-                                        <option value="{{ sub.id }}"
-                                                {% if student.student_group_id == sub.id %}selected{% endif %}>
-                                            {{ sub.group_label }}
-                                        </option>
-                                        {% endfor %}
-                                    </optgroup>
+                                    <option value="{{ g.id }}"
+                                            {% if student.student_group_id == g.id %}selected{% endif %}>
+                                        {{ g.group_label }}
+                                    </option>
+                                    {% for sub in g.sub_groups | sort(attribute='group_label') %}
+                                    <option value="{{ sub.id }}"
+                                            {% if student.student_group_id == sub.id %}selected{% endif %}>
+                                        &nbsp;&nbsp;↳ {{ sub.group_label }}
+                                    </option>
+                                    {% endfor %}
                                 {% endif %}
                             {% endfor %}
                         </select>

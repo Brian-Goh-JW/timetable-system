@@ -138,6 +138,21 @@ def require_admin():
         abort(403)
 
 
+def _email_looks_valid(email):
+    """Small server-side guard shared by account forms and spreadsheet imports."""
+    if not email or len(email) > 120 or any(ch.isspace() for ch in email):
+        return False
+    if email.count('@') != 1:
+        return False
+    local, domain = email.rsplit('@', 1)
+    return bool(
+        local and domain
+        and not local.startswith('.') and not local.endswith('.')
+        and not domain.startswith('.') and not domain.endswith('.')
+        and '..' not in local and '..' not in domain
+    )
+
+
 def _data_quality_gaps():
     """Modules missing a split count, and sessions with no professor assigned -
     shared by the Dashboard's Needs Attention panel and System Info's Data
@@ -726,6 +741,8 @@ def professor_add():
         errors = []
         if not name:       errors.append('Name is required.')
         if not email:      errors.append('Email is required.')
+        elif not _email_looks_valid(email):
+            errors.append('Email address is invalid.')
         if not staff_id:   errors.append('Staff ID is required.')
         if not department: errors.append('Department is required.')
         if not password:
@@ -777,6 +794,8 @@ def professor_edit(professor_id):
         errors = []
         if not name:       errors.append('Name is required.')
         if not email:      errors.append('Email is required.')
+        elif not _email_looks_valid(email):
+            errors.append('Email address is invalid.')
         if not staff_id:   errors.append('Staff ID is required.')
         if not department: errors.append('Department is required.')
         if new_password and len(new_password) < 8:
@@ -913,7 +932,7 @@ def professor_import():
         if not staff_id:   row_errors.append('Staff ID is required')
         if not name:       row_errors.append('Name is required')
         if not email:      row_errors.append('Email is required')
-        elif '@' not in email:
+        elif not _email_looks_valid(email):
             row_errors.append('Email looks invalid')
         if not department: row_errors.append('Department is required')
 
@@ -997,6 +1016,237 @@ def students():
     return render_template('admin/students.html', students=all_students)
 
 
+# ---------------------------------------------------------------------------
+# Students - page-level Import / Export. Account ID is the immutable match key;
+# email remains editable, and password hashes are never written to the file.
+# ---------------------------------------------------------------------------
+
+@admin_bp.route('/students/export')
+@login_required
+def student_export():
+    import io
+    import openpyxl
+    from openpyxl.styles import Font
+    from flask import send_file
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Students'
+    headers = [
+        'Account ID', 'Name', 'Email', 'Student Group Label',
+        'Temporary Password (new or reset only)',
+    ]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    all_students = User.query.filter_by(role='student').order_by(User.name).all()
+    for student in all_students:
+        ws.append([
+            student.id,
+            student.name,
+            student.email,
+            student.student_group.group_label if student.student_group else '',
+            '',
+        ])
+
+    for i, width in enumerate([14, 28, 34, 24, 38], start=1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
+
+    notes = wb.create_sheet('Read Me')
+    notes.append(['How to use this file'])
+    notes['A1'].font = Font(bold=True, size=13)
+    for line in [
+        '',
+        'To update an existing student: edit Name, Email, Student Group Label, or '
+        'Temporary Password on their row. Do not change Account ID; it is the stable '
+        'match key. Leave Temporary Password blank to keep the current password.',
+        'To add a student: add a row with Account ID blank. Name, Email, and Temporary '
+        'Password are required; Student Group Label may be blank.',
+        'Student Group Label must exactly match a group shown on the Student Groups page. '
+        'Leave it blank to make the student unassigned.',
+        'Passwords and password hashes are never exported. A value typed in Temporary '
+        'Password is used only when this file is imported.',
+        'Removing a row does not delete the account. Delete accounts from the Students page.',
+        'If any row fails validation, nothing in this file is imported.',
+    ]:
+        notes.append([line])
+    notes.column_dimensions['A'].width = 110
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(
+        output,
+        download_name='students.xlsx',
+        as_attachment=True,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
+@admin_bp.route('/students/import', methods=['POST'])
+@login_required
+def student_import():
+    import pandas as pd
+
+    file = request.files.get('file')
+    if not file or not file.filename.lower().endswith(('.xlsx', '.xls')):
+        flash('Please upload a valid Excel file (.xlsx or .xls).', 'danger')
+        return redirect(url_for('admin.students'))
+
+    try:
+        df = pd.read_excel(file, sheet_name='Students', dtype=str).fillna('')
+    except Exception as exc:
+        current_app.logger.info('Student spreadsheet import could not be read: %s', exc)
+        flash('Could not read the Students sheet. Re-download the template and try again.', 'danger')
+        return redirect(url_for('admin.students'))
+
+    df.columns = df.columns.str.strip().str.lower()
+    required_cols = {
+        'account id', 'name', 'email', 'student group label',
+        'temporary password (new or reset only)',
+    }
+    missing = required_cols - set(df.columns)
+    if missing:
+        flash(
+            f'Missing column(s): {", ".join(sorted(missing))}. '
+            'Re-download the template and try again.',
+            'danger',
+        )
+        return redirect(url_for('admin.students'))
+
+    all_users = User.query.all()
+    users_by_id = {user.id: user for user in all_users}
+    users_by_email = {user.email.lower(): user for user in all_users}
+    groups = StudentGroup.query.order_by(StudentGroup.group_label).all()
+    groups_by_label = {group.group_label.upper(): group for group in groups}
+
+    rows = []
+    errors = []
+    seen_account_ids = {}
+    seen_emails = {}
+
+    for i, row in df.iterrows():
+        excel_row = i + 2
+        account_id_raw = row.get('account id', '').strip()
+        name = row.get('name', '').strip()
+        email = row.get('email', '').strip().lower()
+        group_label = row.get('student group label', '').strip().upper()
+        temp_password = row.get('temporary password (new or reset only)', '').strip()
+
+        if not any((account_id_raw, name, email, group_label, temp_password)):
+            continue
+
+        row_errors = []
+        account_id = None
+        if account_id_raw:
+            normalized_id = account_id_raw[:-2] if account_id_raw.endswith('.0') else account_id_raw
+            if not normalized_id.isdigit() or int(normalized_id) < 1:
+                row_errors.append('Account ID must be a positive whole number or blank for a new student')
+            else:
+                account_id = int(normalized_id)
+                if account_id in seen_account_ids:
+                    row_errors.append(
+                        f'Account ID also used on row {seen_account_ids[account_id]}'
+                    )
+                else:
+                    seen_account_ids[account_id] = excel_row
+
+        existing = users_by_id.get(account_id) if account_id else None
+        is_new = account_id is None
+        if account_id is not None:
+            if existing is None:
+                row_errors.append('Account ID was not found; leave it blank to create a student')
+            elif existing.role != 'student':
+                row_errors.append('Account ID belongs to a non-student account')
+
+        if not name:
+            row_errors.append('Name is required')
+        elif len(name) > 100:
+            row_errors.append('Name must be 100 characters or fewer')
+        if not email:
+            row_errors.append('Email is required')
+        elif not _email_looks_valid(email):
+            row_errors.append('Email looks invalid')
+        if email:
+            if email in seen_emails:
+                row_errors.append(f'Email also used on row {seen_emails[email]}')
+            else:
+                seen_emails[email] = excel_row
+            email_owner = users_by_email.get(email)
+            if email_owner and (existing is None or email_owner.id != existing.id):
+                row_errors.append('Email is already used by another account')
+
+        group = groups_by_label.get(group_label) if group_label else None
+        if group_label and group is None:
+            row_errors.append(f'Student Group Label "{group_label}" was not found')
+
+        if is_new and not temp_password:
+            row_errors.append('Temporary Password is required for a new student')
+        elif temp_password and len(temp_password) < 8:
+            row_errors.append('Temporary Password must be at least 8 characters')
+        elif len(temp_password) > 128:
+            row_errors.append('Temporary Password must be 128 characters or fewer')
+
+        if row_errors:
+            errors.append(
+                f'Row {excel_row} (Account ID "{account_id_raw or "new"}"): '
+                + '; '.join(row_errors)
+            )
+            continue
+
+        rows.append({
+            'existing': existing,
+            'is_new': is_new,
+            'name': name,
+            'email': email,
+            'group_id': group.id if group else None,
+            'temp_password': temp_password,
+        })
+
+    if errors:
+        flash(f'Import rejected - {len(errors)} problem(s) found. Nothing was changed.', 'danger')
+        for error in errors[:15]:
+            flash(error, 'warning')
+        if len(errors) > 15:
+            flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
+        return redirect(url_for('admin.students'))
+    if not rows:
+        flash('The Students sheet contains no student rows. Nothing was changed.', 'warning')
+        return redirect(url_for('admin.students'))
+
+    created = updated = 0
+    try:
+        for item in rows:
+            if item['is_new']:
+                student = User(
+                    name=item['name'],
+                    email=item['email'],
+                    role='student',
+                    student_group_id=item['group_id'],
+                )
+                student.set_password(item['temp_password'])
+                db.session.add(student)
+                created += 1
+            else:
+                student = item['existing']
+                student.name = item['name']
+                student.email = item['email']
+                student.student_group_id = item['group_id']
+                if item['temp_password']:
+                    student.set_password(item['temp_password'])
+                updated += 1
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('Student spreadsheet import failed during commit')
+        flash('Import failed safely and no student changes were saved.', 'danger')
+        return redirect(url_for('admin.students'))
+
+    flash(f'Import complete - {created} student(s) added, {updated} updated.', 'success')
+    return redirect(url_for('admin.students'))
+
+
 @admin_bp.route('/students/add', methods=['GET', 'POST'])
 @login_required
 def student_add():
@@ -1013,6 +1263,8 @@ def student_add():
         errors = []
         if not name:     errors.append('Full name is required.')
         if not email:    errors.append('Email address is required.')
+        elif not _email_looks_valid(email):
+            errors.append('Email address is invalid.')
         if not password:
             errors.append('Password is required.')
         elif len(password) < 8:
@@ -1068,6 +1320,8 @@ def student_edit(user_id):
         errors = []
         if not name:  errors.append('Full name is required.')
         if not email: errors.append('Email address is required.')
+        elif not _email_looks_valid(email):
+            errors.append('Email address is invalid.')
         if password and len(password) < 8:
             errors.append('Password must be at least 8 characters.')
 

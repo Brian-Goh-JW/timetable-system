@@ -79,7 +79,8 @@ Useful things to try as an administrator:
    blocks the write, so the current published timetable stays safe.
 4. Switch between list and weekly views and inspect the scheduling report.
 5. Export the result as Template 2 or the weekly Excel view.
-6. Try the professor, room, course, student-group, and calendar-event pages.
+6. Use **Import / Export** on Modules, Professors, Students, Groups, and Rooms
+   to try validated bulk Excel updates.
 7. Assign a temporary password to a professor, then sign in as that professor
    to try the teaching timetable and availability pages.
 
