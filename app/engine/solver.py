@@ -691,7 +691,9 @@ def _room_util_indicator_array(rooms, group_size, threshold=0.6):
 
 def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, academic_year=None,
           pinned_slots=None, historical_preferred=None, session_id_filter=None,
-          occupied_trimester=None, append_to_existing=False, max_time_seconds=400):
+          occupied_trimester=None, append_to_existing=False, max_time_seconds=400,
+          warm_start_slots=None, warm_start_rooms=None,
+          protected_trimester=None, protected_session_ids=None):
     """
     Run CP-SAT to schedule all ready ClassSessions for the given trimester.
 
@@ -705,6 +707,9 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                                                          (Option A partial re-generation - ignored if strictly blocked)
         historical_preferred : dict[int, int]           - {class_session_id: timeslot_id}
                                                          soft preference to follow previous year's slot pattern
+        warm_start_slots      : dict[int, int]           - optional existing target assignment used
+                                                         only as a CP-SAT search hint, never as a rule
+        warm_start_rooms      : dict[int, int]           - matching room-only search hints
         session_id_filter  : set[int]|None - if given, only schedule ClassSessions with an id in this
                                               set (still subject to the normal readiness/trimester_num
                                               filters). Used for large-trimester two-phase solving: a first
@@ -719,6 +724,10 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                                               logic on a smaller session set, not a relaxed approximation.
         occupied_trimester : str|None - generated entries under this key are treated as fixed
                                       resource occupancy. Used by staged programme-batch generation.
+        protected_trimester : str|None - a known-valid target schedule whose specified
+                                       protected_session_ids remain fixed occupancy until their
+                                       own programme batch is solved
+        protected_session_ids : set[int]|None - target sessions protected from earlier batches
         append_to_existing : bool - only replace entries for session_id_filter instead of clearing
                                     the whole trimester. Intended for a unique staging trimester.
         max_time_seconds   : int|float - bounded CP-SAT search time for this solve call.
@@ -824,6 +833,19 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         occupied_rows = (TimetableEntry.query
                          .filter_by(trimester=occupied_trimester, is_backbone=False)
                          .all())
+        if protected_trimester and protected_session_ids:
+            protected_rows = (TimetableEntry.query
+                              .filter_by(
+                                  trimester=protected_trimester,
+                                  is_backbone=False,
+                              )
+                              .filter(
+                                  TimetableEntry.class_session_id.in_(
+                                      protected_session_ids
+                                  )
+                              )
+                              .all())
+            occupied_rows.extend(protected_rows)
         grouped_occupied = {}
         for entry in occupied_rows:
             key = (
@@ -1211,6 +1233,15 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             existing_slot_by_session[e.class_session_id] = e.timeslot_id
         if e.class_session_id not in existing_room_by_session and e.room_id:
             existing_room_by_session[e.class_session_id] = e.room_id
+    # Programme-batch generation writes to a temporary trimester.  Without
+    # these caller-provided target hints, each batch sees no prior assignment
+    # for its own sessions and must rediscover a known-valid timetable from
+    # scratch.  Hints affect search order only: changed constraints remain free
+    # to move every class, unlike pins or objective preferences.
+    for session_id, timeslot_id in (warm_start_slots or {}).items():
+        existing_slot_by_session.setdefault(session_id, timeslot_id)
+    for session_id, room_id in (warm_start_rooms or {}).items():
+        existing_room_by_session.setdefault(session_id, room_id)
     for s in sessions:
         # Skip slot_vars here if historical_preferred will hint this session
         # too (below) - CP-SAT rejects (MODEL_INVALID) a variable hinted
@@ -1318,41 +1349,21 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         dur_min = s.duration_hours * 60
         interval_var[s.id] = model.NewIntervalVar(sv, dur_min, sv + dur_min, f'ivl_{s.id}')
 
-    def _weeks_clusters(sess_list):
-        """Partition sess_list via union-find over _weeks_overlap edges, so
-        sessions with genuinely non-overlapping teaching weeks (e.g. one
-        module split into a weeks-1-8 lecture and a weeks-9-13 lecture) don't
-        get forced apart just because AddNoOverlap has no concept of specific
-        calendar weeks, only a recurring weekly pattern. A safe over-
-        approximation when a cluster isn't a perfect partition - grouping a
-        few extra sessions together only makes the model more conservative,
-        never incorrect. _weeks_overlap is a cheap in-memory set check, no
-        DB/CP-SAT calls, so this stays fast even for an entity with many
-        sessions."""
-        parent = {s.id: s.id for s in sess_list}
-        def find(x):
-            while parent[x] != x:
-                parent[x] = parent[parent[x]]
-                x = parent[x]
-            return x
-        def union(a, b):
-            ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[ra] = rb
-        n = len(sess_list)
-        for i in range(n):
-            for j in range(i + 1, n):
-                if _weeks_overlap(sess_list[i], sess_list[j]):
-                    union(sess_list[i].id, sess_list[j].id)
-        clusters = defaultdict(list)
-        for s in sess_list:
-            clusters[find(s.id)].append(s)
-        return list(clusters.values())
-
     def _add_no_overlap_for_entity(sess_list):
-        for cluster in _weeks_clusters(_collapse_for_overlap(sess_list)):
-            if len(cluster) >= 2:
-                model.AddNoOverlap([interval_var[s.id] for s in cluster])
+        """Forbid only pairs whose real teaching weeks intersect.
+
+        Connected-component clustering was too conservative: if A overlaps
+        B's weeks and B overlaps C's weeks, it placed A/B/C in one
+        AddNoOverlap even when A and C never occur together. Programme
+        batching keeps these exact pairwise interval constraints tractable.
+        """
+        reduced = _collapse_for_overlap(sess_list)
+        for index, left in enumerate(reduced):
+            for right in reduced[index + 1:]:
+                if _weeks_overlap(left, right):
+                    model.AddNoOverlap([
+                        interval_var[left.id], interval_var[right.id]
+                    ])
 
     # Hard constraint A - no professor double-booking (all professors incl. co-teachers)
     by_prof = defaultdict(list)
@@ -1385,20 +1396,34 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                         f'{professor.max_weekly_hours}-hour weekly limit.'
                     ), {'professor_workload_blocked': professor.id}
         if professor.max_daily_hours:
-            for day_name in _DAY_NAMES:
-                daily_terms = []
-                for session in sess_list:
-                    day_indices = [
-                        idx for idx in compat_slots[session.id]
-                        if timeslots[idx].day_of_week == day_name
-                    ]
-                    if not day_indices:
-                        continue
-                    on_day = model.NewBoolVar(f'workday_{prof_id}_{day_name}_{session.id}')
-                    model.Add(sum(_get_slot_at(session.id, idx) for idx in day_indices) == on_day)
-                    daily_terms.append(session.duration_hours * on_day)
-                if daily_terms:
-                    model.Add(sum(daily_terms) <= professor.max_daily_hours)
+            for week_number in default_week_numbers:
+                week_sessions = [
+                    session for session in sess_list
+                    if week_number in session_week_numbers[session.id]
+                ]
+                for day_name in _DAY_NAMES:
+                    daily_terms = []
+                    for session in week_sessions:
+                        day_indices = [
+                            idx for idx in compat_slots[session.id]
+                            if timeslots[idx].day_of_week == day_name
+                        ]
+                        if not day_indices:
+                            continue
+                        on_day = model.NewBoolVar(
+                            f'workday_{prof_id}_{week_number}_{day_name}_{session.id}'
+                        )
+                        model.Add(
+                            sum(
+                                _get_slot_at(session.id, idx)
+                                for idx in day_indices
+                            ) == on_day
+                        )
+                        daily_terms.append(session.duration_hours * on_day)
+                    if daily_terms:
+                        model.Add(
+                            sum(daily_terms) <= professor.max_daily_hours
+                        )
 
     # Hard constraint B - no student-group double-booking (parent/child aware)
     # Groups that can conflict with each other (a group + its parent + its
@@ -1417,10 +1442,9 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             _add_no_overlap_for_entity(reduced)
             continue
 
-        # A single AddNoOverlap cannot express "all pairs except alternative
-        # sections".  Use compact two-interval constraints only for these
-        # exceptional cohort families; ordinary families keep the faster
-        # aggregate propagator above.
+        # Alternative sections are not attended by the same individual
+        # students, so keep only the exact pairwise conflicts that genuinely
+        # share both students and teaching weeks.
         for index, left in enumerate(reduced):
             for right in reduced[index + 1:]:
                 if (_weeks_overlap(left, right)
@@ -1433,9 +1457,9 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     # Room assignment is itself a decision variable, so sessions can't be
     # statically grouped by room the way professor/group can. Instead, for
     # each physical room, build an OPTIONAL interval per eligible session
-    # (present only when that session's room_vars actually picks this room)
-    # and let one AddNoOverlap per room enforce non-overlap among whichever
-    # sessions end up placed there.
+    # (present only when that session's room_vars actually picks this room).
+    # Pair only sessions whose teaching weeks intersect; one aggregate
+    # AddNoOverlap incorrectly forbids alternating-week room reuse.
     f2f_reduced = _collapse_for_overlap(
         [s for s in sessions if s.delivery_mode == 'f2f' and s.id in room_vars]
     )
@@ -1446,17 +1470,23 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     for room_idx, sess_list in room_eligible.items():
         if len(sess_list) < 2:
             continue
-        optional_intervals = []
+        optional_intervals = {}
         for s in sess_list:
             is_here = model.NewBoolVar(f'roomhere_{room_idx}_{s.id}')
             model.Add(room_vars[s.id] == room_idx).OnlyEnforceIf(is_here)
             model.Add(room_vars[s.id] != room_idx).OnlyEnforceIf(is_here.Not())
             dur_min = s.duration_hours * 60
-            optional_intervals.append(model.NewOptionalIntervalVar(
+            optional_intervals[s.id] = model.NewOptionalIntervalVar(
                 start_var[s.id], dur_min, start_var[s.id] + dur_min, is_here,
                 f'roomivl_{room_idx}_{s.id}'
-            ))
-        model.AddNoOverlap(optional_intervals)
+            )
+        for index, left in enumerate(sess_list):
+            for right in sess_list[index + 1:]:
+                if _weeks_overlap(left, right):
+                    model.AddNoOverlap([
+                        optional_intervals[left.id],
+                        optional_intervals[right.id],
+                    ])
 
     # Hard constraint D - fixed timeslot pins
     # Priority: fixed_timeslot_id (admin-set permanent pin) > pinned_slots (Option A carry-over)
@@ -1549,29 +1579,50 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     # student attends both parent-cohort and subgroup sessions, so lunch must
     # be evaluated against the union of those sessions.
     for grp_id, grp_sess in families.items():
-        for day in ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'):
-            chunk_occ_vars = []
-            for h in LUNCH_HOURS:
-                ts_indices = day_chunk_ts.get((day, h), [])
-                if not ts_indices:
-                    continue
-                # sessions in this group that can land on any slot covering (day, h)
-                rel = [s for s in grp_sess
-                       if any(idx in compat_slots[s.id] for idx in ts_indices)]
-                if not rel:
-                    continue
-                occ = model.NewBoolVar(f'lunch_{grp_id}_{day}_{h}')
-                indicators = [_get_slot_at(s.id, idx) for s in rel for idx in ts_indices
-                              if idx in compat_slots[s.id]]
-                if not indicators:
-                    continue
-                model.AddBoolOr(indicators).OnlyEnforceIf(occ)
-                model.AddBoolAnd([v.Not() for v in indicators]).OnlyEnforceIf(occ.Not())
-                chunk_occ_vars.append(occ)
-            # Only add constraint when every chunk in the window is reachable -
-            # otherwise trivially OK. Require >=1 free hour among the chunks.
-            if len(chunk_occ_vars) == len(LUNCH_HOURS):
-                model.Add(sum(chunk_occ_vars) <= len(LUNCH_HOURS) - 1)
+        for week_number in default_week_numbers:
+            week_sessions = [
+                session for session in grp_sess
+                if week_number in session_week_numbers[session.id]
+            ]
+            for day in ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'):
+                chunk_occ_vars = []
+                for h in LUNCH_HOURS:
+                    ts_indices = day_chunk_ts.get((day, h), [])
+                    if not ts_indices:
+                        continue
+                    # Only sessions taught in this actual week contribute to
+                    # its lunch window. Alternating-week classes must not be
+                    # combined into one fictitious overloaded day.
+                    rel = [
+                        session for session in week_sessions
+                        if any(
+                            idx in compat_slots[session.id]
+                            for idx in ts_indices
+                        )
+                    ]
+                    if not rel:
+                        continue
+                    occ = model.NewBoolVar(
+                        f'lunch_{grp_id}_{week_number}_{day}_{h}'
+                    )
+                    indicators = [
+                        _get_slot_at(session.id, idx)
+                        for session in rel
+                        for idx in ts_indices
+                        if idx in compat_slots[session.id]
+                    ]
+                    if not indicators:
+                        continue
+                    model.AddBoolOr(indicators).OnlyEnforceIf(occ)
+                    model.AddBoolAnd(
+                        [value.Not() for value in indicators]
+                    ).OnlyEnforceIf(occ.Not())
+                    chunk_occ_vars.append(occ)
+                # Only add the rule when all lunch chunks are represented.
+                if len(chunk_occ_vars) == len(LUNCH_HOURS):
+                    model.Add(
+                        sum(chunk_occ_vars) <= len(LUNCH_HOURS) - 1
+                    )
 
     # Soft constraint G - preferred availability declarations
     # Create a boolean penalty variable for each (session, avoided_slot) pair.
@@ -1621,7 +1672,11 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     for (_code, _grp), sess_list in uniwide_by_group.items():
         for i in range(len(sess_list)):
             for j in range(i + 1, len(sess_list)):
-                model.Add(day_var_map[sess_list[i].id] != day_var_map[sess_list[j].id])
+                if _weeks_overlap(sess_list[i], sess_list[j]):
+                    model.Add(
+                        day_var_map[sess_list[i].id]
+                        != day_var_map[sess_list[j].id]
+                    )
 
     # Soft constraint S12 - cluster online classes onto one Monday-or-Tuesday
     # day per programme. Only synchronous online sessions reach here at all

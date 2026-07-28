@@ -61,7 +61,7 @@ Generation is atomic by complete programme batch. A batch is saved only when all
 
 ## Hard and soft constraints
 
-Hard constraints can never be traded away. They include professor, student-group, and room clashes; room type/capacity/equipment/accessibility; fixed placements; teaching weeks; holidays and scoped events; term breaks; availability; staff qualifications; and configured workload limits.
+Hard constraints can never be traded away. They include professor, student-group, and room clashes; room type/capacity/equipment/accessibility; fixed placements; teaching weeks; institutional hours and lunch windows; holidays and scoped events; term breaks; availability; staff qualifications; and configured workload limits.
 
 Soft constraints guide the best valid result, such as preferred slots, continuity with a historical timetable, compact teaching patterns, and reduced room changes. The scheduling report shows penalties separately from hard-constraint compliance.
 
@@ -104,6 +104,7 @@ No Gmail, database, API, or real user password is stored in the repository.
 - MySQL is inactive unless selected through environment variables. Use a least-privilege database account.
 - The external summary is inactive unless both its enable flag and API key are supplied.
 - `.env`, `*.env`, SQLite databases, and backups are ignored by Git.
+- The tracked Template 2 workbook contains formatting, headers, and validation lists only. Staff, course, room, and timetable lookup rows are rebuilt from the local database for each export.
 - Admin state changes are audited. CSRF protection, secure headers, HTTP-only cookies, upload limits, account deactivation, one-time password resets, and database-backed login throttling are enabled.
 
 Copy variable names from `.env.example` into your operating system or deployment secret manager. Never commit a populated `.env` file.

@@ -9,6 +9,30 @@ _EXTENSION_LIST = re.compile(
     rb'<(?:[A-Za-z0-9_]+:)?extLst\b.*?</(?:[A-Za-z0-9_]+:)?extLst>',
     re.DOTALL,
 )
+_WORKSHEET_OPEN = re.compile(rb'<worksheet\b[^>]*>')
+_PREFIX_NAMESPACE = re.compile(
+    rb'\s(xmlns:[A-Za-z_][A-Za-z0-9_.-]*="[^"]*")'
+)
+
+
+def _self_contained_extension(worksheet_xml, extension):
+    """Copy inherited prefix declarations onto a detached ``extLst`` block.
+
+    Excel's extension block can use a prefix in an attribute (notably
+    ``xr:uid``) whose namespace is declared only on the source worksheet
+    element.  Once that block is copied into openpyxl's newly written
+    worksheet, the declaration no longer exists and the XLSX contains
+    malformed XML.  Keeping the declarations on the opaque block makes it
+    safe to transplant without changing its contents.
+    """
+    worksheet_match = _WORKSHEET_OPEN.search(worksheet_xml)
+    if not worksheet_match:
+        return extension
+    declarations = _PREFIX_NAMESPACE.findall(worksheet_match.group(0))
+    if not declarations:
+        return extension
+    attributes = b' '.join(declarations)
+    return extension.replace(b'<extLst>', b'<extLst ' + attributes + b'>', 1)
 
 
 def restore_worksheet_extensions(base_path, output_buffer):
@@ -27,9 +51,12 @@ def restore_worksheet_extensions(base_path, output_buffer):
         for name in base_zip.namelist():
             if not name.startswith('xl/worksheets/') or not name.endswith('.xml'):
                 continue
-            match = _EXTENSION_LIST.search(base_zip.read(name))
+            worksheet_xml = base_zip.read(name)
+            match = _EXTENSION_LIST.search(worksheet_xml)
             if match:
-                source_extensions[name] = match.group(0)
+                source_extensions[name] = _self_contained_extension(
+                    worksheet_xml, match.group(0)
+                )
 
     rebuilt = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(output_bytes), 'r') as source_zip:

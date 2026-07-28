@@ -1493,6 +1493,7 @@ def student_enrolments(user_id):
 @admin_bp.route('/students/enrolments/export')
 @login_required
 def student_enrolment_export():
+    from collections import defaultdict
     import io
     import openpyxl
     from flask import send_file
@@ -2321,7 +2322,9 @@ def student_group_import():
         flash(f'Missing column(s): {", ".join(sorted(missing))}. Re-download the template and try again.', 'danger')
         return redirect(url_for('admin.student_groups'))
 
-    existing_by_label = {g.group_label: g for g in StudentGroup.query.all()}
+    existing_by_label = {
+        g.group_label.upper(): g for g in StudentGroup.query.all()
+    }
     programmes_by_code = {p.code: p for p in Programme.query.all()}
 
     rows = []
@@ -4774,11 +4777,17 @@ def _audit_generated_hard_conflicts(entries):
     from app.models.academic_calendar import AcademicCalendar
     from app.models.event import Event
     from app.engine.solver import (
+        LUNCH_WINDOW_END,
+        LUNCH_WINDOW_START,
+        UNIWIDE_DAY_SEPARATED_MODULES,
+        _build_group_session_families,
         _get_sg_holidays,
+        _institutional_blocked_indices,
         _room_compatible,
         _sessions_share_students,
         _slot_compatible,
         _timeslots_overlap,
+        _weeks_overlap,
     )
 
     by_week = defaultdict(list)
@@ -4902,6 +4911,217 @@ def _audit_generated_hard_conflicts(entries):
                 f'{session.course.module_code} is online but has a physical room.'
             )
 
+    # Mirror solver-only placement rules as an independent post-generation
+    # audit.  These checks previously existed only inside CP-SAT, so a legacy
+    # or manually edited timetable could pass the report despite violating
+    # lunch, institutional hours, strict availability, or workload limits.
+    representative_list = list(representative_entries.values())
+    representative_sessions = [entry.class_session for entry in representative_list]
+    representative_by_session = {
+        entry.class_session_id: entry for entry in representative_list
+    }
+
+    all_timeslots = TimeSlot.query.order_by(
+        TimeSlot.day_of_week, TimeSlot.period_label
+    ).all()
+    blocked_slot_ids = {
+        all_timeslots[index].id
+        for index in _institutional_blocked_indices(all_timeslots)
+    }
+    for entry in representative_list:
+        session = entry.class_session
+        if (
+            not session.fixed_timeslot_id
+            and entry.timeslot_id in blocked_slot_ids
+        ):
+            conflicts.append(
+                f'{session.course.module_code} uses an institutionally blocked '
+                f'slot ({entry.timeslot.day_of_week} {entry.timeslot.period_label}).'
+            )
+        if (
+            session.fixed_timeslot_id
+            and entry.timeslot_id != session.fixed_timeslot_id
+        ):
+            conflicts.append(
+                f'{session.course.module_code} is not in its fixed timeslot.'
+            )
+
+    from app.models.availability_declaration import AvailabilityDeclaration
+    strict_declarations = AvailabilityDeclaration.query.filter(
+        AvailabilityDeclaration.status == 'classified',
+        AvailabilityDeclaration.constraint_type == 'strict',
+    ).all()
+    for entry in representative_list:
+        session = entry.class_session
+        for declaration in strict_declarations:
+            if declaration.professor_id not in session.all_professor_ids:
+                continue
+            if (
+                declaration.academic_year is not None
+                and declaration.academic_year != entry.academic_year
+            ):
+                continue
+            if (
+                declaration.trimester is not None
+                and declaration.trimester != session.trimester
+            ):
+                continue
+            if _timeslots_overlap(entry.timeslot, declaration.timeslot):
+                conflicts.append(
+                    f'{session.course.module_code} conflicts with a professor '
+                    'strict-unavailability declaration.'
+                )
+
+    shared_assignments = defaultdict(list)
+    for entry in representative_list:
+        if entry.class_session.shared_module_group_id:
+            shared_assignments[
+                entry.class_session.shared_module_group_id
+            ].append(entry)
+    for shared_entries in shared_assignments.values():
+        placements = {
+            (entry.timeslot_id, entry.room_id) for entry in shared_entries
+        }
+        if len(placements) > 1:
+            codes = ', '.join(sorted({
+                entry.class_session.course.module_code
+                for entry in shared_entries
+            }))
+            conflicts.append(
+                f'Shared-module sessions do not share one slot and room: {codes}.'
+            )
+
+    by_professor = defaultdict(list)
+    for session in representative_sessions:
+        for professor in session.all_professors:
+            by_professor[professor.id].append(session)
+    for professor_id, professor_sessions in by_professor.items():
+        professor = next(
+            professor
+            for session in professor_sessions
+            for professor in session.all_professors
+            if professor.id == professor_id
+        )
+        if professor.max_weekly_hours:
+            weekly_hours = defaultdict(int)
+            for session in professor_sessions:
+                if session.teaching_weeks:
+                    try:
+                        weeks = {
+                            int(part.strip())
+                            for part in session.teaching_weeks.split(',')
+                            if part.strip()
+                        }
+                    except ValueError:
+                        weeks = set()
+                else:
+                    weeks = {
+                        entry.week_number for entry in entries
+                        if entry.class_session_id == session.id
+                    }
+                for week_number in weeks:
+                    weekly_hours[week_number] += session.duration_hours
+            for week_number, hours in weekly_hours.items():
+                if hours > professor.max_weekly_hours:
+                    conflicts.append(
+                        f'{professor.user.name} exceeds the '
+                        f'{professor.max_weekly_hours}-hour weekly load limit '
+                        f'in Week {week_number}.'
+                    )
+        if professor.max_daily_hours:
+            daily_hours = defaultdict(int)
+            for session in professor_sessions:
+                entry = representative_by_session.get(session.id)
+                if entry:
+                    weeks = {
+                        row.week_number for row in entries
+                        if row.class_session_id == session.id
+                    }
+                    for week_number in weeks:
+                        daily_hours[
+                            (week_number, entry.timeslot.day_of_week)
+                        ] += session.duration_hours
+            for (week_number, day_name), hours in daily_hours.items():
+                if hours > professor.max_daily_hours:
+                    conflicts.append(
+                        f'{professor.user.name} exceeds the '
+                        f'{professor.max_daily_hours}-hour daily load limit '
+                        f'on {day_name} in Week {week_number}.'
+                    )
+
+    lunch_hours = list(range(
+        LUNCH_WINDOW_START.hour, LUNCH_WINDOW_END.hour
+    ))
+    for family_sessions in _build_group_session_families(
+        representative_sessions
+    ).values():
+        family_weeks = {
+            row.week_number for row in entries
+            if row.class_session_id in {
+                session.id for session in family_sessions
+            }
+        }
+        for week_number in family_weeks:
+            active_session_ids = {
+                row.class_session_id for row in entries
+                if row.week_number == week_number
+            }
+            for day_name in day_offset:
+                occupied_hours = set()
+                for session in family_sessions:
+                    entry = representative_by_session.get(session.id)
+                    if (
+                        entry is None
+                        or session.id not in active_session_ids
+                        or entry.timeslot.day_of_week != day_name
+                    ):
+                        continue
+                    occupied_hours.update(
+                        hour for hour in lunch_hours
+                        if (
+                            entry.timeslot.start_time.hour
+                            <= hour
+                            < entry.timeslot.end_time.hour
+                        )
+                    )
+                if occupied_hours == set(lunch_hours):
+                    group_labels = ', '.join(sorted({
+                        session.student_group.group_label
+                        for session in family_sessions
+                        if session.student_group
+                    }))
+                    conflicts.append(
+                        f'{group_labels or "A student group"} has no free '
+                        f'one-hour lunch window on {day_name} in Week '
+                        f'{week_number}.'
+                    )
+
+    university_sessions = defaultdict(list)
+    for session in representative_sessions:
+        if (
+            session.course.module_code in UNIWIDE_DAY_SEPARATED_MODULES
+            and session.student_group_id
+        ):
+            university_sessions[
+                (session.course.module_code, session.student_group_id)
+            ].append(session)
+    for (module_code, _group_id), session_list in university_sessions.items():
+        for index, left in enumerate(session_list):
+            for right in session_list[index + 1:]:
+                if (
+                    _weeks_overlap(left, right)
+                    and representative_by_session[
+                        left.id
+                    ].timeslot.day_of_week
+                    == representative_by_session[
+                        right.id
+                    ].timeslot.day_of_week
+                ):
+                    conflicts.append(
+                        f'{module_code} sessions for one cohort are not '
+                        'separated onto different days.'
+                    )
+
     for week_number, week_entries in by_week.items():
         for i, left in enumerate(week_entries):
             for right in week_entries[i + 1:]:
@@ -4944,7 +5164,7 @@ def _audit_generated_hard_conflicts(entries):
 def _solve_programme_batches(trimester, start_date, term_break_weeks,
                              trimester_num, academic_year, pinned_slots=None,
                              historical_preferred=None, progress=None,
-                             batch_time_limit=45):
+                             batch_time_limit=20):
     """Generate atomically in complete programme components.
 
     Each programme contributes all of its in-scope sessions or none. Programmes
@@ -4970,6 +5190,131 @@ def _solve_programme_batches(trimester, start_date, term_break_weeks,
     if not components:
         return False, 'No sessions are available for this trimester.', {}
 
+    # The current target schedule is a highly effective CP-SAT warm start.
+    # It is deliberately passed as a hint rather than a pin or soft rule, so
+    # normal regeneration can still reshuffle every assignment when the data
+    # or objective calls for it.  This also makes an unchanged, already-valid
+    # trimester reproducible within the per-programme time budget.
+    target_hint_entries = TimetableEntry.query.filter_by(
+        trimester=trimester, is_backbone=False
+    ).all()
+    warm_start_slots = {}
+    warm_start_rooms = {}
+    for entry in target_hint_entries:
+        if entry.timeslot_id:
+            warm_start_slots.setdefault(entry.class_session_id, entry.timeslot_id)
+        if entry.room_id:
+            warm_start_rooms.setdefault(entry.class_session_id, entry.room_id)
+    target_hard_conflicts = _audit_generated_hard_conflicts(
+        target_hint_entries
+    ) if target_hint_entries else ['No existing target timetable.']
+    # Protect not-yet-solved programme assignments only when the complete
+    # current target has independently passed the same hard audit used at the
+    # final write gate.  This prevents greedy early batches from taking a
+    # professor/room/slot combination that makes a later programme needlessly
+    # infeasible, while never trusting stale or invalid target data.
+    target_session_ids = set(warm_start_slots)
+    target_has_resource_collision = any(
+        (
+            ' clash:' in conflict
+            or 'duplicate generated rows' in conflict
+            or conflict.startswith('Shared-module sessions')
+        )
+        for conflict in target_hard_conflicts
+    )
+    all_synchronous_ids = {
+        session.id for session in all_sessions if not session.is_async
+    }
+    remaining_protected_ids = (
+        {
+            session.id for session in all_sessions
+            if not session.is_async
+        }
+        if (
+            all_synchronous_ids.issubset(target_session_ids)
+            and not target_has_resource_collision
+        )
+        else set()
+    )
+
+    def _repair_fallback_pins(session_ids):
+        """Keep verified target slots except those causing placement-rule failures."""
+        from app.engine.solver import (
+            LUNCH_WINDOW_END,
+            LUNCH_WINDOW_START,
+            _build_group_session_families,
+            _institutional_blocked_indices,
+        )
+
+        pins = {
+            session_id: warm_start_slots[session_id]
+            for session_id in session_ids
+            if session_id in warm_start_slots
+        }
+        scoped_sessions = [
+            session for session in all_sessions if session.id in session_ids
+        ]
+        session_by_id = {session.id: session for session in scoped_sessions}
+        ordered_slots = TimeSlot.query.order_by(
+            TimeSlot.day_of_week, TimeSlot.period_label
+        ).all()
+        slot_by_id = {slot.id: slot for slot in ordered_slots}
+        blocked_slot_ids = {
+            ordered_slots[index].id
+            for index in _institutional_blocked_indices(ordered_slots)
+        }
+        relaxed = []
+
+        for session_id, timeslot_id in list(pins.items()):
+            session = session_by_id[session_id]
+            if (
+                not session.fixed_timeslot_id
+                and timeslot_id in blocked_slot_ids
+            ):
+                pins.pop(session_id)
+                relaxed.append(
+                    f'{session.course.module_code} institutional-hours repair'
+                )
+
+        lunch_hours = set(range(
+            LUNCH_WINDOW_START.hour, LUNCH_WINDOW_END.hour
+        ))
+        for family_sessions in _build_group_session_families(
+            scoped_sessions
+        ).values():
+            for day_name in (
+                'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'
+            ):
+                occupied = set()
+                candidates = []
+                for session in family_sessions:
+                    slot = slot_by_id.get(pins.get(session.id))
+                    if slot is None or slot.day_of_week != day_name:
+                        continue
+                    covered = {
+                        hour for hour in lunch_hours
+                        if slot.start_time.hour <= hour < slot.end_time.hour
+                    }
+                    occupied.update(covered)
+                    if covered and not session.fixed_timeslot_id:
+                        candidates.append((len(covered), session, covered))
+                if occupied != lunch_hours or not candidates:
+                    continue
+                _, session_to_relax, _ = max(
+                    candidates,
+                    key=lambda item: (
+                        item[0],
+                        item[1].duration_hours,
+                        -item[1].id,
+                    ),
+                )
+                pins.pop(session_to_relax.id, None)
+                relaxed.append(
+                    f'{session_to_relax.course.module_code} lunch-window repair'
+                )
+
+        return pins, relaxed
+
     staging_trimester = f'STG{uuid.uuid4().hex[:8]}T{trimester_num}'
 
     def _cleanup_staging():
@@ -4988,6 +5333,7 @@ def _solve_programme_batches(trimester, start_date, term_break_weeks,
     aggregate_warnings = []
 
     try:
+        import time
         for index, component in enumerate(components, start=1):
             codes = component['programme_codes']
             label = '+'.join(codes)
@@ -5039,6 +5385,7 @@ def _solve_programme_batches(trimester, start_date, term_break_weeks,
                 session.id for session in all_sessions
                 if session.id in component['session_ids'] and not session.is_async
             }
+            remaining_protected_ids.difference_update(synchronous_ids)
             if not synchronous_ids:
                 successful.append(component)
                 batch_results.append({
@@ -5058,6 +5405,7 @@ def _solve_programme_batches(trimester, start_date, term_break_weeks,
                     if session_id in synchronous_ids
                 } or None
 
+            batch_started_at = time.perf_counter()
             success, message, stats = _solve(
                 staging_trimester, start_date, term_break_weeks,
                 trimester_num=trimester_num,
@@ -5068,8 +5416,13 @@ def _solve_programme_batches(trimester, start_date, term_break_weeks,
                 occupied_trimester=staging_trimester,
                 append_to_existing=True,
                 max_time_seconds=batch_time_limit,
+                warm_start_slots=warm_start_slots,
+                warm_start_rooms=warm_start_rooms,
+                protected_trimester=trimester,
+                protected_session_ids=remaining_protected_ids,
             )
 
+            fallback_to_verified_slots = False
             # Existing-slot preservation is optional. If stale pins make one
             # complete programme infeasible, retry that programme freely.
             if not success and component_pins:
@@ -5082,7 +5435,55 @@ def _solve_programme_batches(trimester, start_date, term_break_weeks,
                     occupied_trimester=staging_trimester,
                     append_to_existing=True,
                     max_time_seconds=batch_time_limit,
+                    warm_start_slots=warm_start_slots,
+                    warm_start_rooms=warm_start_rooms,
+                    protected_trimester=trimester,
+                    protected_session_ids=remaining_protected_ids,
                 )
+            # A bounded optimisation search can return UNKNOWN without ever
+            # reaching a feasible point even when the current, independently
+            # audited timetable proves one exists.  Retry only that timed-out
+            # programme with its known-valid timeslots fixed.  This is a
+            # reliability fallback, not a bypass: compatible rooms are still
+            # selected by CP-SAT and the complete staged result must pass the
+            # final hard-conflict audit before the atomic swap.
+            fallback_repairs = []
+            if not success:
+                verified_slot_pins, fallback_repairs = _repair_fallback_pins(
+                    synchronous_ids
+                )
+                if verified_slot_pins:
+                    success, retry_message, stats = _solve(
+                        staging_trimester, start_date, term_break_weeks,
+                        trimester_num=trimester_num,
+                        academic_year=academic_year,
+                        pinned_slots=verified_slot_pins,
+                        historical_preferred=historical_preferred,
+                        session_id_filter=synchronous_ids,
+                        occupied_trimester=staging_trimester,
+                        append_to_existing=True,
+                        max_time_seconds=batch_time_limit,
+                        warm_start_slots=warm_start_slots,
+                        warm_start_rooms=warm_start_rooms,
+                        protected_trimester=trimester,
+                        protected_session_ids=remaining_protected_ids,
+                    )
+                    if success:
+                        fallback_to_verified_slots = True
+                        message = (
+                            retry_message
+                            + ' Reused verified current timeslots for the '
+                              'bounded-search fallback'
+                            + (
+                                ' while freeing '
+                                + ', '.join(fallback_repairs)
+                                if fallback_repairs else ''
+                            )
+                            + '.'
+                        )
+                    else:
+                        message = retry_message
+            batch_elapsed = round(time.perf_counter() - batch_started_at, 2)
 
             batch_results.append({
                 'programmes': codes,
@@ -5091,6 +5492,9 @@ def _solve_programme_batches(trimester, start_date, term_break_weeks,
                 'sessions_scheduled': stats.get('sessions_scheduled', 0),
                 'entries_created': stats.get('entries_created', 0),
                 'solver_status': stats.get('solver_status'),
+                'duration_seconds': batch_elapsed,
+                'verified_timeslot_fallback': fallback_to_verified_slots,
+                'fallback_repairs': fallback_repairs,
             })
             if success:
                 successful.append(component)
@@ -6169,6 +6573,24 @@ def timetable_report():
         if existing is None or (existing.is_backbone and not e.is_backbone):
             by_session[e.class_session_id] = e
     sessions = list(by_session.values())
+    # Audit the actual layer represented by the report, across every teaching
+    # week.  A session with generated rows uses only those rows; backbone rows
+    # are the fallback solely when that session has no generated schedule.
+    # The old report hard-coded zero here, which could present a corrupted or
+    # manually imported timetable as safe even though the generation guard
+    # itself correctly rejects the same conflict.
+    generated_session_ids = {
+        entry.class_session_id for entry in all_entries if not entry.is_backbone
+    }
+    effective_entries = [
+        entry for entry in all_entries
+        if (
+            not entry.is_backbone
+            if entry.class_session_id in generated_session_ids
+            else True
+        )
+    ]
+    hard_conflict_messages = _audit_generated_hard_conflicts(effective_entries)
 
     def _count_by(key_fn, label_fn=None):
         counts = {}
@@ -6295,7 +6717,8 @@ def timetable_report():
         'score': {
             'available': solve_row is not None,
             'value': score,
-            'hard_conflicts': 0,
+            'hard_conflicts': len(hard_conflict_messages),
+            'hard_conflict_messages': hard_conflict_messages,
             'soft_violations': soft_total,
             'soft_total_points': soft_total_points,
             'avg_weighted_penalty': round(avg_weighted_penalty, 2),
@@ -7111,15 +7534,10 @@ def timetable_export_template2():
     wb = openpyxl.load_workbook(base_path)
     ws = wb['Timetable']
 
-    # The base template's 'Staff' lookup sheet (used for the Staff1/Staff2
-    # dropdown validation) ships with Ms. Yang's own full SIT staff directory
-    # (~2,300 real names + real staff IDs) - copied through unmodified by
-    # every export until now, even after staff_id was mocked on the
-    # Timetable data sheet itself (2026-07-17: "replace all of the staff id
-    # with mock id" - real IDs flagged as likely NDA/confidential). Replace
-    # its contents with only the staff who actually appear in this system,
-    # using the same mock IDs already on their Professor record, instead of
-    # carrying through ~2,000 unrelated real staff records with real IDs.
+    # Every data-bearing lookup is rebuilt from this application's database.
+    # The tracked workbook supplies formatting and validations only; exports
+    # must never carry unrelated reference-organisation staff, course, or room
+    # directories.
     if 'Staff' in wb.sheetnames:
         staff_ws = wb['Staff']
         if staff_ws.max_row > 1:
@@ -7130,18 +7548,6 @@ def timetable_export_template2():
             staff_ws.cell(row_idx, 1, prof.user.name)
             staff_ws.cell(row_idx, 2, prof.staff_id)
 
-    # 'Sheet2' and 'Sheet3' are ALSO real SIT-wide staff directories (found
-    # 2026-07-18, one export cycle after the 'Staff' sheet fix above - same
-    # kind of leak, real names + real staff IDs, just hiding under generic
-    # unlabelled sheet names I hadn't checked yet: 2,066 and 1,413 real
-    # records respectively, covering staff across the whole university, not
-    # just this system's professors). Same treatment as 'Staff': clear and
-    # rebuild from only the professors that actually appear here, using
-    # their existing mock staff_id. Only Name/Host Key are populated - the
-    # richer columns these sheets have (Email, Department, Shared With,
-    # Primary/Other Suitabilities, Contract/Maximum Periods) are Ms. Yang's
-    # own facilities-scheduling fields with no equivalent data on our side,
-    # left blank rather than guessed.
     for sheet_name in ('Sheet2', 'Sheet3'):
         if sheet_name not in wb.sheetnames:
             continue
@@ -7154,23 +7560,49 @@ def timetable_export_template2():
             extra_ws.cell(row_idx, 1, prof.user.name)
             extra_ws.cell(row_idx, 2, prof.staff_id)
 
-    # The base template's 'Location' lookup sheet only lists Ms. Yang's own
-    # Dover-campus venues (e.g. 'DV-AP-LT1A') - none of this system's real
-    # Punggol-campus room codes (e.g. 'E2-01-01') are in it at all, so a
-    # downstream system validating Room1 against this sheet would reject
-    # every single row (found 2026-07-18). Ms. Yang's own Dover rows are left
-    # untouched (real venue data, not confidential, and may still be needed
-    # elsewhere) - this only appends our own rooms so they're recognised too.
-    # Only Name/Host Key/Capacity are populated from data this system
-    # actually has; Department/Zone/Suitabilities/etc are Ms. Yang's own
-    # facilities-management fields with no equivalent here, left blank rather
-    # than guessed (see System Info for the disclosure). 18 of these rooms
-    # use a bracketed placeholder code (e.g. '[CVE-Lab-1]') rather than a
-    # real physical room number - included since they're genuinely what
-    # appears in Room1, but they are NOT real bookable venues.
+    course_title_by_code = {
+        session.course.module_code: session.course.title
+        for session in all_sessions
+    }
+    course_lookup = {}
+    for row in rows:
+        host_key = row['SIS Module Code']
+        course_lookup.setdefault(host_key, {
+            'module': row['Module'],
+            'term': row['Term'],
+            'title': course_title_by_code.get(row['Module'], ''),
+        })
+
+    if 'Course Code' in wb.sheetnames:
+        course_ws = wb['Course Code']
+        if course_ws.max_row > 1:
+            course_ws.delete_rows(2, course_ws.max_row - 1)
+        for row_index, (host_key, item) in enumerate(
+            sorted(course_lookup.items()), start=2
+        ):
+            course_ws.cell(row_index, 1, item['module'])
+            course_ws.cell(row_index, 2, item['term'])
+            course_ws.cell(row_index, 3, host_key)
+            course_ws.cell(row_index, 4, item['term'])
+
+    for sheet_name in ('Sheet4', 'Sheet1'):
+        if sheet_name not in wb.sheetnames:
+            continue
+        course_directory = wb[sheet_name]
+        if course_directory.max_row > 1:
+            course_directory.delete_rows(2, course_directory.max_row - 1)
+        for row_index, (host_key, item) in enumerate(
+            sorted(course_lookup.items()), start=2
+        ):
+            course_directory.cell(row_index, 1, host_key)
+            course_directory.cell(row_index, 2, host_key)
+            course_directory.cell(row_index, 3, item['title'])
+
     if 'Location' in wb.sheetnames:
         loc_ws = wb['Location']
-        next_row = loc_ws.max_row + 1
+        if loc_ws.max_row > 1:
+            loc_ws.delete_rows(2, loc_ws.max_row - 1)
+        next_row = 2
         for room in Room.query.filter_by(is_active=True).order_by(Room.room_code).all():
             loc_ws.cell(next_row, 1, room.room_code)
             loc_ws.cell(next_row, 2, room.room_code)

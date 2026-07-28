@@ -18,19 +18,23 @@ from app.engine.solver import (
     _parallel_section_alternatives,
     _room_compatible,
     _sessions_share_students,
+    solve,
 )
 from app.models.academic_calendar import AcademicCalendar
 from app.models.class_session import ClassSession
 from app.models.course import Course
 from app.models.event import Event
 from app.models.programme import Programme
+from app.models.professor import Professor
 from app.models.room import Room
+from app.models.class_session_professor import ClassSessionProfessor
 from app.models.solve_run import SolveRun
 from app.models.student_group import StudentGroup
 from app.models.timeslot import TimeSlot
 from app.models.timetable_entry import TimetableEntry
 from app.models.user import User
 from app.models.student_enrollment import StudentSectionAssignment
+from app.models.student_enrollment import StudentEnrollment
 from app.routes.admin import (
     _audit_generated_hard_conflicts,
     _check_week_conflicts,
@@ -151,6 +155,69 @@ class RegressionTests(unittest.TestCase):
         self.assertTrue(_sessions_share_students(first, sequential))
         self.assertEqual(15, first.effective_group_size)
         self.assertEqual(30, sequential.effective_group_size)
+
+    def test_disjoint_week_sessions_can_reuse_one_slot_and_room(self):
+        _, group, course = self._base_data()
+        slot = TimeSlot(
+            day_of_week='Monday', period_label='P1',
+            start_time=time(9), end_time=time(11),
+        )
+        room = Room(
+            room_code='TST-LT1', building='TST',
+            room_type='lecture', capacity=60, is_active=True,
+        )
+        professor_user = User(
+            name='Test Professor', email='professor@sit.edu.sg',
+            role='professor', password_hash='unused',
+        )
+        professor = Professor(
+            user=professor_user, staff_id='TST-P1', department='Test',
+        )
+        first = ClassSession(
+            course=course, session_type='tutorial', delivery_mode='f2f',
+            duration_hours=2, student_group=group, trimester=1,
+            teaching_weeks='1', group_label='All',
+            fixed_timeslot=slot, fixed_room=room,
+        )
+        second = ClassSession(
+            course=course, session_type='tutorial', delivery_mode='f2f',
+            duration_hours=2, student_group=group, trimester=1,
+            teaching_weeks='3', group_label='All',
+            fixed_timeslot=slot, fixed_room=room,
+        )
+        db.session.add_all([
+            slot, room, professor_user, professor, first, second,
+        ])
+        db.session.flush()
+        db.session.add_all([
+            ClassSessionProfessor(
+                session_id=first.id, professor_id=professor.id,
+                is_primary=True,
+            ),
+            ClassSessionProfessor(
+                session_id=second.id, professor_id=professor.id,
+                is_primary=True,
+            ),
+        ])
+        db.session.commit()
+
+        success, _, _ = solve(
+            'AY2728-T1', date(2027, 9, 6), {7},
+            trimester_num=1, academic_year='AY2728',
+            session_id_filter={first.id, second.id},
+            max_time_seconds=5,
+        )
+
+        self.assertTrue(success)
+        generated = TimetableEntry.query.filter_by(
+            trimester='AY2728-T1', is_backbone=False,
+        ).all()
+        self.assertEqual(
+            {first.id, second.id},
+            {entry.class_session_id for entry in generated},
+        )
+        self.assertEqual({slot.id}, {entry.timeslot_id for entry in generated})
+        self.assertEqual({room.id}, {entry.room_id for entry in generated})
 
     def test_student_projection_selects_one_parallel_section(self):
         _, group, course = self._base_data()
@@ -310,6 +377,70 @@ class RegressionTests(unittest.TestCase):
             if cell.value is not None
         }
         self.assertNotIn(student.password_hash, exported_values)
+
+    def test_student_enrolment_export_is_valid_workbook(self):
+        client, _ = self._admin_client()
+        _, group, course = self._base_data()
+        student = User(
+            name='Enrolled Student', email='enrolled@example.com', role='student',
+            password_hash='unused', student_group=group,
+        )
+        session = ClassSession(
+            course=course, session_type='tutorial', delivery_mode='online',
+            duration_hours=2, student_group=group, trimester=1,
+            teaching_weeks='1,2,3', group_label='T1',
+        )
+        db.session.add_all([student, session])
+        db.session.flush()
+        db.session.add(StudentEnrollment(
+            user_id=student.id, course_id=course.id,
+            academic_year='AY2526', trimester=1,
+        ))
+        db.session.add(StudentSectionAssignment(
+            user_id=student.id, class_session_id=session.id,
+            academic_year='AY2526', trimester=1,
+        ))
+        db.session.commit()
+
+        response = client.get('/admin/students/enrolments/export')
+        workbook = openpyxl.load_workbook(io.BytesIO(response.data))
+        sheet = workbook['Enrolments']
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(
+            ['Student Email', 'Academic Year', 'Trimester', 'Module Code', 'Section Group'],
+            [cell.value for cell in sheet[1]],
+        )
+        self.assertEqual(
+            ['enrolled@example.com', 'AY2526', 1, 'TST1001', 'T1'],
+            [cell.value for cell in sheet[2]],
+        )
+
+    def test_student_group_export_roundtrips_as_preview(self):
+        client, _ = self._admin_client()
+        programme, parent, _ = self._base_data()
+        db.session.add(StudentGroup(
+            programme=programme, year_level=1,
+            group_label='TST-Y1-Lab', intake_size=15, parent=parent,
+        ))
+        db.session.commit()
+
+        exported = client.get('/admin/student-groups/export')
+        response = client.post(
+            '/admin/student-groups/import',
+            data={
+                'file': (
+                    io.BytesIO(exported.data),
+                    'student_groups.xlsx',
+                ),
+                'import_mode': 'preview',
+            },
+            content_type='multipart/form-data',
+            follow_redirects=True,
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn('Preview only', response.get_data(as_text=True))
 
     def test_student_import_creates_updates_and_assigns_groups(self):
         client, _ = self._admin_client()
@@ -486,10 +617,24 @@ class RegressionTests(unittest.TestCase):
         conflicts = _audit_generated_hard_conflicts([entry])
 
         self.assertTrue(any('term-break Week 7' in item for item in conflicts))
+        client, _ = self._admin_client()
+        response = client.get('/admin/timetable/report?trimester=AY2526-T1')
+        page = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn('This timetable must not be published or exported.', page)
+        self.assertNotIn('This timetable works.', page)
 
     def test_template2_extension_is_restored(self):
         base_path = os.path.join(self.app.root_path, 'static', 'template2_base.xlsx')
         workbook = openpyxl.load_workbook(base_path)
+        for sheet_name in (
+            'Timetable', 'Course Code', 'Location', 'Staff',
+            'Sheet4', 'Sheet1', 'Sheet2', 'Sheet3',
+        ):
+            self.assertEqual(
+                1, workbook[sheet_name].max_row,
+                f'{sheet_name} must contain headers only in the tracked template',
+            )
         output = io.BytesIO()
         workbook.save(output)
         restore_worksheet_extensions(base_path, output)
@@ -500,6 +645,12 @@ class RegressionTests(unittest.TestCase):
                 if name.startswith('xl/worksheets/') and name.endswith('.xml')
             )
         self.assertIn(b'x14:dataValidations', worksheet_xml)
+        # The copied extension uses xr:uid attributes whose namespace was
+        # inherited from the original worksheet root.  The rebuilt workbook
+        # must remain valid XML and reopen successfully after restoration.
+        output.seek(0)
+        reopened = openpyxl.load_workbook(output)
+        self.assertIn('Timetable', reopened.sheetnames)
 
     def test_security_headers_are_present(self):
         response = self.app.test_client().get('/login')

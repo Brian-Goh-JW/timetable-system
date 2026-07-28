@@ -110,7 +110,27 @@
 </div>
 
 <!-- Plain-language summary - what the score does and doesn't mean, up front -->
-{% if report.score.available %}
+{% if report.score.hard_conflicts %}
+<div class="card glass-card animate-in mb-3 border-danger" style="background:#fff0f0;">
+    <div class="card-body d-flex align-items-start gap-3">
+        <i class="bi bi-exclamation-octagon-fill text-danger fs-4"></i>
+        <div class="small">
+            <strong>This timetable must not be published or exported.</strong>
+            The independent report audit found
+            <strong>{{ report.score.hard_conflicts }} hard conflict{{ 's' if report.score.hard_conflicts != 1 }}</strong>.
+            Regenerate the trimester or correct the affected data first.
+            <ul class="mb-0 mt-2">
+                {% for conflict in report.score.hard_conflict_messages[:5] %}
+                <li>{{ conflict }}</li>
+                {% endfor %}
+                {% if report.score.hard_conflicts > 5 %}
+                <li>And {{ report.score.hard_conflicts - 5 }} more.</li>
+                {% endif %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% elif report.score.available %}
 <div class="card glass-card animate-in mb-3 border-0" style="background:#eaf7ee;">
     <div class="card-body d-flex align-items-start gap-3">
         <i class="bi bi-check-circle-fill text-success fs-4"></i>
@@ -297,7 +317,11 @@
         <!-- completed schedule has satisfied every one of them by definition -->
         <div class="fw-semibold small text-uppercase text-muted mb-2 d-flex align-items-center gap-2">
             Hard Constraints
+            {% if report.score.hard_conflicts %}
+            <span class="badge bg-danger">{{ report.score.hard_conflicts }} conflict{{ 's' if report.score.hard_conflicts != 1 }}</span>
+            {% else %}
             <span class="badge bg-success">{{ report.constraint_summary.hard_rule_count }}/{{ report.constraint_summary.hard_rule_count }} satisfied</span>
+            {% endif %}
         </div>
         <div class="row mb-4">
             {% for group in report.constraint_summary.hard_groups %}
