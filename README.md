@@ -47,6 +47,18 @@ The synthetic seed creates no real people or institutional records.
 
 These credentials are only for a local demo. The seed refuses to run when `APP_ENV=production` and refuses to overwrite a non-empty database. Passwords can be changed before seeding with `DEMO_ADMIN_PASSWORD`, `DEMO_PROFESSOR_PASSWORD`, and `DEMO_STUDENT_PASSWORD`.
 
+### Sample account for the populated project database
+
+If you were given the populated project `timetable.db` separately, use this account to view an already-published timetable:
+
+| Role | Email | Password | Student group |
+|---|---|---|---|
+| Student | `student@sit.edu.sg` | `Test1234` | `DSC-Y1` |
+
+After signing in, open **My Timetable**, select **AY25/26 Tri 1**, and view **Week 1**. This account has access to the populated database's published T1 timetable.
+
+The populated database is intentionally not included in the public GitHub ZIP because operational databases may contain institutional data. A fresh GitHub download uses the synthetic `@example.com` accounts above after running `python bootstrap/seed_demo.py`.
+
 ## What to try
 
 - Generate or re-generate AY2526-T1 and review the hard-constraint guard.
