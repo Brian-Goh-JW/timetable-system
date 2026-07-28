@@ -29,6 +29,7 @@
         {% else %}Recurring slot each teaching week{% endif %}
     </small>
     <div class="btn-group btn-group-sm">
+        <a href="{{ url_for('teacher.timetable_ical', trimester=active_trimester) }}" class="btn btn-outline-success" title="Import into Outlook, Google Calendar, or Apple Calendar"><i class="bi bi-calendar-plus me-1"></i>Calendar</a>
         <a href="{{ url_for('teacher.timetable', trimester=active_trimester, view='list') }}"
            class="btn btn-outline-secondary {% if view_mode == 'list' %}active{% endif %}">
             <i class="bi bi-list-ul me-1"></i>List

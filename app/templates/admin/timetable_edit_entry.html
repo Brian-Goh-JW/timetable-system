@@ -134,6 +134,9 @@
                     </div>
 
                 </form>
+                {% if edit_mode == 'single' %}
+                <hr><button type="button" class="btn btn-outline-primary btn-sm" id="suggest-repairs">Suggest valid repairs</button><div id="repair-results" class="mt-2 small"></div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -183,3 +186,13 @@
 </div>
 
 {% endblock %}
+
+{% block extra_scripts %}{% if edit_mode == 'single' %}<script>
+document.getElementById('suggest-repairs').addEventListener('click', async function () {
+  const target = document.getElementById('repair-results'); target.textContent = 'Checking hard constraints...';
+  const response = await fetch('{{ url_for("admin.timetable_entry_suggestions", entry_id=entry.id) }}');
+  const data = await response.json(); target.innerHTML = '';
+  if (!data.suggestions || !data.suggestions.length) { target.textContent = 'No valid local move was found.'; return; }
+  data.suggestions.forEach(function (item) { const button = document.createElement('button'); button.type = 'button'; button.className = 'btn btn-light border btn-sm d-block w-100 text-start mb-1'; button.textContent = item.timeslot + ' · ' + item.room + ' · score ' + item.score; button.onclick = function () { document.querySelector('[name=timeslot_id]').value = item.timeslot_id; document.querySelector('[name=room_id]').value = item.room_id || ''; }; target.appendChild(button); });
+});
+</script>{% endif %}{% endblock %}

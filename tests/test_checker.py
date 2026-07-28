@@ -18,7 +18,7 @@ from app.models.student_group import StudentGroup
 from app.models.timeslot import TimeSlot
 from app.models.timetable_entry import TimetableEntry
 from app.models.user import User
-from app.routes.admin import _solver_tasks
+from app.models.solver_job import SolverJob
 from app.routes.student import _student_timetable_uses_backbone
 from app.routes.teacher import _teacher_timetable_uses_backbone
 
@@ -344,7 +344,6 @@ class ReadinessCheckerTests(unittest.TestCase):
         )
         db.session.add(admin)
         db.session.commit()
-        _solver_tasks.clear()
         entries_before = TimetableEntry.query.count()
 
         client = self.app.test_client()
@@ -374,7 +373,7 @@ class ReadinessCheckerTests(unittest.TestCase):
         self.assertTrue(payload['precheck_blocked'])
         self.assertEqual(1, payload['blocking_count'])
         self.assertEqual(0, payload['entries_created'])
-        self.assertEqual([], list(_solver_tasks.values()))
+        self.assertEqual(0, SolverJob.query.count())
         self.assertEqual(entries_before, TimetableEntry.query.count())
 
 

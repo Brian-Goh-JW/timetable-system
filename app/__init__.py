@@ -1,10 +1,12 @@
 import sqlite3
 
-from flask import Flask, flash, redirect, request, url_for
+from flask import Flask, flash, jsonify, redirect, request, url_for
+from sqlalchemy import text
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_mail import Mail
 from flask_wtf import CSRFProtect
+from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFError
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
@@ -30,6 +32,7 @@ login_manager = LoginManager()
 login_manager.login_view = 'auth.login'
 mail = Mail()
 csrf = CSRFProtect()
+migrate = Migrate()
 
 def create_app():
     app = Flask(__name__)
@@ -39,6 +42,7 @@ def create_app():
     login_manager.init_app(app)
     mail.init_app(app)
     csrf.init_app(app)
+    migrate.init_app(app, db, compare_type=True)
 
     from app import models  # noqa: F401 - ensures all models are registered with SQLAlchemy
 
@@ -51,6 +55,42 @@ def create_app():
     app.register_blueprint(admin_bp)
     app.register_blueprint(teacher_bp)
     app.register_blueprint(student_bp)
+
+    from app.services.audit import install_request_audit
+    install_request_audit(app)
+
+    @app.get('/healthz')
+    def healthz():
+        """Database-aware health probe for production supervisors."""
+        try:
+            db.session.execute(text('SELECT 1'))
+        except Exception:
+            app.logger.exception('Health check failed')
+            return jsonify({'status': 'unhealthy', 'database': 'unavailable'}), 503
+        return jsonify({'status': 'ok', 'database': 'ok'})
+
+    @app.cli.command('solver-worker')
+    def solver_worker():
+        """Process persistent generation jobs outside the web server."""
+        import time
+        from app.routes.admin import _claim_next_solver_job, _run_solver_task
+        app.logger.info('Persistent solver worker started')
+        while True:
+            with app.app_context():
+                task_id = _claim_next_solver_job()
+            if task_id:
+                _run_solver_task(app, task_id)
+            else:
+                time.sleep(2)
+
+    @app.cli.command('backup-database')
+    def backup_database_command():
+        """Create a timestamped, recoverable backup of a local SQLite DB."""
+        from app.services.backups import create_sqlite_backup
+        backup_path = create_sqlite_backup(app)
+        if backup_path is None:
+            raise RuntimeError('backup-database supports the local SQLite database only.')
+        print(f'Backup created: {backup_path}')
 
     @app.after_request
     def apply_security_headers(response):

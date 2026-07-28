@@ -360,7 +360,8 @@
                                 request.endpoint.startswith('admin.room')
                             ) %}
                             {% set tools_active = request.endpoint in ('admin.declarations', 'admin.timetable_flags',
-                                'admin.data_import', 'admin.audit_log', 'admin.system_info', 'admin.constraint_settings')
+                                'admin.data_import', 'admin.audit_log', 'admin.system_info', 'admin.constraint_settings',
+                                'admin.academic_terms')
                                 or (request.endpoint and 'event' in request.endpoint) %}
 
                             <li class="nav-item">
@@ -410,6 +411,8 @@
                                            href="{{ url_for('admin.timetable_flags') }}"><i class="bi bi-flag"></i> Flags</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint and 'event' in request.endpoint %}active{% endif %}"
                                            href="{{ url_for('admin.events') }}"><i class="bi bi-calendar-event"></i> Events</a></li>
+                                    <li><a class="dropdown-item {% if request.endpoint == 'admin.academic_terms' %}active{% endif %}"
+                                           href="{{ url_for('admin.academic_terms') }}"><i class="bi bi-calendar3"></i> Academic Terms</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.data_import' %}active{% endif %}"
                                            href="{{ url_for('admin.data_import') }}"><i class="bi bi-upload"></i> Import</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.constraint_settings' %}active{% endif %}"
@@ -417,6 +420,8 @@
                                     <li><hr class="dropdown-divider"></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.audit_log' %}active{% endif %}"
                                            href="{{ url_for('admin.audit_log') }}"><i class="bi bi-clock-history"></i> Audit Log</a></li>
+                                    <li><a class="dropdown-item {% if request.endpoint == 'admin.timetable_versions' %}active{% endif %}"
+                                           href="{{ url_for('admin.timetable_versions') }}"><i class="bi bi-layers"></i> Schedule Versions</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.system_info' %}active{% endif %}"
                                            href="{{ url_for('admin.system_info') }}"><i class="bi bi-info-circle"></i> System Info</a></li>
                                 </ul>
@@ -467,6 +472,11 @@
                             </span>
                             {% endif %}
                         </span>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('auth.change_password') }}">
+                            <i class="bi bi-key me-1"></i>Password
+                        </a>
                     </li>
                     <li class="nav-item">
                         <form method="POST" action="{{ url_for('auth.logout') }}" class="m-0">

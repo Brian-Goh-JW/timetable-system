@@ -56,6 +56,10 @@
                         </select>
                     </div>
 
+                    <div class="mb-3"><label class="form-label fw-medium">Qualification Tags</label><input class="form-control" name="qualifications" value="{{ form.get('qualifications','') }}" placeholder="data science, DSC, laboratory"></div>
+                    <div class="row g-2 mb-3"><div class="col"><label class="form-label">Max weekly hours</label><input class="form-control" type="number" min="1" name="max_weekly_hours" value="{{ form.get('max_weekly_hours','') }}"></div><div class="col"><label class="form-label">Max daily hours</label><input class="form-control" type="number" min="1" name="max_daily_hours" value="{{ form.get('max_daily_hours','') }}"></div></div>
+                    <div class="mb-3"><label class="form-label">Home building</label><input class="form-control" name="home_building" value="{{ form.get('home_building','') }}" placeholder="E2"></div>
+
                     <div class="mb-4">
                         <label for="password" class="form-label fw-medium">
                             Temporary Password <span class="text-danger">*</span>

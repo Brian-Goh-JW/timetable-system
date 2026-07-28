@@ -33,6 +33,7 @@
                     <th>Timeslot</th>
                     <th>Time</th>
                     <th>Reason</th>
+                    <th>Term</th>
                     <th>Submitted</th>
                     <th>Classify As</th>
                 </tr>
@@ -52,6 +53,7 @@
                         {{ d.timeslot.start_time.strftime('%H:%M') }}–{{ d.timeslot.end_time.strftime('%H:%M') }}
                     </td>
                     <td style="max-width:200px; word-break:break-word;">{{ d.reason }}</td>
+                    <td>{{ d.academic_year or 'Every AY' }}{% if d.trimester %}-T{{ d.trimester }}{% endif %}</td>
                     <td class="text-muted">{{ d.submitted_at.strftime('%d %b %Y') }}</td>
                     <td>
                         <div class="d-flex gap-1">
@@ -113,6 +115,7 @@
                     <th>Timeslot</th>
                     <th>Time</th>
                     <th>Reason</th>
+                    <th>Term</th>
                     <th>Type</th>
                     <th>Reclassify</th>
                 </tr>
@@ -132,6 +135,7 @@
                         {{ d.timeslot.start_time.strftime('%H:%M') }}–{{ d.timeslot.end_time.strftime('%H:%M') }}
                     </td>
                     <td style="max-width:200px; word-break:break-word;">{{ d.reason }}</td>
+                    <td>{{ d.academic_year or 'Every AY' }}{% if d.trimester %}-T{{ d.trimester }}{% endif %}</td>
                     <td>
                         {% if d.constraint_type == 'strict' %}
                             <span class="badge bg-danger">Strict</span>

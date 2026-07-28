@@ -21,13 +21,9 @@ from app.models.class_session_professor import ClassSessionProfessor
 from app.models.timetable_entry import TimetableEntry
 from app.models.timeslot import TimeSlot
 from app.models.audit_log import AuditLog
+from app.services.academic_terms import known_start_date
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
-
-# In-memory store for background solver tasks: {task_id: {status, ...}}
-# Entries expire after 2 hours (cleaned up lazily on new task start).
-_solver_tasks: dict = {}
-_TASK_TTL = 7200  # seconds
 
 def _save_solve_run(trimester, stats):
     """Persist a successful solve()'s stats for this trimester (one row per
@@ -80,14 +76,6 @@ def _unpublish_affected_entries(entry_query):
             TimetableEntry.trimester.in_(trimesters)
         ).update({'is_published': False}, synchronize_session=False)
     return sorted(trimesters)
-
-# Official SIT academic calendar - week 1 start dates (all Mondays).
-# Source: https://www.singaporetech.edu.sg/admissions/undergraduate/academic-calendar-sit-and-joint-programmes
-SIT_ACADEMIC_CALENDAR = {
-    'AY2425': {1: '2024-09-02', 2: '2025-01-06', 3: '2025-05-05'},
-    'AY2526': {1: '2025-09-01', 2: '2026-01-05', 3: '2026-05-04'},
-    'AY2627': {1: '2026-08-31', 2: '2027-01-04', 3: '2027-05-03'},
-}
 
 # ---------------------------------------------------------------------------
 # Template 2 export mapping tables - hand-transcribed, not sourced from any
@@ -151,6 +139,18 @@ def _email_looks_valid(email):
         and not domain.startswith('.') and not domain.endswith('.')
         and '..' not in local and '..' not in domain
     )
+
+
+def _import_preview(entity_label, create_count, update_count, skip_count=0):
+    """Stop after validation and show exactly what an apply would change."""
+    if request.form.get('import_mode') != 'preview':
+        return False
+    flash(
+        f'Preview only - {entity_label}: {create_count} create, '
+        f'{update_count} update, {skip_count} skip, 0 errors. Nothing was changed.',
+        'info',
+    )
+    return True
 
 
 def _data_quality_gaps():
@@ -670,6 +670,9 @@ def course_import():
             flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
         return redirect(url_for('admin.courses'))
 
+    if _import_preview('modules', 0, len(rows)):
+        return redirect(url_for('admin.courses'))
+
     split_changed_course_ids = {
         r['existing'].id
         for r in rows
@@ -736,6 +739,10 @@ def professor_add():
         email      = request.form.get('email', '').strip().lower()
         staff_id   = request.form.get('staff_id', '').strip()
         department = request.form.get('department', '').strip()
+        qualifications = request.form.get('qualifications', '').strip()
+        home_building = request.form.get('home_building', '').strip().upper() or None
+        max_weekly = request.form.get('max_weekly_hours', '').strip()
+        max_daily = request.form.get('max_daily_hours', '').strip()
         password   = request.form.get('password', '').strip()
 
         errors = []
@@ -764,10 +771,17 @@ def professor_add():
         # Create User account + Professor profile in one transaction
         user = User(name=name, email=email, role='professor')
         user.set_password(password)
+        user.must_change_password = True
         db.session.add(user)
         db.session.flush()      # get user.id before committing
 
-        professor = Professor(user_id=user.id, staff_id=staff_id, department=department)
+        professor = Professor(
+            user_id=user.id, staff_id=staff_id, department=department,
+            qualifications=qualifications or None,
+            home_building=home_building,
+            max_weekly_hours=int(max_weekly) if max_weekly.isdigit() else None,
+            max_daily_hours=int(max_daily) if max_daily.isdigit() else None,
+        )
         db.session.add(professor)
         db.session.commit()
 
@@ -789,6 +803,10 @@ def professor_edit(professor_id):
         email        = request.form.get('email', '').strip().lower()
         staff_id     = request.form.get('staff_id', '').strip()
         department   = request.form.get('department', '').strip()
+        qualifications = request.form.get('qualifications', '').strip()
+        home_building = request.form.get('home_building', '').strip().upper() or None
+        max_weekly = request.form.get('max_weekly_hours', '').strip()
+        max_daily = request.form.get('max_daily_hours', '').strip()
         new_password = request.form.get('new_password', '').strip()
 
         errors = []
@@ -819,6 +837,10 @@ def professor_edit(professor_id):
         user.email           = email
         professor.staff_id   = staff_id
         professor.department = department
+        professor.qualifications = qualifications or None
+        professor.home_building = home_building
+        professor.max_weekly_hours = int(max_weekly) if max_weekly.isdigit() else None
+        professor.max_daily_hours = int(max_daily) if max_daily.isdigit() else None
 
         if new_password:
             user.set_password(new_password)
@@ -979,11 +1001,18 @@ def professor_import():
             flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
         return redirect(url_for('admin.professors'))
 
+    if _import_preview(
+        'professors', sum(1 for row in rows if row['is_new']),
+        sum(1 for row in rows if not row['is_new']),
+    ):
+        return redirect(url_for('admin.professors'))
+
     created = updated = 0
     for r in rows:
         if r['is_new']:
             user = User(name=r['name'], email=r['email'], role='professor')
             user.set_password(r['temp_password'])
+            user.must_change_password = True
             db.session.add(user)
             db.session.flush()
             db.session.add(Professor(user_id=user.id, staff_id=r['staff_id'], department=r['department']))
@@ -995,6 +1024,7 @@ def professor_import():
             prof.department = r['department']
             if r['temp_password']:
                 prof.user.set_password(r['temp_password'])
+                prof.user.must_change_password = True
             updated += 1
 
     db.session.commit()
@@ -1215,6 +1245,12 @@ def student_import():
         flash('The Students sheet contains no student rows. Nothing was changed.', 'warning')
         return redirect(url_for('admin.students'))
 
+    if _import_preview(
+        'students', sum(1 for row in rows if row['is_new']),
+        sum(1 for row in rows if not row['is_new']),
+    ):
+        return redirect(url_for('admin.students'))
+
     created = updated = 0
     try:
         for item in rows:
@@ -1226,6 +1262,7 @@ def student_import():
                     student_group_id=item['group_id'],
                 )
                 student.set_password(item['temp_password'])
+                student.must_change_password = True
                 db.session.add(student)
                 created += 1
             else:
@@ -1235,6 +1272,7 @@ def student_import():
                 student.student_group_id = item['group_id']
                 if item['temp_password']:
                     student.set_password(item['temp_password'])
+                    student.must_change_password = True
                 updated += 1
         db.session.commit()
     except Exception:
@@ -1292,6 +1330,7 @@ def student_add():
             student_group_id = group_id_num,
         )
         student.set_password(password)
+        student.must_change_password = True
         db.session.add(student)
         db.session.commit()
         flash(f'Student account created for {name}.', 'success')
@@ -1346,6 +1385,7 @@ def student_edit(user_id):
         student.student_group_id = group_id_num
         if password:
             student.set_password(password)
+            student.must_change_password = True
             flash('Password has been reset.', 'info')
 
         db.session.commit()
@@ -1366,6 +1406,221 @@ def student_delete(user_id):
     db.session.delete(student)
     db.session.commit()
     flash(f'Student account for {name} deleted.', 'success')
+    return redirect(url_for('admin.students'))
+
+
+@admin_bp.route('/users/<int:user_id>/toggle-active', methods=['POST'])
+@login_required
+def user_toggle_active(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        flash('You cannot disable your own signed-in account.', 'danger')
+    else:
+        user.active = not user.active
+        db.session.commit()
+        flash(f'{user.name} is now {"active" if user.active else "disabled"}.', 'success')
+    return redirect(request.referrer or url_for('admin.dashboard'))
+
+
+@admin_bp.route('/students/<int:user_id>/enrolments', methods=['GET', 'POST'])
+@login_required
+def student_enrolments(user_id):
+    from app.models.student_enrollment import StudentEnrollment, StudentSectionAssignment
+    student = User.query.get_or_404(user_id)
+    if student.role != 'student':
+        abort(404)
+    academic_year = request.values.get('academic_year', 'AY2526').strip().upper()
+    trimester = request.values.get('trimester', 1, type=int)
+    if trimester not in (1, 2, 3):
+        trimester = 1
+    courses = Course.query.filter_by(trimester=trimester).order_by(
+        Course.programme_id, Course.module_code
+    ).all()
+
+    if request.method == 'POST':
+        selected_ids = {
+            int(value) for value in request.form.getlist('course_ids')
+            if value.isdigit()
+        }
+        valid_ids = {course.id for course in courses}
+        if not selected_ids.issubset(valid_ids):
+            flash('One selected module does not belong to this trimester.', 'danger')
+        else:
+            StudentSectionAssignment.query.filter_by(
+                user_id=student.id, academic_year=academic_year, trimester=trimester
+            ).delete(synchronize_session=False)
+            StudentEnrollment.query.filter_by(
+                user_id=student.id, academic_year=academic_year, trimester=trimester
+            ).delete(synchronize_session=False)
+            for course_id in selected_ids:
+                db.session.add(StudentEnrollment(
+                    user_id=student.id, course_id=course_id,
+                    academic_year=academic_year, trimester=trimester,
+                ))
+            for key, value in request.form.items():
+                if not key.startswith('section_') or not value.isdigit():
+                    continue
+                session = db.session.get(ClassSession, int(value))
+                if session and session.course_id in selected_ids and session.trimester == trimester:
+                    db.session.add(StudentSectionAssignment(
+                        user_id=student.id, class_session_id=session.id,
+                        academic_year=academic_year, trimester=trimester,
+                    ))
+            db.session.commit()
+            flash(f'Enrolments and sections saved for {academic_year}-T{trimester}.', 'success')
+            return redirect(url_for(
+                'admin.student_enrolments', user_id=student.id,
+                academic_year=academic_year, trimester=trimester,
+            ))
+
+    enrolled_ids = {
+        row.course_id for row in StudentEnrollment.query.filter_by(
+            user_id=student.id, academic_year=academic_year, trimester=trimester
+        ).all()
+    }
+    assigned_session_ids = {
+        row.class_session_id for row in StudentSectionAssignment.query.filter_by(
+            user_id=student.id, academic_year=academic_year, trimester=trimester
+        ).all()
+    }
+    return render_template(
+        'admin/student_enrolments.html', student=student, courses=courses,
+        enrolled_ids=enrolled_ids, assigned_session_ids=assigned_session_ids,
+        academic_year=academic_year, trimester=trimester,
+    )
+
+
+@admin_bp.route('/students/enrolments/export')
+@login_required
+def student_enrolment_export():
+    import io
+    import openpyxl
+    from flask import send_file
+    from app.models.student_enrollment import StudentEnrollment, StudentSectionAssignment
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = 'Enrolments'
+    sheet.append(['Student Email', 'Academic Year', 'Trimester', 'Module Code', 'Section Group'])
+    assignments = defaultdict(list)
+    for assignment in StudentSectionAssignment.query.all():
+        key = (assignment.user_id, assignment.class_session.course_id,
+               assignment.academic_year, assignment.trimester)
+        assignments[key].append(assignment.class_session.group_label or '')
+    for enrollment in StudentEnrollment.query.order_by(
+        StudentEnrollment.academic_year, StudentEnrollment.trimester,
+        StudentEnrollment.user_id,
+    ).all():
+        key = (enrollment.user_id, enrollment.course_id,
+               enrollment.academic_year, enrollment.trimester)
+        sheet.append([
+            enrollment.student.email, enrollment.academic_year,
+            enrollment.trimester, enrollment.course.module_code,
+            ', '.join(sorted(filter(None, assignments.get(key, [])))),
+        ])
+    output = io.BytesIO(); workbook.save(output); output.seek(0)
+    return send_file(
+        output, as_attachment=True, download_name='student_enrolments.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+
+@admin_bp.route('/students/enrolments/import', methods=['POST'])
+@login_required
+def student_enrolment_import():
+    import pandas as pd
+    from app.models.student_enrollment import StudentEnrollment, StudentSectionAssignment
+    upload = request.files.get('file')
+    if not upload or not upload.filename.lower().endswith(('.xlsx', '.xls')):
+        flash('Choose an Excel enrolment workbook.', 'danger')
+        return redirect(url_for('admin.students'))
+    try:
+        frame = pd.read_excel(upload, sheet_name='Enrolments').fillna('')
+    except Exception:
+        current_app.logger.exception('Could not read enrolment workbook')
+        flash('The Enrolments sheet could not be read.', 'danger')
+        return redirect(url_for('admin.students'))
+    required = {'Student Email', 'Academic Year', 'Trimester', 'Module Code'}
+    if not required.issubset(frame.columns):
+        flash('Enrolments must contain Student Email, Academic Year, Trimester, and Module Code.', 'danger')
+        return redirect(url_for('admin.students'))
+    parsed, errors = [], []
+    for index, row in frame.iterrows():
+        excel_row = index + 2
+        email = str(row['Student Email']).strip().lower()
+        academic_year = str(row['Academic Year']).strip().upper()
+        module_code = str(row['Module Code']).strip().upper()
+        section_labels = [
+            value.strip() for value in str(row.get('Section Group', '')).split(',') if value.strip()
+        ]
+        try:
+            trimester = int(row['Trimester'])
+        except (TypeError, ValueError):
+            trimester = None
+        student = User.query.filter_by(email=email, role='student').first()
+        course_query = Course.query.filter_by(module_code=module_code, trimester=trimester)
+        if student and student.student_group:
+            preferred = course_query.filter_by(
+                programme_id=student.student_group.programme_id
+            ).first()
+        else:
+            preferred = None
+        courses = course_query.all()
+        course = preferred or (courses[0] if len(courses) == 1 else None)
+        row_errors = []
+        if student is None: row_errors.append('student account not found')
+        if trimester not in (1, 2, 3): row_errors.append('trimester must be 1, 2, or 3')
+        if not academic_year.startswith('AY') or len(academic_year) != 6: row_errors.append('academic year must look like AY2526')
+        if course is None: row_errors.append('module was missing or ambiguous for this student')
+        sessions = []
+        if course:
+            for label in section_labels:
+                session = ClassSession.query.filter_by(
+                    course_id=course.id, group_label=label, trimester=trimester
+                ).first()
+                if session is None:
+                    row_errors.append(f'section {label} was not found')
+                else:
+                    sessions.append(session)
+        if row_errors:
+            errors.append(f'Row {excel_row}: ' + '; '.join(row_errors))
+        else:
+            parsed.append((student, course, academic_year, trimester, sessions))
+    if errors:
+        flash(f'Enrolment import rejected - {len(errors)} error(s); nothing changed.', 'danger')
+        for error in errors[:15]: flash(error, 'warning')
+        return redirect(url_for('admin.students'))
+    creates = sum(
+        StudentEnrollment.query.filter_by(
+            user_id=student.id, course_id=course.id,
+            academic_year=year, trimester=tri,
+        ).first() is None
+        for student, course, year, tri, _sessions in parsed
+    )
+    if _import_preview('student enrolments', creates, len(parsed) - creates):
+        return redirect(url_for('admin.students'))
+    for student, course, year, tri, sessions in parsed:
+        enrollment = StudentEnrollment.query.filter_by(
+            user_id=student.id, course_id=course.id,
+            academic_year=year, trimester=tri,
+        ).first()
+        if enrollment is None:
+            db.session.add(StudentEnrollment(
+                user_id=student.id, course_id=course.id,
+                academic_year=year, trimester=tri,
+            ))
+        StudentSectionAssignment.query.filter(
+            StudentSectionAssignment.user_id == student.id,
+            StudentSectionAssignment.academic_year == year,
+            StudentSectionAssignment.trimester == tri,
+            StudentSectionAssignment.class_session.has(course_id=course.id),
+        ).delete(synchronize_session=False)
+        for session in sessions:
+            db.session.add(StudentSectionAssignment(
+                user_id=student.id, class_session_id=session.id,
+                academic_year=year, trimester=tri,
+            ))
+    db.session.commit()
+    flash(f'Imported {len(parsed)} student enrolment row(s).', 'success')
     return redirect(url_for('admin.students'))
 
 
@@ -1398,6 +1653,8 @@ def room_add():
         building  = request.form.get('building', '').strip().upper()
         capacity  = request.form.get('capacity', '').strip()
         room_type = request.form.get('room_type', '').strip()
+        equipment = request.form.get('equipment', '').strip()
+        is_accessible = request.form.get('is_accessible') == 'on'
 
         errors = []
         if not room_code: errors.append('Room code is required.')
@@ -1426,6 +1683,8 @@ def room_add():
             capacity=capacity,
             room_type=room_type,
             is_active=True,
+            equipment=equipment or None,
+            is_accessible=is_accessible,
         ))
         db.session.commit()
         flash(f'Room {room_code} added successfully.', 'success')
@@ -1444,6 +1703,8 @@ def room_edit(room_id):
         building  = request.form.get('building', '').strip().upper()
         capacity  = request.form.get('capacity', '').strip()
         room_type = request.form.get('room_type', '').strip()
+        equipment = request.form.get('equipment', '').strip()
+        is_accessible = request.form.get('is_accessible') == 'on'
 
         errors = []
         if not room_code: errors.append('Room code is required.')
@@ -1465,7 +1726,8 @@ def room_edit(room_id):
         if errors:
             for e in errors:
                 flash(e, 'danger')
-            return render_template('admin/room_edit.html', room=room)
+            all_timeslots = TimeSlot.query.order_by(TimeSlot.day_of_week, TimeSlot.start_time).all()
+            return render_template('admin/room_edit.html', room=room, all_timeslots=all_timeslots)
 
         affected_trimesters = _unpublish_affected_entries(
             TimetableEntry.query.filter_by(room_id=room.id)
@@ -1474,6 +1736,8 @@ def room_edit(room_id):
         room.building  = building
         room.capacity  = capacity
         room.room_type = room_type
+        room.equipment = equipment or None
+        room.is_accessible = is_accessible
         db.session.commit()
 
         flash(f'Room {room_code} updated successfully.', 'success')
@@ -1485,7 +1749,47 @@ def room_edit(room_id):
             )
         return redirect(url_for('admin.rooms'))
 
-    return render_template('admin/room_edit.html', room=room)
+    all_timeslots = TimeSlot.query.order_by(TimeSlot.day_of_week, TimeSlot.start_time).all()
+    return render_template('admin/room_edit.html', room=room, all_timeslots=all_timeslots)
+
+
+@admin_bp.route('/rooms/<int:room_id>/availability', methods=['POST'])
+@login_required
+def room_availability_add(room_id):
+    from app.models.room_availability import RoomAvailability
+    room = Room.query.get_or_404(room_id)
+    timeslot_id = request.form.get('timeslot_id', type=int)
+    academic_year = request.form.get('academic_year', '').strip().upper() or None
+    trimester = request.form.get('trimester', type=int)
+    reason = request.form.get('reason', '').strip() or None
+    if trimester not in (None, 1, 2, 3) or db.session.get(TimeSlot, timeslot_id) is None:
+        flash('Choose a valid timeslot and trimester.', 'danger')
+    else:
+        existing = RoomAvailability.query.filter_by(
+            room_id=room.id, timeslot_id=timeslot_id,
+            academic_year=academic_year, trimester=trimester,
+        ).first()
+        if existing:
+            flash('That room closure already exists.', 'warning')
+        else:
+            db.session.add(RoomAvailability(
+                room_id=room.id, timeslot_id=timeslot_id,
+                academic_year=academic_year, trimester=trimester, reason=reason,
+            ))
+            db.session.commit()
+            flash('Room closure added.', 'success')
+    return redirect(url_for('admin.room_edit', room_id=room.id))
+
+
+@admin_bp.route('/rooms/<int:room_id>/availability/<int:block_id>/delete', methods=['POST'])
+@login_required
+def room_availability_delete(room_id, block_id):
+    from app.models.room_availability import RoomAvailability
+    block = RoomAvailability.query.filter_by(id=block_id, room_id=room_id).first_or_404()
+    db.session.delete(block)
+    db.session.commit()
+    flash('Room closure removed.', 'success')
+    return redirect(url_for('admin.room_edit', room_id=room_id))
 
 
 @admin_bp.route('/rooms/<int:room_id>/toggle', methods=['POST'])
@@ -1667,6 +1971,12 @@ def room_import():
             flash(e, 'warning')
         if len(errors) > 15:
             flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
+        return redirect(url_for('admin.rooms'))
+
+    if _import_preview(
+        'rooms', sum(1 for row in rows if not row['existing']),
+        sum(1 for row in rows if row['existing']),
+    ):
         return redirect(url_for('admin.rooms'))
 
     affected_room_ids = [r['existing'].id for r in rows if r['existing']]
@@ -2098,6 +2408,12 @@ def student_group_import():
             flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
         return redirect(url_for('admin.student_groups'))
 
+    if _import_preview(
+        'student groups', sum(1 for row in rows if row['is_new']),
+        sum(1 for row in rows if not row['is_new']),
+    ):
+        return redirect(url_for('admin.student_groups'))
+
     affected_group_ids = [r['existing'].id for r in rows if not r['is_new']]
     affected_trimesters = _unpublish_affected_entries(
         TimetableEntry.query.join(TimetableEntry.class_session).filter(
@@ -2250,6 +2566,9 @@ def session_assign(course_id, session_id):
     fixed_ts_raw       = request.form.get('fixed_timeslot_id', '').strip()
     primary_raw        = request.form.get('professor_id_primary', '').strip()
     co_raws            = [r.strip() for r in request.form.getlist('professor_id_co') if r.strip()]
+    required_equipment = request.form.get('required_equipment', '').strip()
+    accessibility_required = request.form.get('accessibility_required') == 'on'
+    required_qualification = request.form.get('required_qualification', '').strip()
 
     errors = []
 
@@ -2308,6 +2627,9 @@ def session_assign(course_id, session_id):
     )
     session.student_group_id  = group_id
     session.fixed_timeslot_id = fixed_ts_id
+    session.required_equipment = required_equipment or None
+    session.accessibility_required = accessibility_required
+    session.required_qualification = required_qualification or None
 
     ClassSessionProfessor.query.filter_by(session_id=session.id).delete()
 
@@ -2530,6 +2852,104 @@ def _write_audit(user_id, trimester, action,
         old_professor= old_prof,
         new_professor= new_prof,
     ))
+
+
+@admin_bp.route('/timetable/entries/<int:entry_id>/suggestions')
+@login_required
+def timetable_entry_suggestions(entry_id):
+    """Rank valid local repairs while keeping every other occurrence fixed."""
+    from datetime import timedelta
+    from app.engine.solver import (
+        _institutional_blocked_indices, _room_compatible,
+        _slot_compatible, _timeslots_overlap,
+    )
+    from app.models.academic_calendar import AcademicCalendar
+    from app.models.event import Event
+    from app.models.room_availability import RoomAvailability
+    from app.services.events import matching_event
+
+    entry = TimetableEntry.query.get_or_404(entry_id)
+    session = entry.class_session
+    timeslots = TimeSlot.query.order_by(TimeSlot.day_of_week, TimeSlot.start_time).all()
+    blocked_indices = _institutional_blocked_indices(timeslots)
+    academic_year = entry.academic_year
+    trimester_num = session.trimester
+    calendar = AcademicCalendar.query.filter_by(
+        trimester=entry.trimester, week_number=entry.week_number
+    ).first()
+    events = Event.query.all()
+    strict = AvailabilityDeclaration.query.filter(
+        AvailabilityDeclaration.status == 'classified',
+        AvailabilityDeclaration.constraint_type == 'strict',
+        db.or_(AvailabilityDeclaration.academic_year.is_(None),
+               AvailabilityDeclaration.academic_year == academic_year),
+        db.or_(AvailabilityDeclaration.trimester.is_(None),
+               AvailabilityDeclaration.trimester == trimester_num),
+    ).all()
+    strict_by_prof = defaultdict(list)
+    for declaration in strict:
+        strict_by_prof[declaration.professor_id].append(declaration.timeslot)
+
+    room_blocks = RoomAvailability.query.filter(
+        db.or_(RoomAvailability.academic_year.is_(None),
+               RoomAvailability.academic_year == academic_year),
+        db.or_(RoomAvailability.trimester.is_(None),
+               RoomAvailability.trimester == trimester_num),
+    ).all()
+    blocked_room_pairs = {(block.timeslot_id, block.room_id) for block in room_blocks}
+    rooms = [None] if session.delivery_mode == 'online' else [
+        room for room in Room.query.filter_by(is_active=True).all()
+        if _room_compatible(room, session)
+    ]
+    professor_ids = _entry_professor_ids(session, entry.override_professor_id)
+    day_offset = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
+    suggestions = []
+    for slot_index, slot in enumerate(timeslots):
+        if slot_index in blocked_indices or not _slot_compatible(slot, session):
+            continue
+        if any(
+            _timeslots_overlap(slot, unavailable)
+            for professor_id in professor_ids
+            for unavailable in strict_by_prof.get(professor_id, [])
+        ):
+            continue
+        occurrence_date = (
+            calendar.start_date + timedelta(days=day_offset.get(slot.day_of_week, 0))
+            if calendar else None
+        )
+        if occurrence_date and matching_event(
+            events, session=session, occurrence_date=occurrence_date,
+            timeslot_id=slot.id, academic_year=academic_year,
+            trimester=trimester_num,
+        ):
+            continue
+        for room in rooms:
+            room_id = room.id if room else None
+            if (slot.id, room_id) in blocked_room_pairs:
+                continue
+            conflicts = _check_week_conflicts(
+                entry.week_number, entry.trimester, slot.id, room_id,
+                entry.override_professor_id, session.student_group_id,
+                exclude_entry_id=entry.id, professor_ids=professor_ids,
+                class_session=session,
+            )
+            if conflicts:
+                continue
+            score = (0 if slot.id == entry.timeslot_id else 10)
+            score += 0 if room_id == entry.room_id else 3
+            if room and session.effective_group_size:
+                score += round(5 * max(0, room.capacity - session.effective_group_size) / room.capacity)
+            primary = session.primary_professor
+            if room and primary and primary.home_building and room.building != primary.home_building:
+                score += 2
+            suggestions.append({
+                'timeslot_id': slot.id, 'room_id': room_id, 'score': score,
+                'timeslot': f'{slot.day_of_week} {slot.period_label} '
+                            f'({slot.start_time:%H:%M}-{slot.end_time:%H:%M})',
+                'room': room.room_code if room else 'Online',
+            })
+    suggestions.sort(key=lambda item: (item['score'], item['timeslot'], item['room']))
+    return jsonify({'suggestions': suggestions[:5]})
 
 
 # ---------------------------------------------------------------------------
@@ -2968,6 +3388,7 @@ def flag_notify(flag_id):
 @admin_bp.route('/audit-log')
 @login_required
 def audit_log():
+    from app.models.system_audit import SystemAudit
     trimester_filter = request.args.get('trimester', '')
 
     trimesters = [r[0] for r in
@@ -2979,9 +3400,11 @@ def audit_log():
         query = query.filter_by(trimester=trimester_filter)
 
     logs = query.all()
+    system_logs = SystemAudit.query.order_by(SystemAudit.created_at.desc()).limit(500).all()
 
     return render_template('admin/audit_log.html',
                            logs=logs,
+                           system_logs=system_logs,
                            trimesters=trimesters,
                            active_trimester=trimester_filter)
 
@@ -3024,6 +3447,55 @@ def audit_log_export():
         mimetype='text/csv',
         headers={'Content-Disposition': f'attachment; filename={filename}'}
     )
+
+
+@admin_bp.route('/timetable/versions')
+@login_required
+def timetable_versions():
+    from app.models.schedule_version import ScheduleVersion
+    from app.services.schedule_versions import compare_versions, version_summary
+    trimester = request.args.get('trimester', '').strip()
+    query = ScheduleVersion.query.order_by(ScheduleVersion.created_at.desc())
+    if trimester:
+        query = query.filter_by(trimester=trimester)
+    versions = query.all()
+    summaries = {version.id: version_summary(version) for version in versions}
+    comparison = None
+    left_id = request.args.get('left', type=int)
+    right_id = request.args.get('right', type=int)
+    if left_id and right_id:
+        left = db.session.get(ScheduleVersion, left_id)
+        right = db.session.get(ScheduleVersion, right_id)
+        if left and right and left.trimester == right.trimester:
+            comparison = {
+                'left': left, 'right': right,
+                'result': compare_versions(left, right),
+            }
+    trimesters = [row[0] for row in db.session.query(
+        ScheduleVersion.trimester
+    ).distinct().order_by(ScheduleVersion.trimester).all()]
+    return render_template(
+        'admin/timetable_versions.html', versions=versions,
+        summaries=summaries, trimesters=trimesters,
+        active_trimester=trimester, comparison=comparison,
+    )
+
+
+@admin_bp.route('/timetable/versions/<int:version_id>/restore', methods=['POST'])
+@login_required
+def timetable_version_restore(version_id):
+    from app.models.schedule_version import ScheduleVersion
+    from app.services.schedule_versions import restore_schedule_version
+    version = db.session.get(ScheduleVersion, version_id)
+    if version is None:
+        abort(404)
+    count = restore_schedule_version(version, publish=False)
+    flash(
+        f'Restored {count} draft entries from "{version.label}". '
+        'Review the hard-constraint report before publishing.',
+        'success',
+    )
+    return redirect(url_for('admin.timetable', trimester=version.trimester))
 
 
 # ---------------------------------------------------------------------------
@@ -3251,6 +3723,78 @@ def _build_constraint_summary(stats):
     }
 
 
+@admin_bp.route('/academic-terms', methods=['GET', 'POST'])
+@login_required
+def academic_terms():
+    """Maintain term dates in the database instead of editing source code."""
+    from datetime import date
+    import re
+    from app.models.academic_calendar import AcademicCalendar
+    from app.services.academic_terms import configure_term, configured_terms, term_key
+
+    if request.method == 'POST':
+        academic_year = request.form.get('academic_year', '').strip().upper()
+        tri_raw = request.form.get('trimester', '').strip()
+        start_raw = request.form.get('start_date', '').strip()
+        break_raw = request.form.get('term_break_weeks', '7').strip()
+        trimester_num = int(tri_raw) if tri_raw in {'1', '2', '3'} else None
+        errors = []
+        if not re.fullmatch(r'AY\d{4}', academic_year):
+            errors.append('Academic year must use the format AY2526.')
+        if trimester_num is None:
+            errors.append('Trimester must be 1, 2, or 3.')
+        try:
+            start_date = date.fromisoformat(start_raw)
+        except ValueError:
+            start_date = None
+            errors.append('Choose a valid Week 1 start date.')
+        break_weeks = {
+            int(value) for value in break_raw.split(',')
+            if value.strip().isdigit() and 1 <= int(value) <= 13
+        }
+        if break_raw and not break_weeks:
+            errors.append('Break weeks must be comma-separated numbers from 1 to 13.')
+        if errors:
+            for error in errors:
+                flash(error, 'danger')
+        else:
+            key = term_key(academic_year, trimester_num)
+            had_entries = TimetableEntry.query.filter_by(trimester=key).first() is not None
+            configure_term(
+                academic_year, trimester_num, start_date, break_weeks or {7}
+            )
+            if had_entries:
+                TimetableEntry.query.filter_by(trimester=key).update(
+                    {'is_published': False}, synchronize_session=False
+                )
+                db.session.commit()
+                flash(
+                    f'{key} calendar updated. Its timetable was moved to draft for re-checking.',
+                    'warning',
+                )
+            else:
+                flash(f'{key} calendar configured.', 'success')
+        return redirect(url_for('admin.academic_terms'))
+
+    terms = configured_terms()
+    term_rows = []
+    for first_week in terms:
+        weeks = AcademicCalendar.query.filter_by(
+            trimester=first_week.trimester
+        ).order_by(AcademicCalendar.week_number).all()
+        term_rows.append({
+            'key': first_week.trimester,
+            'start_date': first_week.start_date,
+            'break_weeks': ', '.join(
+                str(week.week_number) for week in weeks if week.is_term_break
+            ) or 'None',
+            'holiday_weeks': ', '.join(
+                str(week.week_number) for week in weeks if week.is_public_holiday
+            ) or 'None',
+        })
+    return render_template('admin/academic_terms.html', term_rows=term_rows)
+
+
 @admin_bp.route('/system-info')
 @login_required
 def system_info():
@@ -3295,8 +3839,13 @@ def system_info():
     all_prog_codes = {p.code for p in Programme.query.all()}
     unmapped_prog_codes = sorted(all_prog_codes - set(T2_PROG_SECTOR.keys()))
 
-    cal_years = ', '.join(sorted(SIT_ACADEMIC_CALENDAR.keys()))
-    cal_date_count = sum(len(v) for v in SIT_ACADEMIC_CALENDAR.values())
+    from app.models.academic_calendar import AcademicCalendar
+    configured_term_keys = [
+        row[0] for row in db.session.query(AcademicCalendar.trimester)
+        .filter_by(week_number=1).order_by(AcademicCalendar.trimester).all()
+    ]
+    cal_years = ', '.join(configured_term_keys) or 'none configured'
+    cal_date_count = len(configured_term_keys)
 
     # Live check: modules with 2+ quiz sessions sharing a teaching week (max 1
     # quiz/week per Ms. Yang's requirements doc - confirmed with Brian on
@@ -3641,9 +4190,10 @@ def system_info():
                      'missing its group link.'},
         ]},
         {'category': 'Academic Calendar & Timeslots', 'icon': 'bi-calendar3', 'color': 'purple', 'kind': 'value', 'rows': [
-            {'label': 'SIT academic calendar (when each term starts)', 'value': f'{cal_date_count} dates ({cal_years})',
-             'note': 'Typed in by hand from SIT\'s public academic calendar page, not from any uploaded file. '
-                     'Should be double-checked at the start of every new academic year.'},
+            {'label': 'Academic term calendars', 'value': f'{cal_date_count} configured ({cal_years})',
+             'note': 'Stored in the database and editable under Admin Tools > Academic Terms. Singapore public '
+                     'holidays are calculated automatically; Week 1 and SIT-specific breaks must be checked '
+                     'against the official calendar for each new academic year.'},
             {'label': 'Standard daily time slots', 'value': '35 slots (5 days x 7 periods)',
              'note': 'Set up by the project team from SIT\'s standard period-block reference sheet - fixed '
                      'unless SIT changes its daily class-period structure.'},
@@ -4217,14 +4767,6 @@ def import_template1():
 # Timetable - async solver (background task + polling)
 # ---------------------------------------------------------------------------
 
-def _purge_old_tasks():
-    """Remove task entries older than _TASK_TTL to keep the dict tidy."""
-    cutoff = _time.time() - _TASK_TTL
-    stale = [tid for tid, t in _solver_tasks.items() if t['started_at'] < cutoff]
-    for tid in stale:
-        _solver_tasks.pop(tid, None)
-
-
 def _audit_generated_hard_conflicts(entries):
     """Return hard room/professor/group clashes in generated entry rows."""
     from collections import defaultdict
@@ -4266,7 +4808,8 @@ def _audit_generated_hard_conflicts(entries):
             )
             if trimester_weeks else set()
         )
-    cancel_events = Event.query.filter(Event.outcome == 'cancel').all()
+    all_events = Event.query.all()
+    from app.services.events import matching_event
     day_offset = {
         'Monday': 0, 'Tuesday': 1, 'Wednesday': 2,
         'Thursday': 3, 'Friday': 4,
@@ -4308,21 +4851,19 @@ def _audit_generated_hard_conflicts(entries):
                 conflicts.append(
                     f'{module_code} is scheduled on public holiday {session_date.isoformat()}.'
                 )
-            for event in cancel_events:
-                if event.event_date != session_date:
-                    continue
-                if event.trimester is not None and event.trimester != session.trimester:
-                    continue
-                if (event.academic_year is not None
-                        and event.academic_year != entry.academic_year):
-                    continue
-                blocked_slots = set(event.blocked_timeslot_ids)
-                if event.is_full_day or entry.timeslot_id in blocked_slots:
-                    conflicts.append(
-                        f'{module_code} is scheduled during cancelled event '
-                        f'{event.name} on {session_date.isoformat()}.'
-                    )
-                    break
+            event = matching_event(
+                all_events,
+                session=session,
+                occurrence_date=session_date,
+                timeslot_id=entry.timeslot_id,
+                academic_year=entry.academic_year,
+                trimester=session.trimester,
+            )
+            if event:
+                conflicts.append(
+                    f'{module_code} is scheduled during {event.outcome} event '
+                    f'{event.name} on {session_date.isoformat()}.'
+                )
 
         session_week_key = (entry.class_session_id, entry.week_number)
         if session_week_key in session_week_keys:
@@ -4729,16 +5270,57 @@ def _solve_programme_batches(trimester, start_date, term_break_weeks,
         raise
 
 
-def _run_solver_task(app, task_id, action, form_data):
-    """Background thread: runs solver and writes result into _solver_tasks."""
+class SolverCancelled(Exception):
+    pass
+
+
+def _claim_next_solver_job():
+    """Atomically claim one queued persistent job for a worker process."""
+    from app.models.solver_job import SolverJob, utcnow
+    candidate = SolverJob.query.filter_by(status='queued').order_by(SolverJob.created_at).first()
+    if candidate is None:
+        return None
+    claimed = SolverJob.query.filter_by(id=candidate.id, status='queued').update({
+        'status': 'running', 'started_at': utcnow(), 'heartbeat_at': utcnow(),
+        'progress_message': 'Starting...',
+    }, synchronize_session=False)
+    db.session.commit()
+    return candidate.id if claimed else None
+
+
+def _run_solver_task(app, task_id, action=None, form_data=None):
+    """Run a DB-backed job from the development thread or worker command."""
+    import json
     from datetime import date as _date
-    from app.engine.checker import get_blocking_issues
+    from app.models.solver_job import SolverJob, utcnow
+    from app.services.audit import record_audit
+    from app.services.schedule_versions import create_schedule_version
 
     def _update(status, message, **kw):
-        _solver_tasks[task_id].update({'status': status, 'message': message, **kw})
+        job_row = db.session.get(SolverJob, task_id)
+        if job_row is None or job_row.cancel_requested:
+            raise SolverCancelled('Generation cancelled by an administrator.')
+        job_row.status = status
+        job_row.progress_message = message
+        job_row.heartbeat_at = utcnow()
+        if 'success' in kw:
+            job_row.success = kw['success']
+        if 'stats' in kw:
+            job_row.stats_json = json.dumps(kw['stats'] or {}, default=str)
+        db.session.commit()
 
     with app.app_context():
         try:
+            job = db.session.get(SolverJob, task_id)
+            if job is None:
+                return
+            form_data = form_data or json.loads(job.payload_json or '{}')
+            action = action or job.action
+            if job.status == 'queued':
+                job.status = 'running'
+                job.started_at = utcnow()
+            job.heartbeat_at = utcnow()
+            db.session.commit()
             academic_year = form_data.get('academic_year', '').strip().upper()
             break_raw = form_data.get('term_break_weeks', '7').strip()
             term_break_weeks = {int(p) for p in break_raw.split(',') if p.strip().isdigit()} or {7}
@@ -4750,7 +5332,7 @@ def _run_solver_task(app, task_id, action, form_data):
                 trimester = f'{academic_year}-T{trimester_num}' if trimester_num else ''
                 start_raw = form_data.get('start_date', '').strip()
                 if not start_raw and academic_year and trimester_num:
-                    start_raw = SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(trimester_num, '')
+                    start_raw = known_start_date(academic_year, trimester_num)
 
                 _update('running', f'Solving {trimester}…', trimester=trimester)
 
@@ -4786,25 +5368,56 @@ def _run_solver_task(app, task_id, action, form_data):
                 if success:
                     _auto_create_flags(trimester, stats.get('preferred_violations', []))
                     _save_solve_run(trimester, stats)
+                    create_schedule_version(
+                        trimester, stats=stats, user_id=job.requested_by,
+                        source='generation',
+                    )
                 _update('done', message, success=success, stats=stats,
                         trimester=trimester, academic_year=academic_year)
+                job = db.session.get(SolverJob, task_id)
+                job.finished_at = utcnow()
+                job.active_key = None
+                record_audit(
+                    'solver.completed', 'solver_job', task_id, message,
+                    {'trimester': trimester, 'success': success},
+                    user_id=job.requested_by,
+                )
+                db.session.commit()
 
+        except SolverCancelled as exc:
+            db.session.rollback()
+            job = db.session.get(SolverJob, task_id)
+            if job:
+                job.status = 'cancelled'
+                job.success = False
+                job.progress_message = str(exc)
+                job.finished_at = utcnow()
+                job.active_key = None
+                db.session.commit()
         except Exception as exc:
-            _solver_tasks[task_id].update({
-                'status': 'error',
-                'success': False,
-                'message': f'Solver error: {exc}',
-            })
+            db.session.rollback()
+            app.logger.exception('Solver job %s failed', task_id)
+            job = db.session.get(SolverJob, task_id)
+            if job:
+                job.status = 'error'
+                job.success = False
+                job.progress_message = 'Generation failed. Check the server log for details.'
+                job.error_message = type(exc).__name__
+                job.finished_at = utcnow()
+                job.heartbeat_at = utcnow()
+                job.active_key = None
+                db.session.commit()
 
 
 @admin_bp.route('/timetable/solve-async', methods=['POST'])
 @login_required
 def timetable_solve_async():
-    """Start a background solver run and return a task_id for polling."""
+    """Persist a solver job and optionally start a local development worker."""
+    import json
     from app.engine.checker import get_blocking_issues
     from flask import current_app
-
-    _purge_old_tasks()
+    from sqlalchemy.exc import IntegrityError
+    from app.models.solver_job import SolverJob
 
     action = request.form.get('action', '')
     if action != 'generate':
@@ -4823,7 +5436,7 @@ def timetable_solve_async():
     # One malformed programme must not prevent unrelated valid programmes from
     # generating; failed batches are reported as safely excluded.
     start_raw = request.form.get('start_date', '').strip() or \
-                SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(trimester_num, '')
+                known_start_date(academic_year, trimester_num)
     if not start_raw:
         return jsonify({'error': 'Start date is required.'}), 400
     trimester = f'{academic_year}-T{trimester_num}'
@@ -4843,26 +5456,23 @@ def timetable_solve_async():
             'trimester': trimester,
         }), 409
 
-    # Check no task already running for this trimester
-    for t in _solver_tasks.values():
-        if t.get('status') == 'running' and t.get('academic_year') == academic_year:
-            return jsonify({'error': f'A solver run for {academic_year} is already in progress.'}), 409
-
     task_id = str(uuid.uuid4())
-    _solver_tasks[task_id] = {
-        'status': 'running',
-        'message': 'Starting…',
-        'started_at': _time.time(),
-        'success': None,
-        'stats': {},
-        'trimester': trimester,
-        'academic_year': academic_year,
-    }
-
     form_data = request.form.to_dict()  # flat snapshot before the request context closes
-    app = current_app._get_current_object()
-    t = threading.Thread(target=_run_solver_task, args=(app, task_id, action, form_data), daemon=True)
-    t.start()
+    db.session.add(SolverJob(
+        id=task_id, academic_year=academic_year, trimester=trimester,
+        action=action, status='queued', progress_message='Queued...',
+        payload_json=json.dumps(form_data), requested_by=current_user.id,
+        active_key=academic_year,
+    ))
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({'error': f'A solver run for {academic_year} is already in progress.'}), 409
+
+    if current_app.config.get('SOLVER_RUN_IN_WEB_PROCESS', True):
+        app = current_app._get_current_object()
+        threading.Thread(target=_run_solver_task, args=(app, task_id), daemon=True).start()
 
     return jsonify({'task_id': task_id, 'trimester': trimester})
 
@@ -4870,20 +5480,51 @@ def timetable_solve_async():
 @admin_bp.route('/solver/status/<task_id>')
 @login_required
 def solver_status(task_id):
-    """Poll endpoint for async solver progress."""
-    task = _solver_tasks.get(task_id)
+    """Poll persistent solver progress from any web process."""
+    import json
+    from datetime import datetime, timezone
+    from app.models.solver_job import SolverJob
+    task = db.session.get(SolverJob, task_id)
     if not task:
         return jsonify({'status': 'unknown', 'message': 'Task not found.'}), 404
-    elapsed = int(_time.time() - task['started_at'])
+    started = task.started_at or task.created_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    elapsed = max(0, int((datetime.now(timezone.utc) - started).total_seconds()))
+    try:
+        stats = json.loads(task.stats_json or '{}')
+    except ValueError:
+        stats = {}
     return jsonify({
-        'status':        task['status'],
-        'message':       task['message'],
+        'status':        task.status,
+        'message':       task.progress_message,
         'elapsed':       elapsed,
-        'success':       task.get('success'),
-        'stats':         task.get('stats', {}),
-        'trimester':     task.get('trimester', ''),
-        'academic_year': task.get('academic_year', ''),
+        'success':       task.success,
+        'stats':         stats,
+        'trimester':     task.trimester,
+        'academic_year': task.academic_year,
+        'cancel_requested': task.cancel_requested,
     })
+
+
+@admin_bp.route('/solver/cancel/<task_id>', methods=['POST'])
+@login_required
+def solver_cancel(task_id):
+    from app.models.solver_job import SolverJob, utcnow
+    task = db.session.get(SolverJob, task_id)
+    if task is None:
+        return jsonify({'error': 'Task not found.'}), 404
+    if task.status not in {'queued', 'running'}:
+        return jsonify({'error': 'Task is no longer active.'}), 409
+    task.cancel_requested = True
+    task.progress_message = 'Cancellation requested...'
+    if task.status == 'queued':
+        task.status = 'cancelled'
+        task.success = False
+        task.finished_at = utcnow()
+        task.active_key = None
+    db.session.commit()
+    return jsonify({'status': task.status, 'cancel_requested': True})
 
 
 def _compute_soft_violations(entries, trimester):
@@ -5054,7 +5695,7 @@ def timetable():
 
             # Auto-populate start date from official SIT calendar if not provided
             if not start_raw and academic_year and trimester_num:
-                start_raw = SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(trimester_num, '')
+                start_raw = known_start_date(academic_year, trimester_num)
 
             if not academic_year:
                 flash('Academic year is required (e.g. AY2526).', 'danger')
@@ -5144,6 +5785,12 @@ def timetable():
                         trimester=trimester, is_backbone=False
                     ).update({'is_published': True}, synchronize_session=False)
                     db.session.commit()
+                    from app.services.schedule_versions import create_schedule_version
+                    create_schedule_version(
+                        trimester, stats=_load_solve_run(trimester),
+                        user_id=current_user.id, source='publication',
+                        status='published', label=f'{trimester} Published',
+                    )
                     flash(
                         f'Timetable for {trimester} passed the hard-constraint audit and was published.',
                         'success',
@@ -5424,7 +6071,7 @@ def timetable():
             gen_ay = _gen_ay_part
             gen_tri_num = int(_gen_tri_part)
             gen_trimester = trimester
-            gen_start_date = SIT_ACADEMIC_CALENDAR.get(gen_ay, {}).get(gen_tri_num, '')
+            gen_start_date = known_start_date(gen_ay, gen_tri_num)
             # Whether a generated (non-backbone) timetable already exists for
             # this trimester - drives the Generate vs Re-generate button label.
             # Becomes False again once the admin clears/deletes the entries.
@@ -6558,13 +7205,16 @@ def timetable_export_template2():
 # Timetable summary - plain-English overview via LLM
 # ---------------------------------------------------------------------------
 
-@admin_bp.route('/timetable/summary')
+@admin_bp.route('/timetable/summary', methods=['POST'])
 @login_required
 def timetable_summary():
     from flask import jsonify
     import anthropic as _anthropic
 
-    trimester = request.args.get('trimester', '')
+    if not current_app.config.get('EXTERNAL_SUMMARY_ENABLED', False):
+        return jsonify({'error': 'External summaries are disabled.'}), 503
+
+    trimester = request.form.get('trimester', '')
     if not trimester:
         return jsonify({'error': 'No trimester specified'}), 400
 
@@ -6582,11 +7232,10 @@ def timetable_summary():
         st = e.class_session.session_type
         session_types[st] = session_types.get(st, 0) + 1
     type_summary = ', '.join(f'{v} {k}s' for k, v in sorted(session_types.items()))
-    profs_set = set()
+    professor_ids = set()
     for e in entries:
         for p in e.class_session.all_professors:
-            if p.user:
-                profs_set.add(p.user.name)
+            professor_ids.add(p.id)
 
     stats_text = (
         f"Trimester: {trimester}\n"
@@ -6595,7 +7244,7 @@ def timetable_summary():
         f"Session type breakdown: {type_summary}\n"
         f"Weeks covered: {total_weeks}\n"
         f"Rooms utilised: {len(rooms_used)} ({', '.join(rooms_used[:10])}{'...' if len(rooms_used) > 10 else ''})\n"
-        f"Professors teaching: {len(profs_set)}\n"
+        f"Professors teaching: {len(professor_ids)}\n"
     )
 
     api_key = current_app.config.get('ANTHROPIC_API_KEY', '')
@@ -6677,15 +7326,15 @@ def _event_affects_entry(event, entry):
     day_offset = _day_offset.get(entry.timeslot.day_of_week, 0)
     entry_date = cal_week.start_date + timedelta(days=day_offset)
 
-    if entry_date != event.event_date:
-        return False
-
-    if event.is_full_day:
-        return True
-
-    # Check specific timeslots
-    blocked = event.blocked_timeslot_ids
-    return entry.timeslot_id in blocked
+    from app.services.events import event_affects_occurrence
+    return event_affects_occurrence(
+        event,
+        entry.class_session,
+        entry_date,
+        entry.timeslot_id,
+        entry.academic_year,
+        entry.class_session.trimester,
+    )
 
 
 @admin_bp.route('/events/add', methods=['GET', 'POST'])
@@ -6693,6 +7342,7 @@ def _event_affects_entry(event, entry):
 def event_add():
     from app.models.event import Event
     programmes = Programme.query.order_by(Programme.code).all()
+    courses = Course.query.order_by(Course.module_code, Course.title).all()
     timeslots  = TimeSlot.query.order_by(TimeSlot.day_of_week, TimeSlot.start_time).all()
 
     if request.method == 'POST':
@@ -6703,6 +7353,7 @@ def event_add():
         timeslot_ids = ','.join(request.form.getlist('timeslot_ids'))
         scope        = request.form.get('scope', 'school_wide')
         programme_id = request.form.get('programme_id', '').strip() or None
+        course_id     = request.form.get('course_id', '').strip() or None
         outcome      = request.form.get('outcome', 'cancel')
         trimester    = request.form.get('trimester', '').strip() or None
         academic_year= request.form.get('academic_year', '').strip() or None
@@ -6738,6 +7389,18 @@ def event_add():
                 if programme is None:
                     errors.append('That programme no longer exists - please pick another.')
 
+        course = None
+        if scope == 'course' and not course_id:
+            errors.append('Please select a module, since this event is module-specific.')
+        if course_id:
+            try:
+                course = Course.query.get(int(course_id))
+            except ValueError:
+                errors.append('Module was not a valid selection - please choose from the dropdown.')
+            else:
+                if course is None:
+                    errors.append('That module no longer exists - please pick another.')
+
         trimester_num = None
         if trimester:
             try:
@@ -6755,7 +7418,8 @@ def event_add():
             for e in errors:
                 flash(e, 'danger')
             return render_template('admin/event_add.html',
-                                   programmes=programmes, timeslots=timeslots, form=request.form)
+                                   programmes=programmes, courses=courses,
+                                   timeslots=timeslots, form=request.form)
 
         ev = Event(
             name         = name,
@@ -6765,6 +7429,7 @@ def event_add():
             timeslot_ids = timeslot_ids if not is_full_day else None,
             scope        = scope,
             programme_id = programme.id if programme else None,
+            course_id     = course.id if course else None,
             outcome      = outcome,
             trimester    = trimester_num,
             academic_year= academic_year or None,
@@ -6776,7 +7441,8 @@ def event_add():
         return redirect(url_for('admin.events'))
 
     return render_template('admin/event_add.html',
-                           programmes=programmes, timeslots=timeslots, form={})
+                           programmes=programmes, courses=courses,
+                           timeslots=timeslots, form={})
 
 
 @admin_bp.route('/events/<int:event_id>/delete', methods=['POST'])

@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, abort
+from flask import Blueprint, Response, render_template, request, abort
 from flask_login import login_required, current_user
 
 from app import db
@@ -6,10 +6,11 @@ from app.models.class_session import ClassSession
 from app.models.timetable_entry import TimetableEntry
 from app.models.timeslot import TimeSlot
 from app.models.student_group import StudentGroup
+from app.models.student_enrollment import StudentEnrollment
 from app.utils.timetable import (
+    apply_explicit_student_sections,
     overlapping_entry_ids,
     select_preferred_layer,
-    select_student_sections,
 )
 
 student_bp = Blueprint('student', __name__, url_prefix='/student')
@@ -49,6 +50,50 @@ def _student_visible_group_ids(student_group):
     return group_ids
 
 
+def _term_parts(trimester_key):
+    if '-T' not in (trimester_key or ''):
+        return None, None
+    academic_year, tri = trimester_key.rsplit('-T', 1)
+    return academic_year, int(tri) if tri in {'1', '2', '3'} else None
+
+
+def _student_course_ids(user_id, trimester_key):
+    academic_year, trimester = _term_parts(trimester_key)
+    if not academic_year or not trimester:
+        return set()
+    return {
+        row[0] for row in db.session.query(StudentEnrollment.course_id).filter_by(
+            user_id=user_id, academic_year=academic_year,
+            trimester=trimester, status='enrolled',
+        ).all()
+    }
+
+
+def _student_published_trimesters(student):
+    group_ids = _student_visible_group_ids(student.student_group)
+    candidates = [
+        row[0] for row in db.session.query(TimetableEntry.trimester)
+        .filter(TimetableEntry.is_published.is_(True))
+        .distinct().order_by(TimetableEntry.trimester).all()
+    ]
+    visible = []
+    for key in candidates:
+        course_ids = _student_course_ids(student.id, key)
+        query = TimetableEntry.query.join(TimetableEntry.class_session).filter(
+            TimetableEntry.trimester == key,
+            TimetableEntry.is_published.is_(True),
+        )
+        if course_ids:
+            query = query.filter(ClassSession.course_id.in_(course_ids))
+        elif group_ids:
+            query = query.filter(ClassSession.student_group_id.in_(group_ids))
+        else:
+            continue
+        if query.first():
+            visible.append(key)
+    return visible
+
+
 @student_bp.before_request
 @login_required
 def require_student():
@@ -64,17 +109,7 @@ def require_student():
 @student_bp.route('/dashboard')
 @login_required
 def dashboard():
-    group_ids = _student_visible_group_ids(current_user.student_group)
-    query = (db.session.query(TimetableEntry.trimester)
-             .join(TimetableEntry.class_session)
-             .filter(TimetableEntry.is_published.is_(True)))
-    if group_ids:
-        query = query.filter(ClassSession.student_group_id.in_(group_ids))
-    else:
-        query = query.filter(ClassSession.id == -1)
-    published_trimesters = [
-        row[0] for row in query.distinct().order_by(TimetableEntry.trimester).all()
-    ]
+    published_trimesters = _student_published_trimesters(current_user)
     latest_trimester = published_trimesters[-1] if published_trimesters else None
 
     return render_template(
@@ -93,43 +128,39 @@ def dashboard():
 def timetable():
     selected_group = current_user.student_group
     group_ids = _student_visible_group_ids(selected_group)
-    trimester_query = (db.session.query(TimetableEntry.trimester)
-                       .join(TimetableEntry.class_session)
-                       .filter(TimetableEntry.is_published.is_(True)))
-    if group_ids:
-        trimester_query = trimester_query.filter(
-            ClassSession.student_group_id.in_(group_ids)
-        )
-    else:
-        trimester_query = trimester_query.filter(ClassSession.id == -1)
-    trimesters = [
-        row[0] for row in trimester_query.distinct().order_by(TimetableEntry.trimester).all()
-    ]
+    trimesters = _student_published_trimesters(current_user)
 
     active_trimester = request.args.get('trimester', trimesters[-1] if trimesters else '')
+    academic_year, trimester_num = _term_parts(active_trimester)
+    course_ids = _student_course_ids(current_user.id, active_trimester)
 
     # Auto-load the student's assigned group - no manual selection needed.
     # student_group_id is set by the admin on the student's account.
     entries = []
     conflicting_entry_ids = set()
 
-    if selected_group and active_trimester:
+    if active_trimester and (selected_group or course_ids):
         # Show sessions for the student's sub-group AND the parent group
         # (parent group covers shared sessions not split by sub-group).
-        all_entries = (
+        all_entries_query = (
             TimetableEntry.query
             .join(TimetableEntry.class_session)
             .join(TimetableEntry.timeslot)
             .filter(
                 TimetableEntry.trimester == active_trimester,
                 TimetableEntry.is_published == True,
-                ClassSession.student_group_id.in_(group_ids),
             )
-            .all()
         )
+        if course_ids:
+            all_entries_query = all_entries_query.filter(ClassSession.course_id.in_(course_ids))
+        else:
+            all_entries_query = all_entries_query.filter(ClassSession.student_group_id.in_(group_ids))
+        all_entries = all_entries_query.all()
 
         all_entries = select_preferred_layer(all_entries)
-        all_entries = select_student_sections(all_entries, current_user.id)
+        all_entries = apply_explicit_student_sections(
+            all_entries, current_user.id, academic_year, trimester_num
+        )
 
         # Deduplicate: one row per class_session (recurring weekly slot)
         seen = set()
@@ -180,21 +211,25 @@ def timetable():
                         .order_by(TimeSlot.start_time, TimeSlot.end_time, TimeSlot.period_label)
                         .all())
 
-        if selected_group:
-            week_entries_raw = (TimetableEntry.query
+        if selected_group or course_ids:
+            week_query = (TimetableEntry.query
                                 .join(TimetableEntry.class_session)
                                 .join(TimetableEntry.timeslot)
                                 .filter(
                                     TimetableEntry.trimester == active_trimester,
                                     TimetableEntry.week_number == week_number,
                                     TimetableEntry.is_published == True,
-                                    ClassSession.student_group_id.in_(group_ids),
                                 )
-                                .all())
+                                )
+            if course_ids:
+                week_query = week_query.filter(ClassSession.course_id.in_(course_ids))
+            else:
+                week_query = week_query.filter(ClassSession.student_group_id.in_(group_ids))
+            week_entries_raw = week_query.all()
 
             week_entries_raw = select_preferred_layer(week_entries_raw)
-            week_entries_raw = select_student_sections(
-                week_entries_raw, current_user.id
+            week_entries_raw = apply_explicit_student_sections(
+                week_entries_raw, current_user.id, academic_year, trimester_num
             )
             conflicting_entry_ids = overlapping_entry_ids(week_entries_raw)
             week_grid = {day: {ts.period_label: [] for ts in period_slots} for day in DAYS_ALL}
@@ -227,3 +262,38 @@ def timetable():
         conflicting_entry_ids=conflicting_entry_ids,
         days_all=DAYS_ALL,
     )
+
+
+@student_bp.route('/timetable.ics')
+@login_required
+def timetable_ical():
+    from app.models.academic_calendar import AcademicCalendar
+    from app.utils.ical import build_ical
+
+    trimester_key = request.args.get('trimester', '').strip()
+    if trimester_key not in _student_published_trimesters(current_user):
+        abort(404)
+    academic_year, trimester_num = _term_parts(trimester_key)
+    course_ids = _student_course_ids(current_user.id, trimester_key)
+    group_ids = _student_visible_group_ids(current_user.student_group)
+    query = TimetableEntry.query.join(TimetableEntry.class_session).filter(
+        TimetableEntry.trimester == trimester_key,
+        TimetableEntry.is_published.is_(True),
+    )
+    if course_ids:
+        query = query.filter(ClassSession.course_id.in_(course_ids))
+    elif group_ids:
+        query = query.filter(ClassSession.student_group_id.in_(group_ids))
+    else:
+        abort(404)
+    entries = apply_explicit_student_sections(
+        select_preferred_layer(query.all()), current_user.id,
+        academic_year, trimester_num,
+    )
+    calendar_weeks = AcademicCalendar.query.filter_by(trimester=trimester_key).all()
+    response = Response(
+        build_ical(entries, calendar_weeks, f'My timetable - {trimester_key}'),
+        mimetype='text/calendar; charset=utf-8',
+    )
+    response.headers['Content-Disposition'] = f'attachment; filename="timetable-{trimester_key}.ics"'
+    return response

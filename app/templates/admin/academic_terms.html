@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}Academic Terms - SIT Timetable{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="card glass-card"><div class="card-body p-4">
+      <h4 class="mb-3"><i class="bi bi-calendar3 me-2"></i>Configure Academic Term</h4>
+      <p class="text-muted small">The database is authoritative. Updating a term that already has timetable entries moves that timetable to draft for a fresh hard-constraint review.</p>
+      <form method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3"><label class="form-label">Academic Year</label><input name="academic_year" class="form-control" placeholder="AY2728" pattern="AY[0-9]{4}" required></div>
+        <div class="mb-3"><label class="form-label">Trimester</label><select name="trimester" class="form-select" required><option value="1">Trimester 1</option><option value="2">Trimester 2</option><option value="3">Trimester 3</option></select></div>
+        <div class="mb-3"><label class="form-label">Week 1 Monday</label><input type="date" name="start_date" class="form-control" required></div>
+        <div class="mb-3"><label class="form-label">Term-break week(s)</label><input name="term_break_weeks" class="form-control" value="7"><div class="form-text">Comma-separated calendar week numbers, for example 7.</div></div>
+        <button class="btn btn-danger"><i class="bi bi-check-lg me-1"></i>Save Term</button>
+      </form>
+    </div></div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card glass-card"><div class="card-body p-4">
+      <h4 class="mb-3">Configured Terms</h4>
+      {% if term_rows %}<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Term</th><th>Week 1</th><th>Break weeks</th><th>Holiday weeks</th></tr></thead><tbody>{% for term in term_rows %}<tr><td><strong>{{ term.key }}</strong></td><td>{{ term.start_date.strftime('%d %b %Y') }}</td><td>{{ term.break_weeks }}</td><td>{{ term.holiday_weeks }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="text-muted">No term calendars have been configured yet.</p>{% endif %}
+    </div></div>
+  </div>
+</div>
+{% endblock %}

@@ -82,6 +82,14 @@ class Config:
     HSTS_ENABLED = _env_bool('HSTS_ENABLED', _APP_ENV == 'production')
     LOGIN_RATE_LIMIT_ATTEMPTS = int(os.environ.get('LOGIN_RATE_LIMIT_ATTEMPTS', '5'))
     LOGIN_RATE_LIMIT_WINDOW = int(os.environ.get('LOGIN_RATE_LIMIT_WINDOW', '900'))
+    # Local development starts a lightweight worker thread after a job is
+    # queued. Production should set this false and run `flask solver-worker`.
+    SOLVER_RUN_IN_WEB_PROCESS = _env_bool(
+        'SOLVER_RUN_IN_WEB_PROCESS', _APP_ENV != 'production'
+    )
+    TRUSTED_SSO_ENABLED = _env_bool('TRUSTED_SSO_ENABLED', False)
+    SSO_SHARED_SECRET = os.environ.get('SSO_SHARED_SECRET', '')
+    EXTERNAL_SUMMARY_ENABLED = _env_bool('EXTERNAL_SUMMARY_ENABLED', False)
 
     # Flask-Mail — Gmail SMTP (demo)
     # Note: SIT Microsoft 365 SMTP AUTH is disabled by institutional policy.

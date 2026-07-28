@@ -1,17 +1,10 @@
 # SIT Timetable System
 
-A Flask application for generating and viewing SIT academic timetables. It
-uses Google OR-Tools to enforce hard constraints such as room capacity,
-professor availability, student-group clashes, fixed sessions, term breaks,
-and public holidays.
-
-The repository includes a working SQLite database with programmes, courses,
-rooms, users, and published AY2526 T1-T3 timetables. No database server is
-needed for the normal demo.
+A Flask timetable application for administrators, professors, and students. It generates complete programme timetables with Google OR-Tools CP-SAT, checks hard constraints before and after generation, and keeps published schedules separate from drafts.
 
 ## Quick start
 
-Requirements: Git and Python 3.12 or newer.
+Install Git and Python 3.12 or newer, then run:
 
 ```bash
 git clone https://github.com/Brian-Goh-JW/timetable-system.git
@@ -19,7 +12,7 @@ cd timetable-system
 python -m venv venv
 ```
 
-Activate the virtual environment:
+Activate the environment:
 
 ```powershell
 # Windows PowerShell
@@ -31,149 +24,143 @@ venv\Scripts\Activate.ps1
 source venv/bin/activate
 ```
 
-Install and run:
+Install, create the database, load synthetic demo data, and start:
 
 ```bash
 python -m pip install -r requirements.txt
+flask --app wsgi.py db upgrade
+python bootstrap/seed_demo.py
 python run.py
 ```
 
-Open <http://127.0.0.1:5000/login>. Keep the terminal open while using the
-application.
+Open <http://127.0.0.1:5000/login>.
 
-## Log in and try it
+## Demo accounts
 
-### Student demo
+The synthetic seed creates no real people or institutional records.
 
-- Email: `student@sit.edu.sg`
-- Password: `Test1234`
+| Role | Email | Password |
+|---|---|---|
+| Administrator | `admin@example.com` | `Test1234` |
+| Professor | `professor@example.com` | `Test1234` |
+| Student | `student@example.com` | `Test1234` |
 
-This account is assigned to `DSC-Y1`. Try its T1, T2, and T3 list and weekly
-timetable views.
+These credentials are only for a local demo. The seed refuses to run when `APP_ENV=production` and refuses to overwrite a non-empty database. Passwords can be changed before seeding with `DEMO_ADMIN_PASSWORD`, `DEMO_PROFESSOR_PASSWORD`, and `DEMO_STUDENT_PASSWORD`.
 
-`Test1234` is deliberately a local demo password. Do not deploy the bundled
-database on a public server with this password. To replace it locally:
+## What to try
 
-```powershell
-$env:SEED_STUDENT_PASSWORD = 'choose-a-new-local-password'
-python bootstrap/4_seed_student.py
+- Generate or re-generate AY2526-T1 and review the hard-constraint guard.
+- Compare draft schedule versions, restore a version, then publish it.
+- Change a class manually and use ranked repair suggestions.
+- Preview an Excel import before applying it. Modules, professors, students, student enrolments/sections, groups, and rooms support bulk data workflows.
+- Set professor availability, room closures, qualifications, workload limits, equipment, and accessibility requirements.
+- Sign in as the demo student or professor and download the timetable as an `.ics` calendar file.
+- Review the audit trail, scheduling report, and system-information pages.
+
+Generation is atomic by complete programme batch. A batch is saved only when all its in-scope synchronous modules have sessions and the resulting entries pass the final hard-constraint audit. If one programme has invalid data, valid independent programmes may still be generated; excluded programmes and reasons are reported.
+
+## Hard and soft constraints
+
+Hard constraints can never be traded away. They include professor, student-group, and room clashes; room type/capacity/equipment/accessibility; fixed placements; teaching weeks; holidays and scoped events; term breaks; availability; staff qualifications; and configured workload limits.
+
+Soft constraints guide the best valid result, such as preferred slots, continuity with a historical timetable, compact teaching patterns, and reduced room changes. The scheduling report shows penalties separately from hard-constraint compliance.
+
+## How AI was applied
+
+The project keeps timetable optimisation and generative AI separate:
+
+1. **Timetable generation uses mathematical constraint optimisation.** Google OR-Tools CP-SAT searches for a schedule satisfying every hard constraint and minimising weighted soft penalties. It is not a language model, does not call an external service, and does not train on timetable data.
+2. **Generative AI is optional and descriptive only.** If an administrator explicitly enables `EXTERNAL_SUMMARY_ENABLED=true`, supplies `ANTHROPIC_API_KEY`, and clicks **Generate Summary**, the system can turn aggregate timetable statistics into a short plain-language summary. It does not create, move, approve, or publish classes.
+3. **AI-assisted development was used as a review aid.** It helped trace constraint paths, identify edge cases, propose defensive checks, and expand automated tests and documentation. Final behaviour is defined by the source code, database constraints, test suite, and administrator decisions.
+
+The optional summary request contains the term key, module codes, aggregate session/type/week counts, up to ten room codes, and a professor count. It does **not** include names, email addresses, student records, passwords, password hashes, availability reasons, or login data. The feature is disabled by default, scheduling works without it, and failed summary requests do not affect a timetable.
+
+## Database and migrations
+
+SQLite is the default and needs no server password. Operational `.db` files and backups are intentionally ignored by Git; each installation owns its data.
+
+Apply schema changes after every pull:
+
+```bash
+flask --app wsgi.py db upgrade
 ```
 
-### Administrator
+Create a recoverable SQLite backup:
 
-Choose your own local admin password before signing in:
-
-```powershell
-$env:SEED_ADMIN_PASSWORD = 'choose-a-strong-local-password'
-python bootstrap/1_seed_admin.py
+```bash
+flask --app wsgi.py backup-database
 ```
 
-Then log in as `admin@sit.edu.sg` with the password you chose.
+Backups are stored under `database/backups/` and the command retains the 14 newest copies. For MySQL, use the database platform's managed backup and point-in-time recovery features.
 
-Useful things to try as an administrator:
+The numbered scripts under `bootstrap/` are historical data loaders and repairs. They are not part of a fresh setup. Use only `bootstrap/seed_demo.py` for the public synthetic demo unless you understand a historical script and provide its source data yourself.
 
-1. Open **Timetable** and browse the published AY2526 T1-T3 schedules.
-2. Select a trimester and run **Generate Timetable**. Generation can take a
-   few minutes.
-3. If the hard-constraint guard finds invalid input, review its popup. It
-   blocks the write, so the current published timetable stays safe.
-4. Switch between list and weekly views and inspect the scheduling report.
-5. Export the result as Template 2 or the weekly Excel view.
-6. Use **Import / Export** on Modules, Professors, Students, Groups, and Rooms
-   to try validated bulk Excel updates.
-7. Assign a temporary password to a professor, then sign in as that professor
-   to try the teaching timetable and availability pages.
+## Security and secrets
 
-Generation is atomic by complete programme. It never saves half a programme or
-half a course. Mathematically impossible input cannot be forced into a valid
-timetable; it is blocked or a complete infeasible programme is omitted and
-reported.
+No Gmail, database, API, or real user password is stored in the repository.
 
-## Data imports
+- SQLite is used when `MYSQL_HOST` and `DATABASE_URL` are blank.
+- Gmail is inactive when `MAIL_USERNAME` or `MAIL_PASSWORD` is blank. If enabled, use a dedicated App Password, never a normal Gmail password.
+- MySQL is inactive unless selected through environment variables. Use a least-privilege database account.
+- The external summary is inactive unless both its enable flag and API key are supplied.
+- `.env`, `*.env`, SQLite databases, and backups are ignored by Git.
+- Admin state changes are audited. CSRF protection, secure headers, HTTP-only cookies, upload limits, account deactivation, one-time password resets, and database-backed login throttling are enabled.
 
-The bundled database is ready to use. From the administrator account you can
-import teaching requirements from Template 1 and maintain courses, sessions,
-rooms, professors, and student groups.
+Copy variable names from `.env.example` into your operating system or deployment secret manager. Never commit a populated `.env` file.
 
-The numbered files under `bootstrap/` document historical migrations and data
-loads. They are not needed for the quick-start demo. Some old loaders require
-source spreadsheets that are not included; run them only when you understand
-their purpose and have supplied the requested path through environment
-variables.
-
-## Security and optional services
-
-The default local demo does not use Gmail or MySQL:
-
-- SQLite is read from `database/timetable.db`; it has no server password.
-- Email delivery is disabled when `MAIL_USERNAME` or `MAIL_PASSWORD` is blank.
-- MySQL is disabled unless `MYSQL_HOST` is set.
-- The AI summary is disabled unless `ANTHROPIC_API_KEY` is set.
-- `.env`, `.env.local`, `*.env`, and database backups are ignored by Git.
-
-Do not put real passwords in source files. For optional email, use a dedicated
-Gmail App Password, never the normal Gmail account password:
-
-```powershell
-$env:MAIL_USERNAME = 'demo-sender@example.com'
-$env:MAIL_PASSWORD = 'app-password-from-your-secret-store'
-$env:MAIL_DEFAULT_SENDER = 'demo-sender@example.com'
-$env:ADMIN_EMAIL = 'demo-admin@example.com'
-```
-
-MySQL is optional. If used, create a least-privilege application account and
-provide its values through the environment or a hosting secret manager:
-
-```powershell
-$env:MYSQL_HOST = '127.0.0.1'
-$env:MYSQL_PORT = '3306'
-$env:MYSQL_USER = 'timetable_app'
-$env:MYSQL_PASSWORD = 'password-from-your-secret-store'
-$env:MYSQL_DATABASE = 'timetable_db'
-```
-
-For an internet-facing deployment, use HTTPS and set:
+For an internet-facing deployment, at minimum set:
 
 ```powershell
 $env:APP_ENV = 'production'
-$env:FLASK_SECRET_KEY = 'a-long-random-value-from-your-secret-store'
+$env:FLASK_SECRET_KEY = 'a-long-random-secret-from-your-secret-manager'
 $env:SESSION_COOKIE_SECURE = 'true'
 $env:HSTS_ENABLED = 'true'
+$env:SOLVER_RUN_IN_WEB_PROCESS = 'false'
 ```
 
-Production startup fails when `FLASK_SECRET_KEY` is missing. Security headers,
-CSRF protection, HTTP-only cookies, upload limits, and login throttling are
-enabled by the application.
+Production startup fails if `FLASK_SECRET_KEY` is absent. Put the app behind HTTPS and a trusted reverse proxy. Trusted-proxy SSO is available only when `TRUSTED_SSO_ENABLED=true` and `SSO_SHARED_SECRET` is configured; it never creates accounts automatically.
 
-See `.env.example` for the complete list of optional variable names and safe
-defaults. It contains no credentials.
+## Production processes
 
-## Run the tests
+On Windows, start the web process with Waitress:
+
+```powershell
+waitress-serve --listen=127.0.0.1:8000 wsgi:app
+```
+
+Run one or more persistent solver workers separately:
+
+```powershell
+flask --app wsgi.py solver-worker
+```
+
+Generation jobs, progress, cancellation, results, and errors are stored in the database, so they remain visible across web workers and restarts. Use `GET /healthz` for database-aware health monitoring.
+
+## Tests
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-The tests use an isolated in-memory database and do not modify the bundled
-`database/timetable.db`.
+Tests use an isolated in-memory database and do not modify local operational data. GitHub Actions runs compilation, regression tests, and dependency consistency checks on every push and pull request.
 
-## Main technology
+## Main components
 
-- Flask, Flask-Login, Flask-WTF, and SQLAlchemy
+- Flask, Flask-Login, Flask-WTF, Flask-Mail, Flask-Migrate, and SQLAlchemy
 - SQLite by default; optional MySQL through PyMySQL
-- Google OR-Tools CP-SAT
-- pandas, openpyxl, and xlrd for Excel import/export
-- Bootstrap and Jinja templates
-
-## Project layout
+- Google OR-Tools CP-SAT for constraint optimisation
+- pandas, openpyxl, and xlrd for Excel workflows
+- Optional Anthropic client for aggregate plain-language summaries
+- Waitress production WSGI server
 
 ```text
-app/           application, solver, routes, templates, and models
-bootstrap/     setup, migration, and historical data-load scripts
-database/      bundled SQLite database
-tests/         automated regression tests
-config.py      environment-driven configuration; no committed secrets
-run.py         local application entry point
+app/          application, constraints, routes, services, models, and templates
+bootstrap/    synthetic seed plus historical migration/data scripts
+migrations/   Alembic schema migrations
+tests/        isolated regression and solver tests
+config.py     environment-driven settings
+run.py        local development entry point
+wsgi.py       production and Flask CLI entry point
 ```
 
 DSC2204 Integrative Team Project - Group 8, Singapore Institute of Technology.

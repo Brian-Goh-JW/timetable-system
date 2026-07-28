@@ -17,3 +17,10 @@ from app.models.event import Event
 from app.models.shared_module_group import SharedModuleGroup
 from app.models.solve_run import SolveRun
 from app.models.solver_setting import SolverSetting
+from app.models.solver_job import SolverJob
+from app.models.schedule_version import ScheduleVersion
+from app.models.system_audit import SystemAudit
+from app.models.login_throttle import LoginThrottle
+from app.models.password_reset_token import PasswordResetToken
+from app.models.student_enrollment import StudentEnrollment, StudentSectionAssignment
+from app.models.room_availability import RoomAvailability

@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 instance/
 /database/backups/
+/database/*.db
 .env
 .env.local
 *.env

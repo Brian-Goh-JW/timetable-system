@@ -364,7 +364,10 @@ function generateSummary(trimester) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Generating…';
     text.textContent = '';
-    fetch('/admin/timetable/summary?trimester=' + encodeURIComponent(trimester))
+    var body = new FormData();
+    body.append('trimester', trimester);
+    body.append('csrf_token', '{{ csrf_token() }}');
+    fetch('/admin/timetable/summary', {method: 'POST', body: body})
         .then(function(r) { return r.json(); })
         .then(function(d) {
             if (d.summary) {

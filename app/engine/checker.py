@@ -197,6 +197,21 @@ def get_blocking_issues(trimester_num=None, programme_ids=None):
             f'timetable and Template 2 export will show a blank staff field until one is assigned.'
         )
 
+    qualification_mismatches = []
+    for session in session_base().all():
+        if not session.required_qualification:
+            continue
+        required = session.required_qualification.strip().lower()
+        for professor in session.all_professors:
+            tags = professor.qualification_tags
+            if tags and required not in tags:
+                qualification_mismatches.append(
+                    f'{session.course.module_code} ({session.session_type}) requires '
+                    f'"{session.required_qualification}", but {professor.user.name} '
+                    'does not have that qualification tag.'
+                )
+    blockers.extend(qualification_mismatches)
+
     # 3. Synchronous sessions with no student group cannot be displayed to
     # students or checked for group conflicts, so generation must stop.
     no_group = session_base().filter(

@@ -86,6 +86,7 @@
                         <select name="scope" class="form-select" onchange="toggleScope(this)">
                             <option value="school_wide" {% if form.get('scope','school_wide') == 'school_wide' %}selected{% endif %}>School-wide (all programmes)</option>
                             <option value="programme" {% if form.get('scope') == 'programme' %}selected{% endif %}>Specific Programme</option>
+                            <option value="course" {% if form.get('scope') == 'course' %}selected{% endif %}>Specific Module</option>
                         </select>
                     </div>
 
@@ -96,6 +97,18 @@
                             {% for prog in programmes %}
                             <option value="{{ prog.id }}" {% if form.get('programme_id') == prog.id|string %}selected{% endif %}>
                                 {{ prog.code }} - {{ prog.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="course-picker" style="display:none;">
+                        <label class="form-label fw-medium">Module</label>
+                        <select name="course_id" class="form-select">
+                            <option value="">- Select -</option>
+                            {% for course in courses %}
+                            <option value="{{ course.id }}" {% if form.get('course_id') == course.id|string %}selected{% endif %}>
+                                {{ course.module_code }} - {{ course.title }} (T{{ course.trimester or '?' }})
                             </option>
                             {% endfor %}
                         </select>
@@ -141,6 +154,8 @@ function toggleTimeslots(cb) {
 function toggleScope(sel) {
     document.getElementById('programme-picker').style.display =
         sel.value === 'programme' ? 'block' : 'none';
+    document.getElementById('course-picker').style.display =
+        sel.value === 'course' ? 'block' : 'none';
 }
 // Init on load
 document.addEventListener('DOMContentLoaded', function() {

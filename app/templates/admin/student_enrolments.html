@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block title %}Student Enrolments - SIT Timetable{% endblock %}
+{% block content %}
+<a href="{{ url_for('admin.students') }}" class="small text-muted text-decoration-none">&larr; Students</a>
+<div class="d-flex justify-content-between align-items-end my-3"><div><h4 class="mb-1">{{ student.name }}</h4><div class="text-muted">{{ student.email }} · {{ student.student_group.group_label if student.student_group else 'No cohort' }}</div></div>
+<form method="GET" class="d-flex gap-2"><input class="form-control" name="academic_year" value="{{ academic_year }}" pattern="AY[0-9]{4}"><select class="form-select" name="trimester">{% for tri in (1,2,3) %}<option value="{{ tri }}" {% if tri == trimester %}selected{% endif %}>T{{ tri }}</option>{% endfor %}</select><button class="btn btn-outline-secondary">Load</button></form></div>
+<form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="academic_year" value="{{ academic_year }}"><input type="hidden" name="trimester" value="{{ trimester }}">
+<div class="alert alert-info small">When at least one module is selected, this student's timetable is driven by these individual enrolments instead of the cohort default. Choose a section where alternatives exist.</div>
+{% for course in courses %}<div class="card border-0 shadow-sm mb-2"><div class="card-body">
+  <div class="form-check"><input class="form-check-input" type="checkbox" name="course_ids" value="{{ course.id }}" id="course{{ course.id }}" {% if course.id in enrolled_ids %}checked{% endif %}><label class="form-check-label fw-semibold" for="course{{ course.id }}">{{ course.module_code }} · {{ course.title }} <span class="badge bg-light text-dark">{{ course.programme.code }}</span></label></div>
+  {% for session in course.class_sessions %}{% if session.trimester == trimester %}
+    <div class="row mt-2 align-items-center"><div class="col-3 text-capitalize small">{{ session.session_type }}</div><div class="col"><div class="form-check"><input class="form-check-input" type="radio" name="section_{{ course.id }}_{{ session.session_type }}" value="{{ session.id }}" id="session{{ session.id }}" {% if session.id in assigned_session_ids %}checked{% endif %}><label class="form-check-label small" for="session{{ session.id }}">{{ session.group_label or 'Default' }} · {{ session.delivery_mode }}</label></div></div></div>
+  {% endif %}{% endfor %}
+</div></div>{% else %}<div class="alert alert-warning">No modules are configured for this trimester.</div>{% endfor %}
+<button class="btn btn-primary mt-2">Save enrolments and sections</button></form>
+{% endblock %}

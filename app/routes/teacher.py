@@ -1,6 +1,7 @@
 from collections import defaultdict
+import re
 
-from flask import Blueprint, render_template, redirect, url_for, flash, request, abort
+from flask import Blueprint, Response, render_template, redirect, url_for, flash, request, abort
 from flask_login import login_required, current_user
 
 from app import db
@@ -241,6 +242,34 @@ def timetable():
     )
 
 
+@teacher_bp.route('/timetable.ics')
+@login_required
+def timetable_ical():
+    from app.models.academic_calendar import AcademicCalendar
+    from app.utils.ical import build_ical
+
+    trimester_key = request.args.get('trimester', '').strip()
+    professor = current_user.professor_profile
+    session_ids = db.select(ClassSessionProfessor.session_id).where(
+        ClassSessionProfessor.professor_id == professor.id
+    )
+    entries = TimetableEntry.query.filter(
+        TimetableEntry.class_session_id.in_(session_ids),
+        TimetableEntry.trimester == trimester_key,
+        TimetableEntry.is_published.is_(True),
+    ).all()
+    entries = select_preferred_layer(entries)
+    if not entries:
+        abort(404)
+    calendar_weeks = AcademicCalendar.query.filter_by(trimester=trimester_key).all()
+    response = Response(
+        build_ical(entries, calendar_weeks, f'Teaching timetable - {trimester_key}'),
+        mimetype='text/calendar; charset=utf-8',
+    )
+    response.headers['Content-Disposition'] = f'attachment; filename="teaching-{trimester_key}.ics"'
+    return response
+
+
 # ---------------------------------------------------------------------------
 # Availability Declarations
 # ---------------------------------------------------------------------------
@@ -252,6 +281,8 @@ def availability():
 
     if request.method == 'POST':
         timeslot_id_raw = request.form.get('timeslot_id', '').strip()
+        academic_year   = request.form.get('academic_year', '').strip().upper() or None
+        trimester_raw   = request.form.get('trimester', '').strip()
         reason          = request.form.get('reason', '').strip()
 
         errors = []
@@ -271,10 +302,26 @@ def availability():
         elif len(reason) > 255:
             reason = reason[:255]
 
+        trimester = None
+        if trimester_raw:
+            try:
+                trimester = int(trimester_raw)
+            except ValueError:
+                errors.append('Trimester must be 1, 2, or 3.')
+            else:
+                if trimester not in (1, 2, 3):
+                    errors.append('Trimester must be 1, 2, or 3.')
+        if academic_year and not re.fullmatch(r'AY\d{4}', academic_year):
+            errors.append('Academic year must use the format AY2526.')
+        if trimester is not None and academic_year is None:
+            errors.append('Choose an academic year when limiting a declaration to one trimester.')
+
         if not errors:
             existing = AvailabilityDeclaration.query.filter_by(
                 professor_id=prof.id,
                 timeslot_id=ts_id,
+                academic_year=academic_year,
+                trimester=trimester,
             ).first()
             if existing:
                 flash('You have already declared unavailability for this timeslot.', 'warning')
@@ -282,6 +329,8 @@ def availability():
                 db.session.add(AvailabilityDeclaration(
                     professor_id=prof.id,
                     timeslot_id=ts_id,
+                    academic_year=academic_year,
+                    trimester=trimester,
                     reason=reason,
                     status='pending',
                 ))

@@ -24,10 +24,21 @@ class ClassSession(db.Model):
     # ^ set when this session must be scheduled together with other programmes'
     # sessions for "the same" module (see SharedModuleGroup) - same room+slot, combined capacity.
     deferred_from_solve = db.Column(db.Boolean, nullable=False, default=False)
+    required_equipment = db.Column(db.Text, nullable=True)
+    accessibility_required = db.Column(db.Boolean, nullable=False, default=False)
+    required_qualification = db.Column(db.String(100), nullable=True)
     # ^ True = temporarily excluded from CP-SAT generation for this trimester
     # (see bootstrap/48) - not a data gap, a deliberate scope decision
     # disclosed on System Info, reversible by clearing the flag once a
     # follow-up generation pass covers this session's programme too.
+
+    @property
+    def required_equipment_tags(self):
+        return {
+            tag.strip().lower()
+            for tag in (self.required_equipment or '').split(',')
+            if tag.strip()
+        }
 
     course             = db.relationship('Course',    backref='class_sessions')
     student_group      = db.relationship('StudentGroup', backref='class_sessions')

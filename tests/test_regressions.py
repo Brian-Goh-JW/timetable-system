@@ -9,17 +9,20 @@ os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 os.environ['FLASK_SECRET_KEY'] = 'unit-test-secret'
 
 import openpyxl
+from flask import g
 
 from app import create_app, db
 from app.engine.solver import (
     _get_or_create_calendar,
     _overlapping_timeslot_indices,
     _parallel_section_alternatives,
+    _room_compatible,
     _sessions_share_students,
 )
 from app.models.academic_calendar import AcademicCalendar
 from app.models.class_session import ClassSession
 from app.models.course import Course
+from app.models.event import Event
 from app.models.programme import Programme
 from app.models.room import Room
 from app.models.solve_run import SolveRun
@@ -27,12 +30,17 @@ from app.models.student_group import StudentGroup
 from app.models.timeslot import TimeSlot
 from app.models.timetable_entry import TimetableEntry
 from app.models.user import User
+from app.models.student_enrollment import StudentSectionAssignment
 from app.routes.admin import (
     _audit_generated_hard_conflicts,
     _check_week_conflicts,
     _load_solve_run,
 )
-from app.utils.timetable import select_preferred_layer, select_student_sections
+from app.services.events import event_affects_occurrence
+from app.utils.timetable import (
+    apply_explicit_student_sections, select_preferred_layer,
+    select_student_sections,
+)
 from app.utils.xlsx import restore_worksheet_extensions
 
 
@@ -56,6 +64,8 @@ class RegressionTests(unittest.TestCase):
         for table in reversed(db.metadata.sorted_tables):
             db.session.execute(table.delete())
         db.session.commit()
+        db.session.remove()
+        g.pop('_login_user', None)
 
     def _base_data(self):
         programme = Programme(code='TST', name='Test', cluster='Test')
@@ -497,6 +507,110 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual('DENY', response.headers['X-Frame-Options'])
         self.assertEqual('nosniff', response.headers['X-Content-Type-Options'])
         self.assertIn("frame-ancestors 'none'", response.headers['Content-Security-Policy'])
+
+    def test_course_scoped_recurring_event_matches_only_its_course(self):
+        programme, group, course = self._base_data()
+        other = Course(
+            programme=programme, module_code='TST1002', trimester=1,
+            title='Other', year_level=1, delivery_mode='f2f',
+            sessions_per_week=1, total_hours=24, split_count=1,
+        )
+        first = ClassSession(
+            course=course, session_type='lecture', delivery_mode='online',
+            duration_hours=2, student_group=group, trimester=1,
+        )
+        second = ClassSession(
+            course=other, session_type='lecture', delivery_mode='online',
+            duration_hours=2, student_group=group, trimester=1,
+        )
+        event = Event(
+            name='Annual course event', event_date=date(2025, 9, 1),
+            is_full_day=True, scope='course', course=course,
+            outcome='reschedule', trimester=1, is_recurring=True,
+        )
+        db.session.add_all([other, first, second, event])
+        db.session.commit()
+
+        occurrence = dict(
+            occurrence_date=date(2026, 9, 1), timeslot_id=1,
+            academic_year='AY2627', trimester=1,
+        )
+        self.assertTrue(event_affects_occurrence(event, first, **occurrence))
+        self.assertFalse(event_affects_occurrence(event, second, **occurrence))
+
+    def test_explicit_student_section_overrides_fallback_selection(self):
+        _, group, course = self._base_data()
+        student = User(
+            name='Student', email='section@example.com', role='student',
+            password_hash='unused', student_group=group,
+        )
+        slot = TimeSlot(
+            day_of_week='Monday', period_label='P1',
+            start_time=time(9), end_time=time(11),
+        )
+        sessions = [
+            ClassSession(
+                course=course, session_type='tutorial', delivery_mode='online',
+                duration_hours=2, student_group=group, trimester=1,
+                teaching_weeks='1,2,3', group_label=label,
+            ) for label in ('T1', 'T2')
+        ]
+        db.session.add_all([student, slot, *sessions])
+        db.session.flush()
+        entries = [
+            TimetableEntry(
+                class_session_id=session.id, timeslot_id=slot.id,
+                week_number=1, trimester='AY2526-T1', is_backbone=False,
+            ) for session in sessions
+        ]
+        db.session.add_all(entries)
+        db.session.add(StudentSectionAssignment(
+            user_id=student.id, class_session_id=sessions[0].id,
+            academic_year='AY2526', trimester=1,
+        ))
+        db.session.commit()
+
+        selected = apply_explicit_student_sections(
+            entries, student.id, 'AY2526', 1
+        )
+        self.assertEqual({sessions[0].id}, {row.class_session_id for row in selected})
+
+    def test_room_equipment_and_accessibility_are_hard_requirements(self):
+        session = SimpleNamespace(
+            session_type='lecture', accessibility_required=True,
+            required_equipment_tags={'lecture capture'},
+            student_group=None, effective_group_size=1,
+        )
+        suitable = SimpleNamespace(
+            room_type='lecture', is_accessible=True,
+            equipment_tags={'lecture capture'}, capacity=30,
+        )
+        inaccessible = SimpleNamespace(
+            room_type='lecture', is_accessible=False,
+            equipment_tags={'lecture capture'}, capacity=30,
+        )
+        missing_equipment = SimpleNamespace(
+            room_type='lecture', is_accessible=True,
+            equipment_tags=set(), capacity=30,
+        )
+        self.assertTrue(_room_compatible(suitable, session))
+        self.assertFalse(_room_compatible(inaccessible, session))
+        self.assertFalse(_room_compatible(missing_equipment, session))
+
+    def test_inactive_account_cannot_login(self):
+        user = User(
+            name='Inactive', email='inactive@example.com', role='student',
+            active=False,
+        )
+        user.set_password('TestPassword123')
+        db.session.add(user)
+        db.session.commit()
+
+        response = self.app.test_client().post('/login', data={
+            'email': user.email, 'password': 'TestPassword123',
+        })
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b'Incorrect email or password', response.data)
 
 
 if __name__ == '__main__':

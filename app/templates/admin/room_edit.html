@@ -53,6 +53,9 @@
                         </select>
                     </div>
 
+                    <div class="mb-3"><label class="form-label fw-medium">Equipment Tags</label><input class="form-control" name="equipment" value="{{ room.equipment or '' }}" placeholder="projector, wet-lab, computers"></div>
+                    <div class="form-check mb-4"><input class="form-check-input" type="checkbox" name="is_accessible" id="accessible" {% if room.is_accessible %}checked{% endif %}><label class="form-check-label" for="accessible">Wheelchair accessible</label></div>
+
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn text-white" style="background-color:#c0272d;">
                             <i class="bi bi-check-lg me-1"></i>Save Changes
@@ -94,5 +97,15 @@
         </div>
     </div>
 </div>
+
+<div class="card border-0 shadow-sm mt-3"><div class="card-header bg-white fw-semibold">Room Availability / Maintenance</div><div class="card-body">
+  <form method="POST" action="{{ url_for('admin.room_availability_add', room_id=room.id) }}" class="row g-2 align-items-end"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="col-md-4"><label class="form-label small">Timeslot</label><select class="form-select" name="timeslot_id" required>{% for ts in all_timeslots %}<option value="{{ ts.id }}">{{ ts.day_of_week }} {{ ts.period_label }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><label class="form-label small">Academic Year</label><input class="form-control" name="academic_year" placeholder="Any"></div>
+    <div class="col-md-2"><label class="form-label small">Trimester</label><select class="form-select" name="trimester"><option value="">Any</option>{% for tri in (1,2,3) %}<option value="{{ tri }}">T{{ tri }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="form-label small">Reason</label><input class="form-control" name="reason" placeholder="Maintenance"></div><div class="col-md-1"><button class="btn btn-outline-danger">Add</button></div>
+  </form>
+  <div class="mt-3">{% for block in room.unavailability_blocks %}<span class="badge bg-light text-dark me-1 mb-1">{{ block.timeslot.day_of_week }} {{ block.timeslot.period_label }} · {{ block.academic_year or 'Any AY' }}{% if block.trimester %}-T{{ block.trimester }}{% endif %}<form class="d-inline" method="POST" action="{{ url_for('admin.room_availability_delete', room_id=room.id, block_id=block.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-link text-danger p-0 ms-1">×</button></form></span>{% else %}<span class="text-muted small">No closures configured.</span>{% endfor %}</div>
+</div></div>
 
 {% endblock %}

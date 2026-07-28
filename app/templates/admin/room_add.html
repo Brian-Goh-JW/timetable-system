@@ -56,6 +56,9 @@
                         </select>
                     </div>
 
+                    <div class="mb-3"><label class="form-label fw-medium">Equipment Tags</label><input class="form-control" name="equipment" value="{{ form.get('equipment','') }}" placeholder="projector, wet-lab, computers"><div class="form-text">Comma-separated; sessions may require these tags.</div></div>
+                    <div class="form-check mb-4"><input class="form-check-input" type="checkbox" name="is_accessible" id="accessible" {% if form.get('is_accessible') %}checked{% endif %}><label class="form-check-label" for="accessible">Wheelchair accessible</label></div>
+
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn text-white" style="background-color:#c0272d;">
                             <i class="bi bi-plus-lg me-1"></i>Add Room

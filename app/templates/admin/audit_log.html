@@ -114,6 +114,21 @@
 </div>
 {% endif %}
 
+<h5 class="mt-4 mb-3">All Administrative Operations</h5>
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive"><table class="table table-hover align-middle mb-0 small">
+    <thead class="table-light"><tr><th class="ps-3">Timestamp</th><th>Admin</th><th>Action</th><th>Summary</th><th>Entity</th></tr></thead>
+    <tbody>
+      {% for item in system_logs %}<tr>
+        <td class="ps-3 text-muted">{{ item.created_at.strftime('%d %b %Y %H:%M') }}</td>
+        <td>{{ item.user.name if item.user else 'System worker' }}</td>
+        <td><code>{{ item.action }}</code></td><td>{{ item.summary or '-' }}</td>
+        <td>{{ item.entity_type or '-' }}{% if item.entity_id %} #{{ item.entity_id }}{% endif %}</td>
+      </tr>{% else %}<tr><td colspan="5" class="text-center text-muted py-4">No administrative operations recorded yet.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
 {% endblock %}
 
 {% block extra_scripts %}

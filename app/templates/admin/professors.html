@@ -53,7 +53,8 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn text-white" style="background-color:#c0272d;">
+                    <button type="submit" name="import_mode" value="preview" class="btn btn-outline-primary"><i class="bi bi-eye me-1"></i>Preview</button>
+                    <button type="submit" name="import_mode" value="apply" class="btn text-white" style="background-color:#c0272d;">
                         <i class="bi bi-upload me-1"></i>Import
                     </button>
                 </div>
@@ -94,7 +95,7 @@
             <tbody>
                 {% for prof in professors %}
                 {% set session_count = prof.session_assignments | length %}
-                <tr data-assigned="{{ 'yes' if session_count > 0 else 'no' }}">
+                <tr class="{% if not prof.user.active %}table-secondary text-muted{% endif %}" data-assigned="{{ 'yes' if session_count > 0 else 'no' }}">
                     <td class="ps-4 fw-medium">{{ prof.user.name }}</td>
                     <td class="text-muted">{{ prof.user.email }}</td>
                     <td>{{ prof.staff_id }}</td>
@@ -107,6 +108,9 @@
                         {% endif %}
                     </td>
                     <td class="text-end pe-4">
+                        <form method="POST" action="{{ url_for('admin.user_toggle_active', user_id=prof.user.id) }}" class="d-inline">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm {% if prof.user.active %}btn-outline-warning{% else %}btn-outline-success{% endif %}" title="{% if prof.user.active %}Disable login{% else %}Enable login{% endif %}"><i class="bi bi-person-{% if prof.user.active %}dash{% else %}check{% endif %}"></i></button>
+                        </form>
                         <a href="{{ url_for('admin.professor_edit', professor_id=prof.id) }}"
                            class="btn btn-sm btn-outline-secondary">
                             <i class="bi bi-pencil me-1"></i>Edit

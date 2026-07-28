@@ -56,6 +56,12 @@
 
                     <hr class="my-4">
 
+                    <div class="mb-3"><label class="form-label fw-medium">Qualification Tags</label><input class="form-control" name="qualifications" value="{{ professor.qualifications or '' }}" placeholder="data science, DSC, laboratory"><div class="form-text">Comma-separated subjects or module prefixes.</div></div>
+                    <div class="row g-2 mb-3"><div class="col"><label class="form-label">Max weekly hours</label><input class="form-control" type="number" min="1" name="max_weekly_hours" value="{{ professor.max_weekly_hours or '' }}"></div><div class="col"><label class="form-label">Max daily hours</label><input class="form-control" type="number" min="1" name="max_daily_hours" value="{{ professor.max_daily_hours or '' }}"></div></div>
+                    <div class="mb-3"><label class="form-label">Home building</label><input class="form-control" name="home_building" value="{{ professor.home_building or '' }}" placeholder="E2"></div>
+
+                    <hr class="my-4">
+
                     <div class="mb-4">
                         <label for="new_password" class="form-label fw-medium">
                             Reset Password

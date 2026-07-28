@@ -17,6 +17,26 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
                     <div class="mb-3">
+                        <label class="form-label fw-medium">Applies To</label>
+                        <div class="row g-2">
+                            <div class="col-7">
+                                <input class="form-control" name="academic_year"
+                                       placeholder="AY2526 (blank = every year)"
+                                       pattern="AY[0-9]{4}">
+                            </div>
+                            <div class="col-5">
+                                <select class="form-select" name="trimester">
+                                    <option value="">Every trimester</option>
+                                    <option value="1">Trimester 1</option>
+                                    <option value="2">Trimester 2</option>
+                                    <option value="3">Trimester 3</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-text">Leave both blank only for a reusable standing constraint.</div>
+                    </div>
+
+                    <div class="mb-3">
                         <label for="timeslot_id" class="form-label fw-medium">
                             Timeslot <span class="text-danger">*</span>
                         </label>
@@ -78,6 +98,7 @@
                         <tr>
                             <th class="ps-3">Day</th>
                             <th>Timeslot</th>
+                            <th>Term</th>
                             <th>Reason</th>
                             <th>Status</th>
                             <th>Type</th>
@@ -94,6 +115,7 @@
                                     {{ d.timeslot.start_time.strftime('%H:%M') }}–{{ d.timeslot.end_time.strftime('%H:%M') }}
                                 </span>
                             </td>
+                            <td>{{ d.academic_year or 'Every AY' }}{% if d.trimester %}-T{{ d.trimester }}{% endif %}</td>
                             <td style="max-width:180px; word-break:break-word;">{{ d.reason }}</td>
                             <td>
                                 {% if d.status == 'pending' %}

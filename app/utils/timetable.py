@@ -78,6 +78,33 @@ def select_student_sections(entries, selector_key):
     ]
 
 
+def apply_explicit_student_sections(entries, user_id, academic_year, trimester):
+    """Apply recorded section assignments, falling back only where unassigned."""
+    from app.models.student_enrollment import StudentSectionAssignment
+    assignments = StudentSectionAssignment.query.filter_by(
+        user_id=user_id,
+        academic_year=academic_year,
+        trimester=trimester,
+    ).all()
+    if not assignments:
+        return select_student_sections(entries, user_id)
+
+    assigned_ids = {assignment.class_session_id for assignment in assignments}
+    assigned_keys = {
+        (assignment.class_session.course_id, assignment.class_session.session_type)
+        for assignment in assignments
+    }
+    filtered = [
+        entry for entry in entries
+        if (
+            (entry.class_session.course_id, entry.class_session.session_type)
+            not in assigned_keys
+            or entry.class_session_id in assigned_ids
+        )
+    ]
+    return select_student_sections(filtered, user_id)
+
+
 def overlapping_entry_ids(entries):
     """Ids of entries that overlap another visible class in real clock time."""
     conflicts = set()

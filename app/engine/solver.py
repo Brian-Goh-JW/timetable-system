@@ -187,6 +187,14 @@ def _room_compatible(room, session, group_size_override=None, require_capacity=T
         if room.room_type not in ('seminar', 'lecture'):
             return False
 
+    if (getattr(session, 'accessibility_required', False)
+            and not getattr(room, 'is_accessible', False)):
+        return False
+    required_equipment = getattr(session, 'required_equipment_tags', set())
+    room_equipment = getattr(room, 'equipment_tags', set())
+    if not required_equipment.issubset(room_equipment):
+        return False
+
     if not require_capacity:
         return True
 
@@ -799,21 +807,13 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     else:
         ph_dates = set()
     from app.models.event import Event
-    event_filters = [Event.outcome == 'cancel']
+    from app.services.events import matching_event
+    event_filters = []
     if trimester_num is not None:
         event_filters.append(db.or_(Event.trimester == None, Event.trimester == trimester_num))
     if academic_year is not None:
         event_filters.append(db.or_(Event.academic_year == None, Event.academic_year == academic_year))
-    cancel_events = Event.query.filter(*event_filters).all()
-    event_blocks = {}  # date -> set of blocked timeslot_ids (empty set = full day)
-    for ev in cancel_events:
-        if ev.event_date not in event_blocks:
-            event_blocks[ev.event_date] = set() if ev.is_full_day else set(ev.blocked_timeslot_ids)
-        else:
-            if ev.is_full_day:
-                event_blocks[ev.event_date] = set()
-            elif event_blocks[ev.event_date]:
-                event_blocks[ev.event_date].update(ev.blocked_timeslot_ids)
+    applicable_events = Event.query.filter(*event_filters).all()
     _day_offset = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
 
     # Earlier successful programme batches are stored under a unique staging
@@ -896,6 +896,19 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             return False
         return not any(w.week_number in allowed_weeks for w in non_break_weeks)
 
+    def _event_for(session_obj, ts, occurrence_date, outcomes=None):
+        candidates = applicable_events
+        if outcomes is not None:
+            candidates = [event for event in candidates if event.outcome in outcomes]
+        return matching_event(
+            candidates,
+            session=session_obj,
+            occurrence_date=occurrence_date,
+            timeslot_id=ts.id,
+            academic_year=academic_year,
+            trimester=trimester_num,
+        )
+
     def _all_occurrences_blocked(session_obj, ts):
         """True if EVERY one of session_obj's teaching weeks lands on a public
         holiday or cancelled event for timeslot ts - i.e. picking ts would
@@ -914,16 +927,36 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             d = week.start_date + timedelta(days=day_offset)
             if d in ph_dates:
                 continue
-            blocked_ts = event_blocks.get(d)
-            if blocked_ts is not None and (not blocked_ts or ts.id in blocked_ts):
+            if _event_for(session_obj, ts, d, outcomes={'cancel'}):
                 continue
             return False  # at least one real occurrence survives on this day
         return True
+
+    def _requires_term_reschedule(session_obj, ts):
+        """Treat a reschedule event as a hard candidate exclusion.
+
+        The current timetable model assigns one recurring slot to a session.
+        Moving the recurring slot is therefore the only way to guarantee that
+        a requested reschedule is not silently converted into a cancellation.
+        """
+        day_offset = _day_offset.get(ts.day_of_week, 0)
+        allowed_weeks = session_week_numbers.get(session_obj.id, set())
+        return any(
+            _event_for(
+                session_obj,
+                ts,
+                week.start_date + timedelta(days=day_offset),
+                outcomes={'reschedule'},
+            )
+            for week in non_break_weeks
+            if week.week_number in allowed_weeks
+        )
 
     compat_slots = {}   # session.id → [timeslot indices]
     no_timeslot_warnings = []   # sessions with genuinely zero matching time slots
     for s in sessions:
         compat = [i for i, ts in enumerate(timeslots) if _slot_compatible(ts, s)]
+        compat = [i for i in compat if not _requires_term_reschedule(s, timeslots[i])]
         # Remove institutionally blocked slots unless the session has a fixed pin there
         if not s.fixed_timeslot_id:
             compat = [i for i in compat if i not in inst_blocked]
@@ -1046,11 +1079,25 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     #    strict  → hard block (solver must never place professor here)
     #    preferred → soft avoid (solver penalises but may use if necessary)
 
-    strict_decls    = AvailabilityDeclaration.query.filter_by(
-        status='classified', constraint_type='strict'
+    term_scope = db.and_(
+        db.or_(
+            AvailabilityDeclaration.academic_year.is_(None),
+            AvailabilityDeclaration.academic_year == academic_year,
+        ),
+        db.or_(
+            AvailabilityDeclaration.trimester.is_(None),
+            AvailabilityDeclaration.trimester == trimester_num,
+        ),
+    )
+    strict_decls = AvailabilityDeclaration.query.filter(
+        AvailabilityDeclaration.status == 'classified',
+        AvailabilityDeclaration.constraint_type == 'strict',
+        term_scope,
     ).all()
-    preferred_decls = AvailabilityDeclaration.query.filter_by(
-        status='classified', constraint_type='preferred'
+    preferred_decls = AvailabilityDeclaration.query.filter(
+        AvailabilityDeclaration.status == 'classified',
+        AvailabilityDeclaration.constraint_type == 'preferred',
+        term_scope,
     ).all()
 
     # professor_id → set of timeslot indices that are hard-blocked
@@ -1117,6 +1164,31 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         )
         for s in sessions if s.delivery_mode == 'f2f'
     }
+
+    # Room maintenance/availability blocks couple the independent slot and
+    # room decision variables. A NULL term value acts as a standing closure.
+    from app.models.room_availability import RoomAvailability
+    room_blocks = RoomAvailability.query.filter(
+        db.or_(RoomAvailability.academic_year.is_(None),
+               RoomAvailability.academic_year == academic_year),
+        db.or_(RoomAvailability.trimester.is_(None),
+               RoomAvailability.trimester == trimester_num),
+    ).all()
+    blocked_room_slots = {
+        (ts_id_to_index.get(block.timeslot_id), room_id_to_index.get(block.room_id))
+        for block in room_blocks
+    }
+    blocked_room_slots.discard((None, None))
+    for s in sessions:
+        if s.id not in room_vars:
+            continue
+        forbidden = [
+            (slot_idx, room_idx)
+            for slot_idx, room_idx in blocked_room_slots
+            if slot_idx in compat_slots[s.id] and room_idx in compat_rooms[s.id]
+        ]
+        if forbidden:
+            model.AddForbiddenAssignments([slot_vars[s.id], room_vars[s.id]], forbidden)
 
     # Warm-start hint: seed slot_vars/room_vars from this trimester's existing
     # (pre-this-solve) TimetableEntry data, if any - a genuine soft hint via
@@ -1289,6 +1361,44 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             by_prof[prof_id].append(s)
     for sess_list in by_prof.values():
         _add_no_overlap_for_entity(sess_list)
+
+    # Staff workload limits. Weekly load is validated against actual teaching
+    # weeks; daily load remains a placement decision and is constrained here.
+    for prof_id, sess_list in by_prof.items():
+        professor = next(
+            (prof for session in sess_list for prof in session.all_professors
+             if prof.id == prof_id),
+            None,
+        )
+        if professor is None:
+            continue
+        if professor.max_weekly_hours:
+            for week_number in default_week_numbers:
+                weekly_hours = sum(
+                    session.duration_hours for session in sess_list
+                    if week_number in session_week_numbers[session.id]
+                )
+                if weekly_hours > professor.max_weekly_hours:
+                    return False, (
+                        f'Generation blocked: {professor.user.name} has {weekly_hours} '
+                        f'contact hours in Week {week_number}, above the configured '
+                        f'{professor.max_weekly_hours}-hour weekly limit.'
+                    ), {'professor_workload_blocked': professor.id}
+        if professor.max_daily_hours:
+            for day_name in _DAY_NAMES:
+                daily_terms = []
+                for session in sess_list:
+                    day_indices = [
+                        idx for idx in compat_slots[session.id]
+                        if timeslots[idx].day_of_week == day_name
+                    ]
+                    if not day_indices:
+                        continue
+                    on_day = model.NewBoolVar(f'workday_{prof_id}_{day_name}_{session.id}')
+                    model.Add(sum(_get_slot_at(session.id, idx) for idx in day_indices) == on_day)
+                    daily_terms.append(session.duration_hours * on_day)
+                if daily_terms:
+                    model.Add(sum(daily_terms) <= professor.max_daily_hours)
 
     # Hard constraint B - no student-group double-booking (parent/child aware)
     # Groups that can conflict with each other (a group + its parent + its
@@ -1915,7 +2025,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     else:
         TimetableEntry.query.filter_by(trimester=trimester, is_backbone=False).delete()
 
-    # cal_weeks / non_break_weeks / ph_dates / event_blocks / _day_offset were
+    # Calendar, public-holiday and event lookups were already computed above
     # already computed above (step 2) so the domain-building step could steer
     # sessions away from days that would wipe them out entirely - reused here
     # unchanged rather than recomputed.
@@ -1951,12 +2061,11 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                 skipped_ph += 1
                 continue
 
-            # Skip event-blocked dates
-            if session_date in event_blocks:
-                blocked_ts = event_blocks[session_date]
-                if not blocked_ts or ts.id in blocked_ts:  # full day or specific slot
-                    skipped_ev += 1
-                    continue
+            # Cancel events remove an occurrence. Reschedule events were
+            # already excluded from this recurring slot's domain above.
+            if _event_for(s, ts, session_date, outcomes={'cancel'}):
+                skipped_ev += 1
+                continue
 
             db.session.add(TimetableEntry(
                 class_session_id  = s.id,
