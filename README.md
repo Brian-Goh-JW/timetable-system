@@ -63,7 +63,7 @@ SQLite, and the database file ships with the project at
 `database/timetable.db`. It is created and read automatically, so there is
 nothing to set up for this step.
 
-### Step 5 — Configure environment variables (optional)
+### Step 5 — Configure secrets and environment variables
 
 `config.py` is committed to Git and contains configuration logic only, with no
 secrets. The database needs no configuration. The remaining values are read
@@ -78,13 +78,36 @@ $env:MAIL_DEFAULT_SENDER = 'your.email@gmail.com'
 $env:ADMIN_EMAIL = 'your.email@gmail.com'
 ```
 
+Use a dedicated Gmail App Password in `MAIL_PASSWORD`, never your normal Gmail
+password. Do not paste credentials into `config.py`, source files, screenshots,
+or Git commands. `.env`, `.env.local`, and `*.env` are ignored by Git; the
+committed `.env.example` contains variable names only. `run.py` reads process
+environment variables, so set them in the launching terminal or your hosting
+platform's encrypted secret manager.
+
 If `FLASK_SECRET_KEY` is not set, a random key is generated per run, which
 simply means login sessions do not survive a restart. `ANTHROPIC_API_KEY` is
 optional and needed only for the timetable-summary feature. `FLASK_DEBUG=1` may
 be set for local debugging; debug mode is off by default.
 
-`DATABASE_URL` may be set to point at a different database (for example a MySQL
-server) if one is ever needed, but this is not required.
+For MySQL, supply its credentials as separate variables. This avoids embedding
+the password in a URL that may appear in shell history or error messages:
+
+```powershell
+$env:MYSQL_HOST = '127.0.0.1'
+$env:MYSQL_PORT = '3306'
+$env:MYSQL_USER = 'timetable_app'
+$env:MYSQL_PASSWORD = 'a-long-unique-database-password'
+$env:MYSQL_DATABASE = 'timetable_db'
+```
+
+Use a dedicated least-privilege MySQL account rather than `root`. `DATABASE_URL`
+remains supported for managed hosting platforms, but the split variables above
+are safer for local use. Leave `MYSQL_HOST` unset to use the bundled SQLite file.
+
+For production, set `APP_ENV=production`, use HTTPS, and set
+`SESSION_COOKIE_SECURE=true`. Production startup deliberately fails if
+`FLASK_SECRET_KEY` is missing.
 
 **Getting a Gmail App Password:** enable 2FA on your Google account, then create
 an app password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)

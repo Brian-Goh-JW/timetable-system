@@ -60,8 +60,9 @@
                         <label for="password" class="form-label fw-medium">
                             Temporary Password <span class="text-danger">*</span>
                         </label>
-                        <input type="text" class="form-control" id="password" name="password"
-                               placeholder="Set a temporary password for first login" required>
+                        <input type="password" class="form-control" id="password" name="password"
+                               placeholder="Set a temporary password for first login"
+                               minlength="8" autocomplete="new-password" required>
                         <div class="form-text">
                             Share this with the professor. They should change it after logging in.
                         </div>

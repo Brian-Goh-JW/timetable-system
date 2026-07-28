@@ -55,9 +55,7 @@
                         <li>{{ c }}</li>
                         {% endfor %}
                     </ul>
-                    <div>
-                        Tick <strong>Force save</strong> below to override and save anyway.
-                    </div>
+                    <div>Resolve these hard conflicts before saving.</div>
                 </div>
                 {% endif %}
 
@@ -122,17 +120,6 @@
                         </div>
                         {% endif %}
                     </div>
-
-                    <!-- Force save checkbox (only shown when conflicts exist) -->
-                    {% if conflicts %}
-                    <div class="mb-3 form-check">
-                        <input type="checkbox" class="form-check-input" id="force_save"
-                               name="force_save" value="1">
-                        <label class="form-check-label text-danger fw-medium" for="force_save">
-                            Force save despite conflicts
-                        </label>
-                    </div>
-                    {% endif %}
 
                     <div class="d-flex gap-2">
                         <button type="submit" class="btn text-white" style="background-color:#c0272d;">

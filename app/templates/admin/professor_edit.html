@@ -60,8 +60,9 @@
                         <label for="new_password" class="form-label fw-medium">
                             Reset Password
                         </label>
-                        <input type="text" class="form-control" id="new_password" name="new_password"
-                               placeholder="Leave blank to keep current password">
+                        <input type="password" class="form-control" id="new_password" name="new_password"
+                               placeholder="Leave blank to keep current password"
+                               minlength="8" autocomplete="new-password">
                         <div class="form-text">
                             Only fill this in if you need to reset the professor's password.
                         </div>

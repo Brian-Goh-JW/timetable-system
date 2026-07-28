@@ -3,7 +3,11 @@ __pycache__/
 *.pyc
 *.pyo
 instance/
+/database/backups/
 .env
+.env.local
+*.env
+!.env.example
 
 # AI tools
 .claude/

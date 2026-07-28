@@ -149,6 +149,10 @@
                         <div class="text-danger fw-semibold text-center mb-1" style="font-size:0.62rem;" title="More than one class is scheduled at this exact time - check with your programme office if this looks wrong.">
                             <i class="bi bi-exclamation-triangle-fill"></i> {{ cell_entries|length }} classes at once
                         </div>
+                        {% elif cell_entries and cell_entries[0].id in conflicting_entry_ids %}
+                        <div class="text-danger fw-semibold text-center mb-1" style="font-size:0.62rem;" title="This class overlaps another period on the same day.">
+                            <i class="bi bi-exclamation-triangle-fill"></i> Overlapping class
+                        </div>
                         {% endif %}
                         {% for entry in cell_entries %}
                         {% set stype = entry.class_session.session_type %}

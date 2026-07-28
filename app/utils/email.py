@@ -14,12 +14,19 @@ def _send(msg):
     Returns (success: bool, error: str|None).
     Catches SMTP errors gracefully so a mail failure never crashes the app.
     """
+    if not current_app.config.get('MAIL_USERNAME') or not current_app.config.get('MAIL_PASSWORD'):
+        current_app.logger.warning('[email] Delivery skipped: email service is not configured.')
+        return False, 'Email service is not configured.'
     try:
         mail.send(msg)
         return True, None
     except Exception as e:
-        current_app.logger.error(f'[email] Failed to send "{msg.subject}": {e}')
-        return False, str(e)
+        # SMTP exceptions can contain server/account details. Record only the
+        # exception class and never expose the raw message to the browser.
+        current_app.logger.error(
+            '[email] Delivery failed (%s).', type(e).__name__
+        )
+        return False, 'Email delivery failed.'
 
 
 # ---------------------------------------------------------------------------

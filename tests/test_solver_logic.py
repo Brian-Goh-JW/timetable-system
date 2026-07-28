@@ -11,6 +11,8 @@ from app.engine.solver import (
     _build_group_session_families,
     _collapse_for_overlap,
     _room_compatible,
+    _room_domain_with_fixed_pin,
+    _programme_session_components,
 )
 
 
@@ -22,6 +24,9 @@ def session(
     fixed_timeslot_id=None,
     session_type='lab',
     effective_group_size=20,
+    fixed_room_id=None,
+    programme_id=1,
+    programme_code='TST',
 ):
     return SimpleNamespace(
         id=session_id,
@@ -31,6 +36,11 @@ def session(
         session_type=session_type,
         student_group=SimpleNamespace(intake_size=60),
         effective_group_size=effective_group_size,
+        fixed_room_id=fixed_room_id,
+        course=SimpleNamespace(
+            programme_id=programme_id,
+            programme=SimpleNamespace(code=programme_code),
+        ),
     )
 
 
@@ -58,6 +68,79 @@ class SolverLogicTests(unittest.TestCase):
 
         self.assertTrue(_room_compatible(fitting_room, split_session))
         self.assertFalse(_room_compatible(undersized_room, split_session))
+
+    def test_valid_fixed_room_remains_the_only_allowed_room(self):
+        rooms = [
+            SimpleNamespace(id=1, room_type='lab', capacity=20),
+            SimpleNamespace(id=2, room_type='lab', capacity=30),
+        ]
+        fixed_session = session(1, effective_group_size=20, fixed_room_id=2)
+
+        domain, pin_applies = _room_domain_with_fixed_pin(
+            rooms, fixed_session, {room.id: i for i, room in enumerate(rooms)},
+        )
+
+        self.assertEqual([1], domain)
+        self.assertTrue(pin_applies)
+
+    def test_wrong_type_fixed_room_is_dropped_for_safe_alternative(self):
+        rooms = [
+            SimpleNamespace(id=1, room_type='lab', capacity=30),
+            SimpleNamespace(id=2, room_type='lecture', capacity=80),
+        ]
+        quiz = session(
+            1, session_type='quiz', effective_group_size=60, fixed_room_id=1,
+        )
+
+        domain, pin_applies = _room_domain_with_fixed_pin(
+            rooms, quiz, {room.id: i for i, room in enumerate(rooms)},
+        )
+
+        self.assertEqual([1], domain)
+        self.assertFalse(pin_applies)
+
+    def test_undersized_fixed_room_is_dropped_for_safe_alternative(self):
+        rooms = [
+            SimpleNamespace(id=1, room_type='lecture', capacity=30),
+            SimpleNamespace(id=2, room_type='lecture', capacity=80),
+        ]
+        quiz = session(
+            1, session_type='quiz', effective_group_size=60, fixed_room_id=1,
+        )
+
+        domain, pin_applies = _room_domain_with_fixed_pin(
+            rooms, quiz, {room.id: i for i, room in enumerate(rooms)},
+        )
+
+        self.assertEqual([1], domain)
+        self.assertFalse(pin_applies)
+
+    def test_programme_components_never_split_one_programme(self):
+        sessions = [
+            session(1, programme_id=10, programme_code='AAA'),
+            session(2, programme_id=10, programme_code='AAA'),
+            session(3, programme_id=20, programme_code='BBB'),
+        ]
+
+        components = _programme_session_components(sessions)
+
+        self.assertEqual(2, len(components))
+        aaa = next(c for c in components if c['programme_codes'] == ['AAA'])
+        self.assertEqual([1, 2], aaa['session_ids'])
+
+    def test_shared_module_unions_complete_programmes(self):
+        sessions = [
+            session(1, programme_id=10, programme_code='AAA', shared_group_id=9),
+            session(2, programme_id=10, programme_code='AAA'),
+            session(3, programme_id=20, programme_code='BBB', shared_group_id=9),
+            session(4, programme_id=20, programme_code='BBB'),
+        ]
+
+        components = _programme_session_components(sessions)
+
+        self.assertEqual(1, len(components))
+        self.assertEqual(['AAA', 'BBB'], components[0]['programme_codes'])
+        self.assertEqual([1, 2, 3, 4], components[0]['session_ids'])
 
     def test_parent_and_subgroup_sessions_share_one_family(self):
         sessions = [

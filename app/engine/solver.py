@@ -141,6 +141,31 @@ def _slot_compatible(timeslot, session):
     return slot_hours == session.duration_hours
 
 
+def _timeslots_overlap(a, b):
+    """Return whether two catalogue slots overlap in real weekly time."""
+    if a.day_of_week != b.day_of_week:
+        return False
+    a_start = a.start_time.hour * 60 + a.start_time.minute
+    a_end = a.end_time.hour * 60 + a.end_time.minute
+    b_start = b.start_time.hour * 60 + b.start_time.minute
+    b_end = b.end_time.hour * 60 + b.end_time.minute
+    return a_start < b_end and b_start < a_end
+
+
+def _overlapping_timeslot_indices(timeslots, reference_slot):
+    """Return every catalogue index that overlaps ``reference_slot``.
+
+    Availability is expressed by selecting one catalogue slot, but catalogue
+    slots are not disjoint (for example P2 12:00-14:00 overlaps Lab PM2
+    13:00-15:00).  Expanding a declaration here keeps strict and preferred
+    availability aligned with real clock time instead of exact row identity.
+    """
+    return {
+        index for index, timeslot in enumerate(timeslots)
+        if _timeslots_overlap(timeslot, reference_slot)
+    }
+
+
 def _room_compatible(room, session, group_size_override=None, require_capacity=True):
     """Room type must match session type and (unless require_capacity=False)
     capacity must fit the student group. group_size_override lets callers
@@ -170,6 +195,85 @@ def _room_compatible(room, session, group_size_override=None, require_capacity=T
     else:
         group_size = session.effective_group_size if session.student_group else 1
     return room.capacity >= group_size
+
+
+def _room_domain_with_fixed_pin(rooms, session, room_id_to_index, group_size_override=None):
+    """Return the safe room domain and whether a fixed-room pin can be applied.
+
+    A valid fixed room remains a hard pin.  A stale, inactive, wrong-type, or
+    undersized fixed room is treated as bad source data: its pin is ignored and
+    the session keeps every normally compatible room.  This prevents one bad
+    imported venue from blocking the whole timetable without weakening room
+    type or capacity constraints.
+    """
+    compatible = [
+        i for i, room in enumerate(rooms)
+        if _room_compatible(room, session, group_size_override)
+    ]
+    fixed_idx = room_id_to_index.get(session.fixed_room_id)
+    if fixed_idx is not None and fixed_idx in compatible:
+        return [fixed_idx], True
+    return compatible, False
+
+
+def _programme_session_components(sessions):
+    """Group complete programmes without splitting shared-module classes.
+
+    Every programme represented in ``sessions`` is atomic: all of its sessions
+    are returned in one component. Programmes joined by a SharedModuleGroup are
+    unioned into the same component so a combined class is never scheduled in
+    separate solver runs.
+    """
+    by_programme = defaultdict(list)
+    for session in sessions:
+        by_programme[session.course.programme_id].append(session)
+
+    parent = {programme_id: programme_id for programme_id in by_programme}
+
+    def find(programme_id):
+        while parent[programme_id] != programme_id:
+            parent[programme_id] = parent[parent[programme_id]]
+            programme_id = parent[programme_id]
+        return programme_id
+
+    def union(a, b):
+        root_a, root_b = find(a), find(b)
+        if root_a != root_b:
+            parent[root_a] = root_b
+
+    shared_programmes = defaultdict(set)
+    for session in sessions:
+        if session.shared_module_group_id:
+            shared_programmes[session.shared_module_group_id].add(
+                session.course.programme_id
+            )
+    for programme_ids in shared_programmes.values():
+        programme_ids = list(programme_ids)
+        for i in range(1, len(programme_ids)):
+            union(programme_ids[0], programme_ids[i])
+
+    components = defaultdict(lambda: {'programme_ids': set(), 'programme_codes': set(), 'sessions': []})
+    for programme_id, programme_sessions in by_programme.items():
+        component = components[find(programme_id)]
+        component['programme_ids'].add(programme_id)
+        component['programme_codes'].add(programme_sessions[0].course.programme.code)
+        component['sessions'].extend(programme_sessions)
+
+    result = []
+    for component in components.values():
+        result.append({
+            'programme_ids': sorted(component['programme_ids']),
+            'programme_codes': sorted(component['programme_codes']),
+            'session_ids': sorted(session.id for session in component['sessions']),
+        })
+    # Solve the largest/most connected component first. Later batches treat
+    # earlier results as fixed occupancy, so placing tiny flexible programmes
+    # first can unnecessarily corner a large constrained programme and make it
+    # time out even though a complete ordering exists.
+    return sorted(
+        result,
+        key=lambda item: (-len(item['session_ids']), item['programme_codes']),
+    )
 
 
 def _institutional_blocked_indices(timeslots):
@@ -219,6 +323,52 @@ def _conflicting_group_ids(group_id):
     for sub in group.sub_groups:
         ids.add(sub.id)
     return ids
+
+
+def _parallel_section_alternatives(left, right):
+    """Whether two sessions are alternative sections of the same class.
+
+    Template 2 stores parallel sections (for example ``T1``/``T2`` or
+    ``P1``/``P2``) against one parent cohort because it has no per-student
+    section-enrolment column.  Those rows must all be scheduled, but no one
+    student attends every alternative.  Labels with different prefixes, or
+    labels whose teaching weeks do not overlap, are not alternatives.
+    """
+    import re
+
+    if left is None or right is None or left.id == right.id:
+        return False
+    if (left.course_id != right.course_id
+            or left.session_type != right.session_type
+            or left.student_group_id is None
+            or left.student_group_id != right.student_group_id):
+        return False
+
+    left_match = re.fullmatch(r'([A-Z])(\d+)', left.group_label or '')
+    right_match = re.fullmatch(r'([A-Z])(\d+)', right.group_label or '')
+    return bool(
+        left_match
+        and right_match
+        and left_match.group(1) == right_match.group(1)
+        and left_match.group(2) != right_match.group(2)
+        and _weeks_overlap(left, right)
+    )
+
+
+def _sessions_share_students(left, right):
+    """Return whether the two session rows represent overlapping students."""
+    if left is None or right is None:
+        return False
+    if not left.student_group_id or not right.student_group_id:
+        return False
+    if _parallel_section_alternatives(left, right):
+        return False
+    related_left = _conflicting_group_ids(left.student_group_id)
+    related_right = _conflicting_group_ids(right.student_group_id)
+    return (
+        right.student_group_id in related_left
+        or left.student_group_id in related_right
+    )
 
 
 def _collapse_for_overlap(sess_list):
@@ -289,7 +439,25 @@ def _get_or_create_calendar(trimester, start_date, term_break_weeks=None):
     if term_break_weeks is None:
         term_break_weeks = DEFAULT_TERM_BREAK_WEEKS
 
-    existing = AcademicCalendar.query.filter_by(trimester=trimester).first()
+    existing = (AcademicCalendar.query
+                .filter_by(trimester=trimester)
+                .order_by(AcademicCalendar.week_number)
+                .all())
+    expected_weeks = list(range(1, 14))
+    needs_rebuild = (
+        [week.week_number for week in existing] != expected_weeks
+        or (existing and existing[0].start_date != start_date)
+        or any(
+            week.is_term_break != (week.week_number in term_break_weeks)
+            for week in existing
+        )
+    )
+    if needs_rebuild:
+        AcademicCalendar.query.filter_by(trimester=trimester).delete(
+            synchronize_session=False
+        )
+        existing = []
+
     if not existing:
         trimester_end = start_date + timedelta(weeks=13)
         sg_holidays   = _get_sg_holidays(start_date, trimester_end)
@@ -514,7 +682,8 @@ def _room_util_indicator_array(rooms, group_size, threshold=0.6):
 # ---------------------------------------------------------------------------
 
 def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, academic_year=None,
-          pinned_slots=None, historical_preferred=None, session_id_filter=None):
+          pinned_slots=None, historical_preferred=None, session_id_filter=None,
+          occupied_trimester=None, append_to_existing=False, max_time_seconds=400):
     """
     Run CP-SAT to schedule all ready ClassSessions for the given trimester.
 
@@ -540,6 +709,11 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                                               strict availability, room capacity, etc.) still applies in
                                               full during this first pass - it's the exact same solve()
                                               logic on a smaller session set, not a relaxed approximation.
+        occupied_trimester : str|None - generated entries under this key are treated as fixed
+                                      resource occupancy. Used by staged programme-batch generation.
+        append_to_existing : bool - only replace entries for session_id_filter instead of clearing
+                                    the whole trimester. Intended for a unique staging trimester.
+        max_time_seconds   : int|float - bounded CP-SAT search time for this solve call.
 
     Returns:
         (success: bool, message: str, stats: dict)
@@ -642,6 +816,72 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                 event_blocks[ev.event_date].update(ev.blocked_timeslot_ids)
     _day_offset = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4}
 
+    # Earlier successful programme batches are stored under a unique staging
+    # trimester. Collapse their per-week TimetableEntry rows into recurring
+    # assignments so this solve can treat them as fixed resource occupancy.
+    occupied_assignments = []
+    if occupied_trimester:
+        occupied_rows = (TimetableEntry.query
+                         .filter_by(trimester=occupied_trimester, is_backbone=False)
+                         .all())
+        grouped_occupied = {}
+        for entry in occupied_rows:
+            key = (
+                entry.class_session_id,
+                entry.timeslot_id,
+                entry.room_id,
+                entry.override_professor_id,
+            )
+            assignment = grouped_occupied.get(key)
+            if assignment is None:
+                other_session = entry.class_session
+                professor_ids = set(other_session.all_professor_ids)
+                if entry.override_professor_id:
+                    professor_ids.add(entry.override_professor_id)
+                assignment = {
+                    'session': other_session,
+                    'timeslot': entry.timeslot,
+                    'room_id': entry.room_id,
+                    'professor_ids': professor_ids,
+                    'student_group_id': other_session.student_group_id,
+                    'weeks': set(),
+                }
+                grouped_occupied[key] = assignment
+            assignment['weeks'].add(entry.week_number)
+        occupied_assignments = list(grouped_occupied.values())
+
+    default_week_numbers = {week.week_number for week in non_break_weeks}
+    session_week_numbers = {}
+    for session in sessions:
+        if session.teaching_weeks:
+            try:
+                weeks = {
+                    int(week) for week in session.teaching_weeks.split(',')
+                    if week.strip()
+                }
+            except ValueError:
+                weeks = set(default_week_numbers)
+        else:
+            weeks = set(default_week_numbers)
+        session_week_numbers[session.id] = weeks
+
+    conflicting_group_ids = {}
+
+    def _shares_staged_person_or_group(session, assignment):
+        other = assignment['session']
+        if (session.shared_module_group_id
+                and session.shared_module_group_id == other.shared_module_group_id):
+            return False
+        if set(session.all_professor_ids) & assignment['professor_ids']:
+            return True
+        if not session.student_group_id or not assignment['student_group_id']:
+            return False
+        if session.student_group_id not in conflicting_group_ids:
+            conflicting_group_ids[session.student_group_id] = _conflicting_group_ids(
+                session.student_group_id
+            )
+        return assignment['student_group_id'] in conflicting_group_ids[session.student_group_id]
+
     def _session_teaching_weeks_outside_calendar(session_obj):
         """True if session_obj.teaching_weeks is set but none of those week
         numbers exist in this trimester's actual (non-break) calendar - e.g.
@@ -709,6 +949,25 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
                 f'no time slot of this length exists in the system.'
             )
             continue
+        if occupied_assignments:
+            blocked_indices = set()
+            session_weeks = session_week_numbers[s.id]
+            for assignment in occupied_assignments:
+                if not (session_weeks & assignment['weeks']):
+                    continue
+                if not _shares_staged_person_or_group(s, assignment):
+                    continue
+                blocked_indices.update(
+                    i for i in compat
+                    if _timeslots_overlap(timeslots[i], assignment['timeslot'])
+                )
+            compat = [i for i in compat if i not in blocked_indices]
+            if not compat:
+                no_timeslot_warnings.append(
+                    f'{s.course.module_code} ({s.session_type}) - every matching slot conflicts '
+                    f'with a professor or student group already scheduled in another programme.'
+                )
+                continue
         if _session_teaching_weeks_outside_calendar(s):
             # Found 2026-07-16: some quiz sessions reference a teaching week
             # (e.g. 14 or 15) that doesn't exist in this trimester's actual
@@ -762,22 +1021,9 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     for s in sessions:
         if s.delivery_mode == 'f2f':
             size_override = shared_group_combined_size.get(s.shared_module_group_id)
-            compat = [i for i, r in enumerate(rooms) if _room_compatible(r, s, size_override)]
-            if s.fixed_room_id:
-                if s.fixed_room_id not in room_id_to_index:
-                    return False, (
-                        f'Generation blocked: {s.course.module_code} ({s.session_type}) '
-                        f'references missing or inactive fixed room {s.fixed_room_id}.'
-                    ), {}
-                pinned_idx = room_id_to_index[s.fixed_room_id]
-                if pinned_idx not in compat:
-                    room = rooms[pinned_idx]
-                    return False, (
-                        f'Generation blocked: fixed room {room.room_code} is incompatible '
-                        f'with {s.course.module_code} ({s.session_type}) or cannot fit its '
-                        f'group size of {_session_group_size(s)}.'
-                    ), {}
-                compat = [pinned_idx]
+            compat, _fixed_room_is_compatible = _room_domain_with_fixed_pin(
+                rooms, s, room_id_to_index, size_override,
+            )
             if not compat:
                 group_size = _session_group_size(s)
                 no_room_warnings.append(
@@ -810,16 +1056,20 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     # professor_id → set of timeslot indices that are hard-blocked
     strict_blocked = defaultdict(set)
     for d in strict_decls:
-        idx = ts_id_to_index.get(d.timeslot_id)
-        if idx is not None:
-            strict_blocked[d.professor_id].add(idx)
+        declaration_slot = d.timeslot
+        if declaration_slot is not None:
+            strict_blocked[d.professor_id].update(
+                _overlapping_timeslot_indices(timeslots, declaration_slot)
+            )
 
     # professor_id → set of timeslot indices that are soft-avoided
     preferred_avoided = defaultdict(set)
     for d in preferred_decls:
-        idx = ts_id_to_index.get(d.timeslot_id)
-        if idx is not None:
-            preferred_avoided[d.professor_id].add(idx)
+        declaration_slot = d.timeslot
+        if declaration_slot is not None:
+            preferred_avoided[d.professor_id].update(
+                _overlapping_timeslot_indices(timeslots, declaration_slot)
+            )
 
     # Pre-check: if strict declarations block ALL compatible slots for a session,
     # the problem is immediately infeasible - catch it early with a clear message.
@@ -921,6 +1171,36 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             _slot_at_vars[key] = b
         return _slot_at_vars[key]
 
+    # A room used by an earlier staged programme is unavailable only for
+    # overlapping weeks and wall-clock times. Professor/group conflicts were
+    # removed from slot domains above; room conflicts depend on both decision
+    # variables and are therefore represented as forbidden (slot, room) pairs.
+    staged_room_forbidden_pairs = 0
+    if occupied_assignments:
+        for s in sessions:
+            if s.id not in room_vars:
+                continue
+            forbidden = set()
+            session_weeks = session_week_numbers[s.id]
+            for assignment in occupied_assignments:
+                room_idx = room_id_to_index.get(assignment['room_id'])
+                if room_idx is None or room_idx not in compat_rooms[s.id]:
+                    continue
+                other = assignment['session']
+                if (s.shared_module_group_id
+                        and s.shared_module_group_id == other.shared_module_group_id):
+                    continue
+                if not (session_weeks & assignment['weeks']):
+                    continue
+                for slot_idx in compat_slots[s.id]:
+                    if _timeslots_overlap(timeslots[slot_idx], assignment['timeslot']):
+                        forbidden.add((slot_idx, room_idx))
+            if forbidden:
+                model.AddForbiddenAssignments(
+                    [slot_vars[s.id], room_vars[s.id]], sorted(forbidden)
+                )
+                staged_room_forbidden_pairs += len(forbidden)
+
     # Hard constraint - shared module groups (Common Modules / Programme Grouping).
     # Sessions linked via shared_module_group_id must land in the SAME slot and
     # (if f2f) the SAME room - they represent one combined class across programmes.
@@ -1017,7 +1297,27 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     # AddNoOverlap call together instead of a separate check per group pair.
     families = _build_group_session_families(sessions)
     for sess_list in families.values():
-        _add_no_overlap_for_entity(sess_list)
+        reduced = _collapse_for_overlap(sess_list)
+        has_parallel_sections = any(
+            _parallel_section_alternatives(left, right)
+            for index, left in enumerate(reduced)
+            for right in reduced[index + 1:]
+        )
+        if not has_parallel_sections:
+            _add_no_overlap_for_entity(reduced)
+            continue
+
+        # A single AddNoOverlap cannot express "all pairs except alternative
+        # sections".  Use compact two-interval constraints only for these
+        # exceptional cohort families; ordinary families keep the faster
+        # aggregate propagator above.
+        for index, left in enumerate(reduced):
+            for right in reduced[index + 1:]:
+                if (_weeks_overlap(left, right)
+                        and _sessions_share_students(left, right)):
+                    model.AddNoOverlap([
+                        interval_var[left.id], interval_var[right.id]
+                    ])
 
     # Hard constraint C - no room double-booking
     # Room assignment is itself a decision variable, so sessions can't be
@@ -1086,8 +1386,10 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         model.Add(slot_vars[s.id] == pinned_idx)
         pins_applied += 1
 
-    # Hard constraint D2 - fixed room pins (from cleaned-data venue codes).
-    # Compatibility and capacity were validated while building room domains.
+    # Hard constraint D2 - fixed room pins (from cleaned-data venue codes)
+    # A bad imported venue must not make the entire model infeasible.  Valid
+    # pins were reduced to a one-room domain above; invalid/missing pins retain
+    # only normally compatible alternatives and are counted as dropped here.
     room_pins_applied = 0
     room_pins_dropped = 0
     for s in sessions:
@@ -1095,10 +1397,8 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             continue
         room_idx = room_id_to_index.get(s.fixed_room_id)
         if room_idx is None or room_idx not in compat_rooms.get(s.id, []):
-            return False, (
-                f'Generation blocked: fixed room {s.fixed_room_id} for '
-                f'{s.course.module_code} is unavailable or incompatible.'
-            ), {}
+            room_pins_dropped += 1
+            continue
         model.Add(room_vars[s.id] == room_idx)
         room_pins_applied += 1
 
@@ -1558,7 +1858,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     # (score 47 -> 58) and T2's 47 -> fewer as well; T3 was already Optimal
     # and unaffected either way, so raising this costs nothing for smaller
     # trimesters (they still finish as soon as they hit the gap-limit below).
-    cp_solver.parameters.max_time_in_seconds = 400
+    cp_solver.parameters.max_time_in_seconds = max(1, float(max_time_seconds))
     cp_solver.parameters.num_search_workers  = 8
     # Accept a solution within 5% of provably optimal rather than always chasing the
     # full time budget - the added soft-constraint complexity makes "optimal" and
@@ -1571,12 +1871,16 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     status = cp_solver.Solve(model)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        status_name = cp_solver.StatusName(status)
         return False, (
-            'CP-SAT could not find a feasible timetable. '
-            'This may be caused by strict availability declarations blocking too many slots, '
-            'or too many sessions competing for limited timeslots. '
-            'Check the Declarations page and session assignments.'
-        ), {}
+            f'CP-SAT ended with {status_name} for this programme batch. '
+            'It may have no valid combination under the hard constraints, or may need more '
+            'search time. The batch was left out without affecting successful programmes.'
+        ), {
+            'solver_status': status_name,
+            'failure_kind': status_name.lower(),
+            'sessions_attempted': len(sessions),
+        }
 
     # 6. Detect preferred violations (slots where solver had to override a preference)
     preferred_violations = []
@@ -1600,7 +1904,16 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
             })
 
     # 7. Write TimetableEntry records
-    TimetableEntry.query.filter_by(trimester=trimester, is_backbone=False).delete()
+    if append_to_existing and session_id_filter is not None:
+        (TimetableEntry.query
+         .filter(
+             TimetableEntry.trimester == trimester,
+             TimetableEntry.is_backbone.is_(False),
+             TimetableEntry.class_session_id.in_(session_id_filter),
+         )
+         .delete(synchronize_session=False))
+    else:
+        TimetableEntry.query.filter_by(trimester=trimester, is_backbone=False).delete()
 
     # cal_weeks / non_break_weeks / ph_dates / event_blocks / _day_offset were
     # already computed above (step 2) so the domain-building step could steer
@@ -1677,6 +1990,8 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
         'pins_dropped'              : pins_dropped,
         'room_pins_applied'         : room_pins_applied,
         'room_pins_dropped'         : room_pins_dropped,
+        'occupied_assignments_considered': len(occupied_assignments),
+        'staged_room_forbidden_pairs': staged_room_forbidden_pairs,
         'historical_honoured'       : sum(1 for nh, *_ in hist_penalty_vars if cp_solver.Value(nh) == 0),
         'historical_changed'        : sum(1 for nh, *_ in hist_penalty_vars if cp_solver.Value(nh) == 1),
         'preferred_ts_honoured'     : sum(1 for v in pref_ts_cost_vars if cp_solver.Value(v) == 0),

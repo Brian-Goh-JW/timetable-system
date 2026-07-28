@@ -13,13 +13,32 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
 
 from app import create_app, db
 
-# Source: the existing MySQL database. Supplied through MYSQL_URL so no
-# credentials are stored in this file, for example:
-#   $env:MYSQL_URL = 'mysql+pymysql://root:yourpassword@127.0.0.1/timetable_db'
-MYSQL_URL = os.environ.get('MYSQL_URL')
+def mysql_source_url():
+    """Build the source URL without printing or interpolating its password."""
+    direct = os.environ.get('MYSQL_URL', '').strip()
+    if direct:
+        return direct
+    required = {
+        'MYSQL_HOST': os.environ.get('MYSQL_HOST', '').strip(),
+        'MYSQL_USER': os.environ.get('MYSQL_USER', '').strip(),
+        'MYSQL_PASSWORD': os.environ.get('MYSQL_PASSWORD', ''),
+        'MYSQL_DATABASE': os.environ.get('MYSQL_DATABASE', '').strip(),
+    }
+    if not all(required.values()):
+        return None
+    return URL.create(
+        'mysql+pymysql',
+        username=required['MYSQL_USER'],
+        password=required['MYSQL_PASSWORD'],
+        host=required['MYSQL_HOST'],
+        port=int(os.environ.get('MYSQL_PORT', '3306')),
+        database=required['MYSQL_DATABASE'],
+        query={'charset': 'utf8mb4'},
+    )
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 DB_DIR = os.path.join(BASE_DIR, 'database')
@@ -28,9 +47,9 @@ SQLITE_URL = 'sqlite:///' + SQLITE_PATH.replace('\\', '/')
 
 
 def main():
-    if not MYSQL_URL:
-        print('! Set MYSQL_URL to the source MySQL database first, e.g.')
-        print("  $env:MYSQL_URL = 'mysql+pymysql://root:PASSWORD@127.0.0.1/timetable_db'")
+    source_url = mysql_source_url()
+    if not source_url:
+        print('! Set MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, and MYSQL_DATABASE first.')
         return 1
 
     os.makedirs(DB_DIR, exist_ok=True)
@@ -46,10 +65,10 @@ def main():
     with app.app_context():
         metadata = db.metadata
 
-        source = create_engine(MYSQL_URL)
+        source = create_engine(source_url)
         target = create_engine(SQLITE_URL)
 
-        print(f'Source (MySQL) : {MYSQL_URL.split("@")[-1]}')
+        print('Source (MySQL) : configured securely through environment variables')
         print(f'Target (SQLite): {SQLITE_PATH}\n')
 
         # Build the full schema in SQLite from the model definitions.

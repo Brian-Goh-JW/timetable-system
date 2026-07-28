@@ -97,16 +97,23 @@ class ClassSession(db.Model):
         import re
         if not self.group_label or not re.match(r'^[A-Z]\d+$', self.group_label):
             return self.student_group.intake_size
-        from app.engine.solver import _weeks_overlap
+        from app.engine.solver import _parallel_section_alternatives
         siblings = ClassSession.query.filter_by(
             course_id=self.course_id, session_type=self.session_type,
             student_group_id=self.student_group_id,
         ).all()
-        concurrent = [
-            s for s in siblings
-            if s.group_label and re.match(r'^[A-Z]\d+$', s.group_label)
-            and (s.id == self.id or _weeks_overlap(self, s))
-        ]
+        # Count the connected parallel-section component.  This keeps a
+        # sequential P1/P2 pair at full cohort size while giving every member
+        # of a true P1/P2/P3 parallel set the same section capacity.
+        concurrent = [self]
+        pending = [self]
+        while pending:
+            current = pending.pop()
+            for sibling in siblings:
+                if (sibling not in concurrent
+                        and _parallel_section_alternatives(current, sibling)):
+                    concurrent.append(sibling)
+                    pending.append(sibling)
         if len(concurrent) < 2:
             return self.student_group.intake_size
         import math

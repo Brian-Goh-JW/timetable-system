@@ -11,10 +11,33 @@ from app.models.timeslot import TimeSlot
 from app.models.availability_declaration import AvailabilityDeclaration
 from app.models.timetable_flag import TimetableFlag
 from app.models.flag_response import FlagResponse
+from app.utils.timetable import overlapping_entry_ids, select_preferred_layer
 
 teacher_bp = Blueprint('teacher', __name__, url_prefix='/teacher')
 
 DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+
+
+def _teacher_timetable_uses_backbone(trimester, session_ids):
+    """Choose one published timetable layer for a professor.
+
+    Imported backbone rows and generated rows are alternative schedules. A
+    teacher can be assigned to sessions in both, but displaying both layers at
+    once creates duplicate classes and false professor clashes. Prefer the
+    published generated layer when it exists for this teacher and trimester;
+    otherwise retain the published backbone schedule as a fallback.
+    """
+    has_generated = (
+        db.session.query(TimetableEntry.id)
+        .filter(
+            TimetableEntry.class_session_id.in_(session_ids),
+            TimetableEntry.trimester == trimester,
+            TimetableEntry.is_published.is_(True),
+            TimetableEntry.is_backbone.is_(False),
+        )
+        .first()
+    )
+    return has_generated is None
 
 
 @teacher_bp.before_request
@@ -37,8 +60,9 @@ def dashboard():
     prof = current_user.professor_profile
 
     # Sessions this professor is assigned to (primary or co-teacher)
-    my_session_ids = db.session.query(ClassSessionProfessor.session_id)\
-        .filter_by(professor_id=prof.id).subquery()
+    my_session_ids = db.select(ClassSessionProfessor.session_id).where(
+        ClassSessionProfessor.professor_id == prof.id
+    )
 
     total_sessions = ClassSession.query.filter(ClassSession.id.in_(my_session_ids)).count()
 
@@ -94,8 +118,9 @@ def timetable():
     prof = current_user.professor_profile
 
     # Sessions this professor is assigned to (primary or co-teacher)
-    my_session_ids = db.session.query(ClassSessionProfessor.session_id)\
-        .filter_by(professor_id=prof.id).subquery()
+    my_session_ids = db.select(ClassSessionProfessor.session_id).where(
+        ClassSessionProfessor.professor_id == prof.id
+    )
 
     # All trimesters that have published entries for this professor
     trimesters = [
@@ -112,7 +137,6 @@ def timetable():
     ]
 
     active_trimester = request.args.get('trimester', trimesters[-1] if trimesters else '')
-
     # Fetch all published entries for this prof in the active trimester
     all_entries = (
         TimetableEntry.query
@@ -124,6 +148,7 @@ def timetable():
         )
         .all()
     )
+    all_entries = select_preferred_layer(all_entries)
 
     # Deduplicate: one row per class_session (recurring weekly slot)
     seen = set()
@@ -152,6 +177,7 @@ def timetable():
     current_cal_week = None
     prev_week_num    = None
     next_week_num    = None
+    conflicting_entry_ids = set()
 
     if active_trimester:
         calendar_weeks = (AcademicCalendar.query
@@ -183,8 +209,14 @@ def timetable():
                             )
                             .all())
 
+        week_entries_raw = select_preferred_layer(week_entries_raw)
+        conflicting_entry_ids = overlapping_entry_ids(week_entries_raw)
         week_grid = {day: {ts.period_label: [] for ts in period_slots} for day in DAYS_ALL}
+        seen_week_sessions = set()
         for entry in week_entries_raw:
+            if entry.class_session_id in seen_week_sessions:
+                continue
+            seen_week_sessions.add(entry.class_session_id)
             d = entry.timeslot.day_of_week
             p = entry.timeslot.period_label
             if d in week_grid and p in week_grid[d]:
@@ -204,6 +236,7 @@ def timetable():
         next_week_num=next_week_num,
         period_slots=period_slots,
         week_grid=week_grid,
+        conflicting_entry_ids=conflicting_entry_ids,
         days_all=DAYS_ALL,
     )
 
@@ -320,6 +353,11 @@ def flag_respond(flag_id):
     if flag.status == 'resolved':
         flash('This flag has already been resolved.', 'info')
         return redirect(url_for('teacher.flags'))
+    if FlagResponse.query.filter_by(
+        flag_id=flag.id, professor_id=prof.id
+    ).first() is not None:
+        flash('You have already responded to this flag.', 'info')
+        return redirect(url_for('teacher.flags'))
 
     response = request.form.get('response', '').strip()
     comments = request.form.get('comments', '').strip()
@@ -359,8 +397,8 @@ def flag_respond(flag_id):
             )
         else:
             flash(
-                'Response recorded. Admin notification email could not be sent '
-                f'(SMTP error: {error}). The admin will still see your response '
+                'Response recorded. Admin notification email could not be sent. '
+                'The admin will still see your response '
                 'on the Flags page.',
                 'warning'
             )

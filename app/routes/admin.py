@@ -2,7 +2,10 @@ import math
 import threading
 import uuid
 import time as _time
-from flask import Blueprint, render_template, redirect, url_for, flash, request, abort, jsonify
+from flask import (
+    Blueprint, render_template, redirect, url_for, flash, request, abort,
+    jsonify, current_app,
+)
 from flask_login import login_required, current_user
 from app import db
 from app.models.course import Course
@@ -59,6 +62,24 @@ def _load_solve_run(trimester):
         return json.loads(row.stats_json)
     except (TypeError, ValueError):
         return {}
+
+
+def _unpublish_affected_entries(entry_query):
+    """Unpublish complete trimesters touched by a data-definition change.
+
+    Showing the unaffected rows of a now-stale timetable would be more
+    misleading than hiding it. The next successful publish re-enables the
+    entire clean generated layer atomically.
+    """
+    trimesters = {
+        row[0] for row in entry_query.with_entities(TimetableEntry.trimester)
+        .distinct().all()
+    }
+    if trimesters:
+        TimetableEntry.query.filter(
+            TimetableEntry.trimester.in_(trimesters)
+        ).update({'is_published': False}, synchronize_session=False)
+    return sorted(trimesters)
 
 # Official SIT academic calendar - week 1 start dates (all Mondays).
 # Source: https://www.singaporetech.edu.sg/admissions/undergraduate/academic-calendar-sit-and-joint-programmes
@@ -272,6 +293,63 @@ def _recompute_group_labels(course_id, session_type):
             s.group_label = f'{letter}{i}'
 
 
+def _sync_course_split_sessions(course):
+    """Synchronise existing in-person session types to ``split_count``.
+
+    This is intentionally called only from write actions.  The former course
+    sessions GET page created/deleted records and committed merely by being
+    viewed, which made refreshes an unsafe hidden data mutation.
+    Returns ``(changed, trim_blocked)``; assigned/existing rows are never
+    deleted just to satisfy a lower split count.
+    """
+    from collections import defaultdict
+
+    target_count = (
+        course.split_count
+        if course.split_count and course.split_count > 0
+        else 1
+    )
+    type_counts = defaultdict(list)
+    for session in course.class_sessions:
+        if session.delivery_mode == 'f2f':
+            type_counts[session.session_type].append(session)
+
+    changed = False
+    trim_blocked = False
+    for session_type, sessions in type_counts.items():
+        sessions.sort(key=lambda session: session.id or 0)
+        while len(sessions) < target_count:
+            new_session = ClassSession(
+                course_id=course.id,
+                session_type=session_type,
+                delivery_mode='f2f',
+                duration_hours=sessions[0].duration_hours,
+                trimester=sessions[0].trimester or course.trimester,
+                teaching_weeks=sessions[0].teaching_weeks,
+                student_group_id=sessions[0].student_group_id,
+            )
+            db.session.add(new_session)
+            sessions.append(new_session)
+            changed = True
+
+        while len(sessions) > target_count:
+            last = sessions[-1]
+            if (not last.all_professor_ids
+                    and not last.student_group_id
+                    and not last.timetable_entries):
+                db.session.delete(last)
+                sessions.pop()
+                changed = True
+            else:
+                trim_blocked = True
+                break
+
+        db.session.flush()
+        _recompute_group_labels(course.id, session_type)
+
+    return changed, trim_blocked
+
+
 @admin_bp.route('/courses')
 @login_required
 def courses():
@@ -378,13 +456,35 @@ def course_edit(course_id):
                     flash('Split count must be a whole number of 1 or more.', 'danger')
                     return render_template('admin/course_edit.html', course=course)
 
+        split_changed = course.split_count != split_count
+        affected_trimesters = []
+        if split_changed:
+            affected_trimesters = _unpublish_affected_entries(
+                TimetableEntry.query.join(TimetableEntry.class_session).filter(
+                    ClassSession.course_id == course.id
+                )
+            )
+
         course.title = title
         course.remarks = remarks or None
         course.split_count = split_count
         course.official_year_range = official_year_range or None
+        _, trim_blocked = _sync_course_split_sessions(course) if split_changed else (False, False)
         db.session.commit()
 
         flash(f'{course.module_code} updated successfully.', 'success')
+        if trim_blocked:
+            flash(
+                'Some assigned session rows could not be removed. Clear their '
+                'assignments/timetable entries before reducing the split count.',
+                'warning',
+            )
+        if affected_trimesters:
+            flash(
+                'Published timetable hidden pending revalidation: '
+                + ', '.join(affected_trimesters),
+                'warning',
+            )
         return redirect(url_for('admin.courses'))
 
     return render_template('admin/course_edit.html', course=course)
@@ -461,7 +561,7 @@ def course_import():
     import pandas as pd
 
     file = request.files.get('file')
-    if not file or not file.filename.endswith(('.xlsx', '.xls')):
+    if not file or not file.filename.lower().endswith(('.xlsx', '.xls')):
         flash('Please upload a valid Excel file (.xlsx or .xls).', 'danger')
         return redirect(url_for('admin.courses'))
 
@@ -555,17 +655,47 @@ def course_import():
             flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
         return redirect(url_for('admin.courses'))
 
+    split_changed_course_ids = {
+        r['existing'].id
+        for r in rows
+        if r['existing'].split_count != r['split_count']
+    }
+    affected_trimesters = []
+    if split_changed_course_ids:
+        affected_trimesters = _unpublish_affected_entries(
+            TimetableEntry.query.join(TimetableEntry.class_session).filter(
+                ClassSession.course_id.in_(split_changed_course_ids)
+            )
+        )
+
     updated = 0
+    trim_blocked_codes = []
     for r in rows:
         course = r['existing']
         course.title = r['title']
         course.split_count = r['split_count']
         course.official_year_range = r['official_year_range']
         course.remarks = r['remarks']
+        if course.id in split_changed_course_ids:
+            _, trim_blocked = _sync_course_split_sessions(course)
+            if trim_blocked:
+                trim_blocked_codes.append(course.module_code)
         updated += 1
 
     db.session.commit()
     flash(f'Import complete - {updated} module(s) updated.', 'success')
+    if trim_blocked_codes:
+        flash(
+            'Assigned session rows were preserved despite lower split counts: '
+            + ', '.join(sorted(set(trim_blocked_codes))),
+            'warning',
+        )
+    if affected_trimesters:
+        flash(
+            'Published timetable hidden pending revalidation: '
+            + ', '.join(affected_trimesters),
+            'warning',
+        )
     return redirect(url_for('admin.courses'))
 
 
@@ -598,7 +728,10 @@ def professor_add():
         if not email:      errors.append('Email is required.')
         if not staff_id:   errors.append('Staff ID is required.')
         if not department: errors.append('Department is required.')
-        if not password:   errors.append('Temporary password is required.')
+        if not password:
+            errors.append('Temporary password is required.')
+        elif len(password) < 8:
+            errors.append('Temporary password must be at least 8 characters.')
 
         if User.query.filter_by(email=email).first():
             errors.append('An account with this email already exists.')
@@ -646,6 +779,8 @@ def professor_edit(professor_id):
         if not email:      errors.append('Email is required.')
         if not staff_id:   errors.append('Staff ID is required.')
         if not department: errors.append('Department is required.')
+        if new_password and len(new_password) < 8:
+            errors.append('New password must be at least 8 characters.')
 
         existing_email = User.query.filter_by(email=email).first()
         if existing_email and existing_email.id != user.id:
@@ -738,7 +873,7 @@ def professor_import():
     import pandas as pd
 
     file = request.files.get('file')
-    if not file or not file.filename.endswith(('.xlsx', '.xls')):
+    if not file or not file.filename.lower().endswith(('.xlsx', '.xls')):
         flash('Please upload a valid Excel file (.xlsx or .xls).', 'danger')
         return redirect(url_for('admin.professors'))
 
@@ -756,7 +891,7 @@ def professor_import():
         return redirect(url_for('admin.professors'))
 
     existing_by_staff_id = {p.staff_id: p for p in Professor.query.join(Professor.user).all()}
-    existing_by_email = {p.user.email.lower(): p for p in Professor.query.join(Professor.user).all()}
+    existing_users_by_email = {user.email.lower(): user for user in User.query.all()}
 
     rows = []
     errors = []
@@ -797,12 +932,15 @@ def professor_import():
         is_new = existing_prof is None
 
         if email:
-            email_owner = existing_by_email.get(email)
-            if email_owner and (is_new or email_owner.id != existing_prof.id):
-                row_errors.append(f'Email is already used by another professor ({email_owner.staff_id})')
+            email_owner = existing_users_by_email.get(email)
+            expected_user_id = existing_prof.user_id if existing_prof else None
+            if email_owner and email_owner.id != expected_user_id:
+                row_errors.append('Email is already used by another account')
 
         if is_new and not temp_password:
             row_errors.append('Temporary Password is required for a new Staff ID')
+        elif temp_password and len(temp_password) < 8:
+            row_errors.append('Temporary Password must be at least 8 characters')
 
         if row_errors:
             errors.append(f'Row {excel_row} (Staff ID "{staff_id or "?"}"): ' + '; '.join(row_errors))
@@ -875,7 +1013,10 @@ def student_add():
         errors = []
         if not name:     errors.append('Full name is required.')
         if not email:    errors.append('Email address is required.')
-        if not password: errors.append('Password is required.')
+        if not password:
+            errors.append('Password is required.')
+        elif len(password) < 8:
+            errors.append('Password must be at least 8 characters.')
 
         if email and User.query.filter_by(email=email).first():
             errors.append(f'An account with email {email} already exists.')
@@ -927,6 +1068,8 @@ def student_edit(user_id):
         errors = []
         if not name:  errors.append('Full name is required.')
         if not email: errors.append('Email address is required.')
+        if password and len(password) < 8:
+            errors.append('Password must be at least 8 characters.')
 
         existing = User.query.filter_by(email=email).first()
         if existing and existing.id != student.id:
@@ -1070,6 +1213,9 @@ def room_edit(room_id):
                 flash(e, 'danger')
             return render_template('admin/room_edit.html', room=room)
 
+        affected_trimesters = _unpublish_affected_entries(
+            TimetableEntry.query.filter_by(room_id=room.id)
+        )
         room.room_code = room_code
         room.building  = building
         room.capacity  = capacity
@@ -1077,6 +1223,12 @@ def room_edit(room_id):
         db.session.commit()
 
         flash(f'Room {room_code} updated successfully.', 'success')
+        if affected_trimesters:
+            flash(
+                'Published timetable hidden pending revalidation: '
+                + ', '.join(affected_trimesters),
+                'warning',
+            )
         return redirect(url_for('admin.rooms'))
 
     return render_template('admin/room_edit.html', room=room)
@@ -1086,10 +1238,19 @@ def room_edit(room_id):
 @login_required
 def room_toggle(room_id):
     room = Room.query.get_or_404(room_id)
+    affected_trimesters = _unpublish_affected_entries(
+        TimetableEntry.query.filter_by(room_id=room.id)
+    )
     room.is_active = not room.is_active
     db.session.commit()
     status = 'activated' if room.is_active else 'deactivated'
     flash(f'Room {room.room_code} {status}.', 'info')
+    if affected_trimesters:
+        flash(
+            'Published timetable hidden pending revalidation: '
+            + ', '.join(affected_trimesters),
+            'warning',
+        )
     return redirect(url_for('admin.rooms', building=request.form.get('building', '')))
 
 
@@ -1181,7 +1342,7 @@ def room_import():
     import pandas as pd
 
     file = request.files.get('file')
-    if not file or not file.filename.endswith(('.xlsx', '.xls')):
+    if not file or not file.filename.lower().endswith(('.xlsx', '.xls')):
         flash('Please upload a valid Excel file (.xlsx or .xls).', 'danger')
         return redirect(url_for('admin.rooms'))
 
@@ -1254,6 +1415,11 @@ def room_import():
             flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
         return redirect(url_for('admin.rooms'))
 
+    affected_room_ids = [r['existing'].id for r in rows if r['existing']]
+    affected_trimesters = _unpublish_affected_entries(
+        TimetableEntry.query.filter(TimetableEntry.room_id.in_(affected_room_ids))
+    ) if affected_room_ids else []
+
     created = updated = 0
     for r in rows:
         if r['existing']:
@@ -1270,6 +1436,12 @@ def room_import():
 
     db.session.commit()
     flash(f'Import complete - {created} room(s) added, {updated} updated.', 'success')
+    if affected_trimesters:
+        flash(
+            'Published timetable hidden pending revalidation: '
+            + ', '.join(affected_trimesters),
+            'warning',
+        )
     return redirect(url_for('admin.rooms'))
 
 
@@ -1377,9 +1549,21 @@ def student_group_edit(group_id):
                 flash(e, 'danger')
             return render_template('admin/student_group_edit.html', group=group)
 
+        affected_group_ids = [group.id] + [sub.id for sub in group.sub_groups]
+        affected_trimesters = _unpublish_affected_entries(
+            TimetableEntry.query.join(TimetableEntry.class_session).filter(
+                ClassSession.student_group_id.in_(affected_group_ids)
+            )
+        )
         group.intake_size = intake_size
         db.session.commit()
         flash(f'Group {group.group_label} updated successfully.', 'success')
+        if affected_trimesters:
+            flash(
+                'Published timetable hidden pending revalidation: '
+                + ', '.join(affected_trimesters),
+                'warning',
+            )
         return redirect(url_for('admin.student_groups'))
 
     return render_template('admin/student_group_edit.html', group=group)
@@ -1393,10 +1577,13 @@ def student_group_generate(group_id):
 
     try:
         num = int(num_raw)
-        if num < 2:
+        if num < 2 or num > 26 or num > parent.intake_size:
             raise ValueError
     except (ValueError, TypeError):
-        flash('Number of sub-groups must be 2 or more.', 'danger')
+        flash(
+            'Number of sub-groups must be between 2 and 26 and cannot exceed the cohort size.',
+            'danger',
+        )
         return redirect(url_for('admin.student_groups'))
 
     # Guard: refuse if existing sub-groups already have sessions assigned (would cause FK violation)
@@ -1414,19 +1601,30 @@ def student_group_generate(group_id):
                 'danger'
             )
             return redirect(url_for('admin.student_groups'))
+        assigned_student = User.query.filter(
+            User.role == 'student', User.student_group_id.in_(sub_ids)
+        ).first()
+        if assigned_student:
+            flash(
+                f'Cannot regenerate sub-groups for {parent.group_label} - '
+                'student accounts are still assigned to an existing sub-group. '
+                'Reassign those students first.',
+                'danger',
+            )
+            return redirect(url_for('admin.student_groups'))
 
     # Delete existing sub-groups for this parent before regenerating
     StudentGroup.query.filter_by(parent_id=parent.id).delete()
 
-    sub_size = math.ceil(parent.intake_size / num)
     labels = [chr(65 + i) for i in range(num)]   # A, B, C, ...
+    base_size, remainder = divmod(parent.intake_size, num)
 
-    for label in labels:
+    for index, label in enumerate(labels):
         db.session.add(StudentGroup(
             programme_id=parent.programme_id,
             year_level=parent.year_level,
             group_label=f'{parent.group_label}-{label}',
-            intake_size=sub_size,
+            intake_size=base_size + (1 if index < remainder else 0),
             parent_id=parent.id,
         ))
 
@@ -1451,6 +1649,16 @@ def student_group_delete(group_id):
             f'it or its sub-groups have sessions assigned. '
             f'Clear all session assignments first.',
             'danger'
+        )
+        return redirect(url_for('admin.student_groups'))
+    assigned_student = User.query.filter(
+        User.role == 'student', User.student_group_id.in_(all_ids)
+    ).first()
+    if assigned_student:
+        flash(
+            f'Group {group.group_label} cannot be deleted - student accounts '
+            'are still assigned to it or one of its sub-groups.',
+            'danger',
         )
         return redirect(url_for('admin.student_groups'))
 
@@ -1532,7 +1740,7 @@ def student_group_import():
     import pandas as pd
 
     file = request.files.get('file')
-    if not file or not file.filename.endswith(('.xlsx', '.xls')):
+    if not file or not file.filename.lower().endswith(('.xlsx', '.xls')):
         flash('Please upload a valid Excel file (.xlsx or .xls).', 'danger')
         return redirect(url_for('admin.student_groups'))
 
@@ -1636,6 +1844,13 @@ def student_group_import():
             flash(f'...and {len(errors) - 15} more. Fix these and re-upload the whole file.', 'warning')
         return redirect(url_for('admin.student_groups'))
 
+    affected_group_ids = [r['existing'].id for r in rows if not r['is_new']]
+    affected_trimesters = _unpublish_affected_entries(
+        TimetableEntry.query.join(TimetableEntry.class_session).filter(
+            ClassSession.student_group_id.in_(affected_group_ids)
+        )
+    ) if affected_group_ids else []
+
     created = updated = 0
     for r in rows:
         if r['is_new']:
@@ -1650,6 +1865,12 @@ def student_group_import():
 
     db.session.commit()
     flash(f'Import complete - {created} group(s) added, {updated} updated.', 'success')
+    if affected_trimesters:
+        flash(
+            'Published timetable hidden pending revalidation: '
+            + ', '.join(affected_trimesters),
+            'warning',
+        )
     return redirect(url_for('admin.student_groups'))
 
 
@@ -1662,54 +1883,6 @@ def student_group_import():
 def course_sessions(course_id):
     course = Course.query.get_or_404(course_id)
 
-    # Sync f2f session count to split_count (expand up or trim down).
-    from collections import defaultdict
-    target_count = course.split_count if course.split_count and course.split_count > 0 else 1
-    f2f_sessions = [s for s in course.class_sessions if s.delivery_mode == 'f2f']
-    type_counts = defaultdict(list)
-    for s in f2f_sessions:
-        type_counts[s.session_type].append(s)
-
-    changed = False
-    for stype, sessions in type_counts.items():
-        # Expand: create sessions if below target
-        while len(sessions) < target_count:
-            new_session = ClassSession(
-                course_id=course.id,
-                session_type=stype,
-                delivery_mode='f2f',
-                duration_hours=sessions[0].duration_hours,
-                student_group_id=None,
-            )
-            db.session.add(new_session)
-            sessions.append(new_session)
-            changed = True
-
-        # Trim: remove excess sessions if above target.
-        # Only removes sessions that are fully unassigned with no timetable entries.
-        while len(sessions) > target_count:
-            last = sessions[-1]
-            if not last.all_professor_ids and not last.student_group_id and not last.timetable_entries:
-                db.session.delete(last)
-                sessions.pop()
-                changed = True
-            else:
-                break  # Leave assigned sessions alone - admin must clear them manually
-
-    if changed:
-        db.session.flush()
-
-    # Keep Template 2's "Group" column correct for every session type this
-    # module has - not just the f2f ones the split-sync above touches -
-    # since stale/garbage values from before this logic existed need fixing
-    # too, and this keeps it correct every time this page loads.
-    all_types = {s.session_type for s in
-                 ClassSession.query.filter_by(course_id=course.id).all()}
-    for stype in all_types:
-        _recompute_group_labels(course.id, stype)
-    db.session.commit()
-
-    # Reload sessions after potential expansion
     sessions = (ClassSession.query
                 .filter_by(course_id=course_id)
                 .order_by(ClassSession.delivery_mode, ClassSession.session_type)
@@ -1781,14 +1954,26 @@ def course_session_add(course_id):
         flash(f'{course.module_code} already has a {session_type} session.', 'warning')
         return redirect(url_for('admin.course_sessions', course_id=course.id))
 
+    affected_trimesters = _unpublish_affected_entries(
+        TimetableEntry.query.join(TimetableEntry.class_session).filter(
+            ClassSession.course_id == course.id
+        )
+    )
     db.session.add(ClassSession(
         course_id=course.id, session_type=session_type,
         delivery_mode=session_delivery_mode, duration_hours=int(duration_raw),
+        trimester=course.trimester,
     ))
     db.session.flush()
     _recompute_group_labels(course.id, session_type)
     db.session.commit()
     flash(f'{session_type.capitalize()} session added to {course.module_code}.', 'success')
+    if affected_trimesters:
+        flash(
+            'Published timetable hidden pending revalidation: '
+            + ', '.join(affected_trimesters),
+            'warning',
+        )
     return redirect(url_for('admin.course_sessions', course_id=course.id))
 
 
@@ -1862,6 +2047,11 @@ def session_assign(course_id, session_id):
             flash(e, 'danger')
         return redirect(url_for('admin.course_sessions', course_id=course_id))
 
+    affected_trimesters = _unpublish_affected_entries(
+        TimetableEntry.query.join(TimetableEntry.class_session).filter(
+            ClassSession.course_id == course_id
+        )
+    )
     session.student_group_id  = group_id
     session.fixed_timeslot_id = fixed_ts_id
 
@@ -1883,6 +2073,12 @@ def session_assign(course_id, session_id):
 
     db.session.commit()
     flash('Session updated.', 'success')
+    if affected_trimesters:
+        flash(
+            'Published timetable hidden pending revalidation: '
+            + ', '.join(affected_trimesters),
+            'warning',
+        )
     return redirect(url_for('admin.course_sessions', course_id=course_id))
 
 
@@ -1964,51 +2160,98 @@ def _parse_id(raw, label):
     return n, None
 
 
+def _entry_professor_ids(class_session, override_professor_id=None):
+    """Professor ids teaching one entry after applying a primary override."""
+    professor_ids = set(class_session.all_professor_ids)
+    if override_professor_id is not None:
+        professor_ids.discard(class_session.primary_professor_id)
+        professor_ids.add(override_professor_id)
+    return professor_ids
+
+
+def _manual_room_error(class_session, room_id):
+    """Return a hard-validation error for a proposed manual room."""
+    from app.engine.solver import _room_compatible
+
+    if class_session.delivery_mode == 'online':
+        return 'Online sessions cannot be assigned a physical room.' if room_id else None
+    if room_id is None:
+        return 'In-person sessions require a room.'
+    room = db.session.get(Room, room_id)
+    if room is None or not room.is_active:
+        return 'That room does not exist or is inactive - please pick another.'
+    if not _room_compatible(room, class_session):
+        return (
+            f'{room.room_code} is the wrong type or too small for this session '
+            f'(required group size: {class_session.effective_group_size}).'
+        )
+    return None
+
+
 def _check_week_conflicts(week_number, trimester, timeslot_id,
                           room_id, professor_id, student_group_id,
-                          exclude_entry_id=None):
+                          exclude_entry_id=None, professor_ids=None,
+                          class_session=None):
     """
     Check if placing a session at (week_number, timeslot_id) causes double-bookings.
     Returns a list of human-readable conflict strings. Empty list = no conflicts.
     """
-    from app.engine.solver import _conflicting_group_ids
+    from app.engine.solver import (
+        _conflicting_group_ids,
+        _sessions_share_students,
+        _timeslots_overlap,
+    )
     conflicts = []
+
+    candidate_slot = db.session.get(TimeSlot, timeslot_id)
+    if candidate_slot is None:
+        return ['The selected timeslot no longer exists.']
+    candidate_professor_ids = set(professor_ids or ())
+    if professor_id is not None:
+        candidate_professor_ids.add(professor_id)
 
     q = (TimetableEntry.query
          .filter_by(trimester=trimester,
-                    week_number=week_number,
-                    timeslot_id=timeslot_id))
+                    week_number=week_number))
     if exclude_entry_id:
         q = q.filter(TimetableEntry.id != exclude_entry_id)
     competing = q.all()
 
     for other in competing:
-        other_prof = other.effective_professor
-        other_prof_id   = other_prof.id if other_prof else None
+        if not _timeslots_overlap(candidate_slot, other.timeslot):
+            continue
+        other_professor_ids = _entry_professor_ids(
+            other.class_session, other.override_professor_id
+        )
         other_group_id  = other.class_session.student_group_id
 
-        if professor_id and other_prof_id == professor_id:
+        if candidate_professor_ids & other_professor_ids:
             conflicts.append(
                 f'Professor double-booking: already assigned to '
                 f'{other.class_session.course.module_code} '
                 f'({other.class_session.session_type}) '
-                f'at this slot in Week {week_number}.'
+                f'in an overlapping time in Week {week_number}.'
             )
 
         if room_id and other.room_id and other.room_id == room_id:
             conflicts.append(
                 f'Room double-booking: {other.room.room_code} is already used by '
                 f'{other.class_session.course.module_code} '
-                f'at this slot in Week {week_number}.'
+                f'in an overlapping time in Week {week_number}.'
             )
 
         if student_group_id and other_group_id:
-            if other_group_id in _conflicting_group_ids(student_group_id):
+            shares_students = (
+                _sessions_share_students(class_session, other.class_session)
+                if class_session is not None
+                else other_group_id in _conflicting_group_ids(student_group_id)
+            )
+            if shares_students:
                 other_label = other.class_session.student_group.group_label
                 conflicts.append(
                     f'Student group double-booking: {other_label} is already in '
                     f'{other.class_session.course.module_code} '
-                    f'at this slot in Week {week_number}.'
+                    f'in an overlapping time in Week {week_number}.'
                 )
 
     return conflicts
@@ -2071,17 +2314,19 @@ def timetable_edit_entry(entry_id):
     all_ts.sort(key=lambda ts: (DAY_ORDER.index(ts.day_of_week), ts.start_time))
     compat_slots = [ts for ts in all_ts if _slot_ok(ts, session)]
 
-    all_rooms   = Room.query.filter_by(is_active=True).order_by(Room.room_code).all()
+    from app.engine.solver import _room_compatible
+    all_rooms = [
+        room for room in Room.query.filter_by(is_active=True).order_by(Room.room_code).all()
+        if session.delivery_mode == 'f2f' and _room_compatible(room, session)
+    ]
     professors  = Professor.query.join(Professor.user).order_by(User.name).all()
 
     conflicts   = []
-    force_save  = False
 
     if request.method == 'POST':
         new_ts_id_raw   = request.form.get('timeslot_id', '').strip()
         new_room_id_raw = request.form.get('room_id', '').strip()
         new_prof_id_raw = request.form.get('professor_id', '').strip()
-        force_save      = request.form.get('force_save') == '1'
 
         errors = []
         if not new_ts_id_raw:
@@ -2106,24 +2351,27 @@ def timetable_edit_entry(entry_id):
                     f'{new_ts.day_of_week} {new_ts.period_label} does not match this '
                     f'session\'s duration/type - it cannot be used here.'
                 )
-            if new_room_id is not None and Room.query.get(new_room_id) is None:
-                errors.append('That room no longer exists - please pick another.')
+            room_error = _manual_room_error(session, new_room_id)
+            if room_error:
+                errors.append(room_error)
             if new_prof_id is not None and Professor.query.get(new_prof_id) is None:
                 errors.append('That professor no longer exists - please pick another.')
 
         if not errors:
-            if not force_save:
-                conflicts = _check_week_conflicts(
-                    week_number      = entry.week_number,
-                    trimester        = entry.trimester,
-                    timeslot_id      = new_ts_id,
-                    room_id          = new_room_id,
-                    professor_id     = new_prof_id,
-                    student_group_id = session.student_group_id,
-                    exclude_entry_id = entry.id,
-                )
+            candidate_professors = _entry_professor_ids(session, new_prof_id)
+            conflicts = _check_week_conflicts(
+                week_number      = entry.week_number,
+                trimester        = entry.trimester,
+                timeslot_id      = new_ts_id,
+                room_id          = new_room_id,
+                professor_id     = None,
+                professor_ids    = candidate_professors,
+                student_group_id = session.student_group_id,
+                exclude_entry_id = entry.id,
+                class_session     = session,
+            )
 
-            if not conflicts or force_save:
+            if not conflicts:
                 # Build audit values
                 old_ts_obj  = entry.timeslot
                 new_ts_obj  = TimeSlot.query.get(new_ts_id)
@@ -2193,19 +2441,21 @@ def timetable_edit_all_weeks(trimester, session_id):
     all_ts.sort(key=lambda ts: (DAY_ORDER.index(ts.day_of_week), ts.start_time))
     compat_slots = [ts for ts in all_ts if _slot_ok(ts, session)]
 
-    all_rooms  = Room.query.filter_by(is_active=True).order_by(Room.room_code).all()
+    from app.engine.solver import _room_compatible
+    all_rooms = [
+        room for room in Room.query.filter_by(is_active=True).order_by(Room.room_code).all()
+        if session.delivery_mode == 'f2f' and _room_compatible(room, session)
+    ]
     professors = Professor.query.join(Professor.user).order_by(User.name).all()
 
     # Use first entry as the representative current values
     rep         = entries[0]
     conflicts   = []
-    force_save  = False
 
     if request.method == 'POST':
         new_ts_id_raw   = request.form.get('timeslot_id', '').strip()
         new_room_id_raw = request.form.get('room_id', '').strip()
         new_prof_id_raw = request.form.get('professor_id', '').strip()
-        force_save      = request.form.get('force_save') == '1'
 
         errors = []
         if not new_ts_id_raw:
@@ -2230,26 +2480,29 @@ def timetable_edit_all_weeks(trimester, session_id):
                     f'{new_ts.day_of_week} {new_ts.period_label} does not match this '
                     f'session\'s duration/type - it cannot be used here.'
                 )
-            if new_room_id is not None and Room.query.get(new_room_id) is None:
-                errors.append('That room no longer exists - please pick another.')
+            room_error = _manual_room_error(session, new_room_id)
+            if room_error:
+                errors.append(room_error)
             if new_prof_id is not None and Professor.query.get(new_prof_id) is None:
                 errors.append('That professor no longer exists - please pick another.')
 
         if not errors:
-            if not force_save:
-                for e in entries:
-                    week_conflicts = _check_week_conflicts(
-                        week_number      = e.week_number,
-                        trimester        = trimester,
-                        timeslot_id      = new_ts_id,
-                        room_id          = new_room_id,
-                        professor_id     = new_prof_id,
-                        student_group_id = session.student_group_id,
-                        exclude_entry_id = e.id,
-                    )
-                    conflicts.extend(week_conflicts)
+            candidate_professors = _entry_professor_ids(session, new_prof_id)
+            for e in entries:
+                week_conflicts = _check_week_conflicts(
+                    week_number      = e.week_number,
+                    trimester        = trimester,
+                    timeslot_id      = new_ts_id,
+                    room_id          = new_room_id,
+                    professor_id     = None,
+                    professor_ids    = candidate_professors,
+                    student_group_id = session.student_group_id,
+                    exclude_entry_id = e.id,
+                    class_session     = session,
+                )
+                conflicts.extend(week_conflicts)
 
-            if not conflicts or force_save:
+            if not conflicts:
                 old_ts_obj   = rep.timeslot
                 new_ts_obj   = TimeSlot.query.get(new_ts_id)
                 old_room_obj = rep.room
@@ -2446,8 +2699,7 @@ def flag_notify(flag_id):
         flash(
             f'Deadline saved but email could not be sent to '
             f'{flag.professor.user.name}. '
-            f'SMTP error: {error}. '
-            f'Please check your email configuration in config.py.',
+            'Please check the server email configuration.',
             'danger'
         )
 
@@ -3651,6 +3903,9 @@ def import_template1():
     if not file or not file.filename:
         flash('Please select a file.', 'danger')
         return render_template('admin/import_template1.html', trimester=trimester)
+    if not file.filename.lower().endswith(('.xlsx', '.xls')):
+        flash('Please upload a valid Excel file (.xlsx or .xls).', 'danger')
+        return render_template('admin/import_template1.html', trimester=trimester)
 
     token = str(uuid.uuid4())
     fpath = os.path.join(UPLOAD_DIR, f'{token}.xlsx')
@@ -3716,10 +3971,513 @@ def _purge_old_tasks():
         _solver_tasks.pop(tid, None)
 
 
+def _audit_generated_hard_conflicts(entries):
+    """Return hard room/professor/group clashes in generated entry rows."""
+    from collections import defaultdict
+    from datetime import timedelta
+    from app.models.academic_calendar import AcademicCalendar
+    from app.models.event import Event
+    from app.engine.solver import (
+        _get_sg_holidays,
+        _room_compatible,
+        _sessions_share_students,
+        _slot_compatible,
+        _timeslots_overlap,
+    )
+
+    by_week = defaultdict(list)
+    for entry in entries:
+        by_week[entry.week_number].append(entry)
+
+    conflicts = []
+    seen = set()
+    entry_trimesters = {entry.trimester for entry in entries}
+    calendars = AcademicCalendar.query.filter(
+        AcademicCalendar.trimester.in_(entry_trimesters)
+    ).all() if entry_trimesters else []
+    calendar_by_key = {
+        (calendar.trimester, calendar.week_number): calendar
+        for calendar in calendars
+    }
+    holidays_by_trimester = {}
+    for trimester in entry_trimesters:
+        trimester_weeks = [
+            calendar for calendar in calendars
+            if calendar.trimester == trimester and not calendar.is_term_break
+        ]
+        holidays_by_trimester[trimester] = (
+            _get_sg_holidays(
+                min(week.start_date for week in trimester_weeks),
+                max(week.end_date for week in trimester_weeks),
+            )
+            if trimester_weeks else set()
+        )
+    cancel_events = Event.query.filter(Event.outcome == 'cancel').all()
+    day_offset = {
+        'Monday': 0, 'Tuesday': 1, 'Wednesday': 2,
+        'Thursday': 3, 'Friday': 4,
+    }
+    session_week_keys = set()
+
+    for entry in entries:
+        session = entry.class_session
+        module_code = session.course.module_code
+        calendar = calendar_by_key.get((entry.trimester, entry.week_number))
+        if calendar is None:
+            conflicts.append(
+                f'{module_code} Week {entry.week_number} has no academic calendar row.'
+            )
+            continue
+        if calendar.is_term_break:
+            conflicts.append(
+                f'{module_code} is scheduled during term-break Week {entry.week_number}.'
+            )
+        if session.teaching_weeks:
+            try:
+                allowed_weeks = {
+                    int(part.strip()) for part in session.teaching_weeks.split(',')
+                    if part.strip()
+                }
+            except ValueError:
+                allowed_weeks = set()
+            if entry.week_number not in allowed_weeks:
+                conflicts.append(
+                    f'{module_code} is scheduled outside its teaching weeks '
+                    f'(Week {entry.week_number}).'
+                )
+
+        if entry.timeslot and entry.timeslot.day_of_week in day_offset:
+            session_date = calendar.start_date + timedelta(
+                days=day_offset[entry.timeslot.day_of_week]
+            )
+            if session_date in holidays_by_trimester.get(entry.trimester, set()):
+                conflicts.append(
+                    f'{module_code} is scheduled on public holiday {session_date.isoformat()}.'
+                )
+            for event in cancel_events:
+                if event.event_date != session_date:
+                    continue
+                if event.trimester is not None and event.trimester != session.trimester:
+                    continue
+                if (event.academic_year is not None
+                        and event.academic_year != entry.academic_year):
+                    continue
+                blocked_slots = set(event.blocked_timeslot_ids)
+                if event.is_full_day or entry.timeslot_id in blocked_slots:
+                    conflicts.append(
+                        f'{module_code} is scheduled during cancelled event '
+                        f'{event.name} on {session_date.isoformat()}.'
+                    )
+                    break
+
+        session_week_key = (entry.class_session_id, entry.week_number)
+        if session_week_key in session_week_keys:
+            conflicts.append(
+                f'{module_code} has duplicate generated rows in Week {entry.week_number}.'
+            )
+        session_week_keys.add(session_week_key)
+
+    representative_entries = {}
+    shared_sizes = defaultdict(int)
+    for entry in entries:
+        representative_entries.setdefault(entry.class_session_id, entry)
+    for entry in representative_entries.values():
+        session = entry.class_session
+        if session.shared_module_group_id and session.student_group:
+            shared_sizes[session.shared_module_group_id] += session.effective_group_size
+
+    for entry in representative_entries.values():
+        session = entry.class_session
+        if not _slot_compatible(entry.timeslot, session):
+            conflicts.append(
+                f'{session.course.module_code} uses a timeslot with the wrong duration.'
+            )
+        if session.delivery_mode == 'f2f':
+            size_override = shared_sizes.get(session.shared_module_group_id)
+            if entry.room is None:
+                conflicts.append(
+                    f'{session.course.module_code} is in-person but has no room.'
+                )
+            elif not _room_compatible(entry.room, session, size_override):
+                conflicts.append(
+                    f'{session.course.module_code} uses an incompatible or undersized room.'
+                )
+        elif entry.room_id is not None:
+            conflicts.append(
+                f'{session.course.module_code} is online but has a physical room.'
+            )
+
+    for week_number, week_entries in by_week.items():
+        for i, left in enumerate(week_entries):
+            for right in week_entries[i + 1:]:
+                if not _timeslots_overlap(left.timeslot, right.timeslot):
+                    continue
+                left_session = left.class_session
+                right_session = right.class_session
+                if (left_session.shared_module_group_id
+                        and left_session.shared_module_group_id
+                        == right_session.shared_module_group_id):
+                    continue
+
+                kinds = []
+                if left.room_id and left.room_id == right.room_id:
+                    kinds.append('room')
+                left_professor_ids = _entry_professor_ids(
+                    left_session, left.override_professor_id
+                )
+                right_professor_ids = _entry_professor_ids(
+                    right_session, right.override_professor_id
+                )
+                if left_professor_ids & right_professor_ids:
+                    kinds.append('professor')
+                if _sessions_share_students(left_session, right_session):
+                    kinds.append('student group')
+
+                for kind in kinds:
+                    key = (kind, week_number, left_session.id, right_session.id)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    conflicts.append(
+                        f'Week {week_number} {kind} clash: '
+                        f'{left_session.course.module_code} and '
+                        f'{right_session.course.module_code}.'
+                    )
+    return conflicts
+
+
+def _solve_programme_batches(trimester, start_date, term_break_weeks,
+                             trimester_num, academic_year, pinned_slots=None,
+                             historical_preferred=None, progress=None,
+                             batch_time_limit=45):
+    """Generate atomically in complete programme components.
+
+    Each programme contributes all of its in-scope sessions or none. Programmes
+    connected by SharedModuleGroup are solved together. Successful components
+    are written to a unique staging trimester and treated as fixed occupancy by
+    later components; only after the run finishes are staged rows swapped into
+    the requested trimester.
+    """
+    from app.engine.checker import get_blocking_issues
+    from app.engine.solver import solve as _solve, _programme_session_components
+    from app.models.academic_calendar import AcademicCalendar
+    from app.models.flag_response import FlagResponse
+
+    all_sessions = (ClassSession.query
+                    .join(ClassSession.course)
+                    .filter(
+                        ClassSession.trimester == trimester_num,
+                        ClassSession.deferred_from_solve.is_(False),
+                    )
+                    .all())
+    active_course_ids = {session.course_id for session in all_sessions}
+    components = _programme_session_components(all_sessions)
+    if not components:
+        return False, 'No sessions are available for this trimester.', {}
+
+    staging_trimester = f'STG{uuid.uuid4().hex[:8]}T{trimester_num}'
+
+    def _cleanup_staging():
+        TimetableEntry.query.filter_by(trimester=staging_trimester).delete(
+            synchronize_session=False
+        )
+        AcademicCalendar.query.filter_by(trimester=staging_trimester).delete(
+            synchronize_session=False
+        )
+        db.session.commit()
+
+    successful = []
+    excluded = []
+    batch_results = []
+    aggregate_preferred_violations = []
+    aggregate_warnings = []
+
+    try:
+        for index, component in enumerate(components, start=1):
+            codes = component['programme_codes']
+            label = '+'.join(codes)
+            if progress:
+                progress(
+                    f'Solving programme batch {index}/{len(components)}: {label} '
+                    f'({len(component["session_ids"])} sessions)â€¦'
+                )
+
+            # A programme is only eligible when every one of its trimester
+            # modules has at least one in-scope session definition. Otherwise
+            # including its remaining modules would create exactly the partial
+            # programme output this batching strategy promises to prevent.
+            component_courses = (Course.query
+                                 .filter(
+                                     Course.trimester == trimester_num,
+                                     Course.programme_id.in_(component['programme_ids']),
+                                 )
+                                 .all())
+            missing_module_codes = sorted({
+                course.module_code for course in component_courses
+                if course.id not in active_course_ids
+            })
+            if missing_module_codes:
+                excluded.append({
+                    'programmes': codes,
+                    'session_count': len(component['session_ids']),
+                    'reason': (
+                        'Programme omitted because these modules have no in-scope '
+                        'session definitions: ' + ', '.join(missing_module_codes)
+                    ),
+                })
+                continue
+
+            blockers, warnings = get_blocking_issues(
+                trimester_num=trimester_num,
+                programme_ids=component['programme_ids'],
+            )
+            aggregate_warnings.extend(f'{label}: {warning}' for warning in warnings)
+            if blockers:
+                excluded.append({
+                    'programmes': codes,
+                    'session_count': len(component['session_ids']),
+                    'reason': blockers[0],
+                })
+                continue
+
+            synchronous_ids = {
+                session.id for session in all_sessions
+                if session.id in component['session_ids'] and not session.is_async
+            }
+            if not synchronous_ids:
+                successful.append(component)
+                batch_results.append({
+                    'programmes': codes,
+                    'success': True,
+                    'sessions_scheduled': 0,
+                    'entries_created': 0,
+                    'solver_status': 'Not required (asynchronous only)',
+                })
+                continue
+
+            component_pins = None
+            if pinned_slots:
+                component_pins = {
+                    session_id: timeslot_id
+                    for session_id, timeslot_id in pinned_slots.items()
+                    if session_id in synchronous_ids
+                } or None
+
+            success, message, stats = _solve(
+                staging_trimester, start_date, term_break_weeks,
+                trimester_num=trimester_num,
+                academic_year=academic_year,
+                pinned_slots=component_pins,
+                historical_preferred=historical_preferred,
+                session_id_filter=synchronous_ids,
+                occupied_trimester=staging_trimester,
+                append_to_existing=True,
+                max_time_seconds=batch_time_limit,
+            )
+
+            # Existing-slot preservation is optional. If stale pins make one
+            # complete programme infeasible, retry that programme freely.
+            if not success and component_pins:
+                success, message, stats = _solve(
+                    staging_trimester, start_date, term_break_weeks,
+                    trimester_num=trimester_num,
+                    academic_year=academic_year,
+                    historical_preferred=historical_preferred,
+                    session_id_filter=synchronous_ids,
+                    occupied_trimester=staging_trimester,
+                    append_to_existing=True,
+                    max_time_seconds=batch_time_limit,
+                )
+
+            batch_results.append({
+                'programmes': codes,
+                'success': success,
+                'message': message,
+                'sessions_scheduled': stats.get('sessions_scheduled', 0),
+                'entries_created': stats.get('entries_created', 0),
+                'solver_status': stats.get('solver_status'),
+            })
+            if success:
+                successful.append(component)
+                aggregate_preferred_violations.extend(
+                    stats.get('preferred_violations', [])
+                )
+            else:
+                excluded.append({
+                    'programmes': codes,
+                    'session_count': len(component['session_ids']),
+                    'reason': message,
+                })
+
+        if not successful:
+            _cleanup_staging()
+            first_reason = excluded[0]['reason'] if excluded else 'No batch was schedulable.'
+            return False, f'No complete programme could be generated. {first_reason}', {
+                'solver_status': 'Failed',
+                'excluded_programmes': excluded,
+                'batch_results': batch_results,
+            }
+
+        staged_entries = TimetableEntry.query.filter_by(
+            trimester=staging_trimester, is_backbone=False
+        ).all()
+        staged_session_ids = {entry.class_session_id for entry in staged_entries}
+
+        incomplete_components = []
+        for component in successful:
+            expected_ids = {
+                session.id for session in all_sessions
+                if session.id in component['session_ids'] and not session.is_async
+            }
+            if not expected_ids.issubset(staged_session_ids):
+                incomplete_components.append('+'.join(component['programme_codes']))
+        if incomplete_components:
+            _cleanup_staging()
+            return False, (
+                'Generation safety check rejected partial programme output for: '
+                + ', '.join(incomplete_components)
+            ), {
+                'solver_status': 'Rejected',
+                'partial_programmes': incomplete_components,
+                'batch_results': batch_results,
+            }
+
+        hard_conflicts = _audit_generated_hard_conflicts(staged_entries)
+        if hard_conflicts:
+            _cleanup_staging()
+            return False, (
+                f'Generation safety audit found {len(hard_conflicts)} hard conflict(s). '
+                f'{hard_conflicts[0]} The existing timetable was left unchanged.'
+            ), {
+                'solver_status': 'Rejected',
+                'hard_conflicts': hard_conflicts,
+                'batch_results': batch_results,
+            }
+
+        # Never replace an existing timetable with a newly generated result
+        # covering fewer complete programmes. This matters when one imported
+        # batch has newly invalid data but the current timetable is still sound.
+        target_entries = TimetableEntry.query.filter_by(
+            trimester=trimester, is_backbone=False
+        ).all()
+        target_session_ids = {entry.class_session_id for entry in target_entries}
+
+        complete_session_sets = {
+            tuple(component['programme_codes']): {
+                session_id for session_id in component['session_ids']
+                if any(s.id == session_id and not s.is_async for s in all_sessions)
+            }
+            for component in components
+        }
+        staged_complete_count = sum(
+            1 for session_ids in complete_session_sets.values()
+            if session_ids.issubset(staged_session_ids)
+        )
+        target_complete_count = sum(
+            1 for session_ids in complete_session_sets.values()
+            if session_ids.issubset(target_session_ids)
+        )
+        if target_complete_count > staged_complete_count:
+            _cleanup_staging()
+            return True, (
+                f'Kept the existing {trimester} timetable because it covers '
+                f'{target_complete_count} complete programme batches versus '
+                f'{staged_complete_count} in the new attempt.'
+            ), {
+                'solver_status': 'Existing kept',
+                'programme_batches_scheduled': target_complete_count,
+                'programme_batches_excluded': len(components) - target_complete_count,
+                'scope_reduced': target_complete_count < len(components),
+                'batch_results': batch_results,
+                'excluded_programmes': excluded,
+                'preferred_violations': [],
+            }
+
+        old_entry_ids = [entry.id for entry in target_entries]
+        if old_entry_ids:
+            flag_ids = [
+                flag.id for flag in TimetableFlag.query
+                .filter(TimetableFlag.timetable_entry_id.in_(old_entry_ids))
+                .all()
+            ]
+            if flag_ids:
+                FlagResponse.query.filter(FlagResponse.flag_id.in_(flag_ids)).delete(
+                    synchronize_session=False
+                )
+                TimetableFlag.query.filter(TimetableFlag.id.in_(flag_ids)).delete(
+                    synchronize_session=False
+                )
+            TimetableEntry.query.filter(TimetableEntry.id.in_(old_entry_ids)).delete(
+                synchronize_session=False
+            )
+
+        TimetableEntry.query.filter_by(
+            trimester=staging_trimester, is_backbone=False
+        ).update({
+            TimetableEntry.trimester: trimester,
+            TimetableEntry.academic_year: academic_year,
+        }, synchronize_session=False)
+
+        # The generated entries and their calendar are one atomic result.
+        # Retaining an older target calendar (for example a stale 12-week T3)
+        # can make valid Week 13 entries impossible to navigate in every role
+        # view, so replace it together with the generated rows.
+        AcademicCalendar.query.filter_by(trimester=trimester).delete(
+            synchronize_session=False
+        )
+        AcademicCalendar.query.filter_by(trimester=staging_trimester).update(
+            {AcademicCalendar.trimester: trimester}, synchronize_session=False
+        )
+        db.session.commit()
+
+        scheduled_codes = sorted({
+            code for component in successful for code in component['programme_codes']
+        })
+        excluded_codes = sorted({
+            code for item in excluded for code in item['programmes']
+        })
+        all_optimal = all(
+            result.get('solver_status') in ('Optimal', 'Not required (asynchronous only)')
+            for result in batch_results if result.get('success')
+        )
+        final_entry_count = TimetableEntry.query.filter_by(
+            trimester=trimester, is_backbone=False
+        ).count()
+        stats = {
+            'solver_status': 'Optimal' if all_optimal else 'Feasible',
+            'sessions_scheduled': len(staged_session_ids),
+            'entries_created': final_entry_count,
+            'programme_batches_scheduled': len(successful),
+            'programme_batches_excluded': len(excluded),
+            'programmes_scheduled': scheduled_codes,
+            'programmes_excluded': excluded_codes,
+            'excluded_programmes': excluded,
+            'scope_reduced': bool(excluded),
+            'batch_results': batch_results,
+            'generation_warnings': aggregate_warnings,
+            'hard_conflicts': [],
+            'partial_programmes': [],
+            'preferred_violations': aggregate_preferred_violations,
+        }
+        message = (
+            f'Timetable generated for {len(scheduled_codes)} complete programme(s) '
+            f'({len(staged_session_ids)} sessions).'
+        )
+        if excluded_codes:
+            message += (
+                f' Reduced scope safely: omitted {", ".join(excluded_codes)}; '
+                'no omitted programme was partially scheduled.'
+            )
+        return True, message, stats
+    except Exception:
+        db.session.rollback()
+        _cleanup_staging()
+        raise
+
+
 def _run_solver_task(app, task_id, action, form_data):
     """Background thread: runs solver and writes result into _solver_tasks."""
     from datetime import date as _date
-    from app.engine.solver import solve as _solve
     from app.engine.checker import get_blocking_issues
 
     def _update(status, message, **kw):
@@ -3763,10 +4521,13 @@ def _run_solver_task(app, task_id, action, form_data):
                 # lets the solver move a class when there's a real conflict.
                 historical_preferred = _build_historical_preferred(academic_year, trimester_num)
 
-                success, message, stats = _solve(
+                success, message, stats = _solve_programme_batches(
                     trimester, _date.fromisoformat(start_raw), term_break_weeks,
                     trimester_num=trimester_num, academic_year=academic_year,
                     pinned_slots=pinned_slots, historical_preferred=historical_preferred,
+                    progress=lambda message: _update(
+                        'running', message, trimester=trimester
+                    ),
                 )
                 if success:
                     _auto_create_flags(trimester, stats.get('preferred_violations', []))
@@ -3804,14 +4565,29 @@ def timetable_solve_async():
     trimester_num = int(tri_raw) if tri_raw in ('1', '2', '3') else None
     if not trimester_num:
         return jsonify({'error': 'Trimester number is required.'}), 400
-    tri_blockers, _ = get_blocking_issues(trimester_num=trimester_num)
-    if tri_blockers:
-        return jsonify({'error': f'{len(tri_blockers)} blocking issue(s): ' + tri_blockers[0]}), 400
+    # Data blockers are evaluated per complete programme batch in the worker.
+    # One malformed programme must not prevent unrelated valid programmes from
+    # generating; failed batches are reported as safely excluded.
     start_raw = request.form.get('start_date', '').strip() or \
                 SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(trimester_num, '')
     if not start_raw:
         return jsonify({'error': 'Start date is required.'}), 400
     trimester = f'{academic_year}-T{trimester_num}'
+
+    # Hard Constraint Guard: this check runs synchronously, before a task is
+    # created or a worker thread can reach the database write phase.  The UI
+    # uses the structured response to present every blocking issue in one
+    # modal instead of reducing it to the generic solver-failed message.
+    blockers, _warnings = get_blocking_issues(trimester_num=trimester_num)
+    if blockers:
+        return jsonify({
+            'error': 'Hard constraints block generation.',
+            'precheck_blocked': True,
+            'blocking_count': len(blockers),
+            'blocking_issues': blockers,
+            'entries_created': 0,
+            'trimester': trimester,
+        }), 409
 
     # Check no task already running for this trimester
     for t in _solver_tasks.values():
@@ -3971,7 +4747,6 @@ def _compute_soft_violations(entries, trimester):
 @login_required
 def timetable():
     from app.engine.checker import get_blocking_issues
-    from app.engine.solver import solve
     from datetime import date
     from collections import defaultdict
 
@@ -4027,16 +4802,21 @@ def timetable():
             if not start_raw and academic_year and trimester_num:
                 start_raw = SIT_ACADEMIC_CALENDAR.get(academic_year, {}).get(trimester_num, '')
 
-            if tri_blockers:
-                flash('Resolve all blocking issues for this trimester before generating.', 'danger')
-                for iss in tri_blockers[:5]:
-                    flash(iss, 'warning')
-            elif not academic_year:
+            if not academic_year:
                 flash('Academic year is required (e.g. AY2526).', 'danger')
             elif not trimester_num:
                 flash('Trimester number (1, 2, or 3) is required.', 'danger')
             elif not start_raw:
                 flash('Start date is required (AY not in known SIT calendar - enter manually).', 'danger')
+            elif tri_blockers:
+                result = {
+                    'success': False,
+                    'message': (
+                        f'Generation blocked: {len(tri_blockers)} hard-constraint '
+                        'issue(s) must be resolved.'
+                    ),
+                }
+                flash(result['message'], 'danger')
             else:
                 try:
                     start_date = date.fromisoformat(start_raw)
@@ -4068,7 +4848,7 @@ def timetable():
                     # made Tri2 infeasible (found 2026-07-10).
                     historical_preferred = _build_historical_preferred(academic_year, trimester_num)
 
-                    success, message, stats = solve(
+                    success, message, stats = _solve_programme_batches(
                         trimester, start_date, term_break_weeks,
                         trimester_num=trimester_num,
                         academic_year=academic_year,
@@ -4087,11 +4867,33 @@ def timetable():
                     flash(f'Solver error: {str(e)}', 'danger')
 
         elif action == 'publish':
-            TimetableEntry.query.filter_by(trimester=trimester, is_published=False).update(
-                {'is_published': True}
-            )
-            db.session.commit()
-            flash(f'Timetable for {trimester} published. Professors and students can now view it.', 'success')
+            generated_entries = TimetableEntry.query.filter_by(
+                trimester=trimester, is_backbone=False
+            ).all()
+            if not generated_entries:
+                flash('Publish blocked - no generated timetable exists for this trimester.', 'danger')
+            else:
+                hard_conflicts = _audit_generated_hard_conflicts(generated_entries)
+                if hard_conflicts:
+                    flash(
+                        f'Publish blocked - {len(hard_conflicts)} hard conflict(s) remain. '
+                        f'{hard_conflicts[0]}',
+                        'danger',
+                    )
+                else:
+                    # Only one schedule layer may be visible. A clean generated
+                    # result supersedes the imported backbone atomically.
+                    TimetableEntry.query.filter_by(trimester=trimester).update(
+                        {'is_published': False}, synchronize_session=False
+                    )
+                    TimetableEntry.query.filter_by(
+                        trimester=trimester, is_backbone=False
+                    ).update({'is_published': True}, synchronize_session=False)
+                    db.session.commit()
+                    flash(
+                        f'Timetable for {trimester} passed the hard-constraint audit and was published.',
+                        'success',
+                    )
 
         elif action == 'reset':
             from app.models.academic_calendar import AcademicCalendar
@@ -5240,6 +6042,14 @@ def timetable_export_template2():
     # have no TimetableEntry at all - exclude them from the export outright
     # rather than showing a confusing all-blank row that looks like a gap.
     q = q.filter(ClassSession.deferred_from_solve.is_(False))
+    # Programme-batch generation may deliberately reduce scope when one whole
+    # programme has invalid or infeasible input. Export only sessions actually
+    # present in this generated run, so an excluded programme never appears as
+    # a misleading collection of half-empty module rows.
+    if trimester_filter:
+        q = q.filter(ClassSession.timetable_entries.any(
+            TimetableEntry.trimester == trimester_filter
+        ))
     all_sessions = q.order_by(Course.module_code, ClassSession.session_type).all()
 
     # Build slot map: cs.id → (timeslot | None, sorted_weeks_list, room | None)
@@ -5482,6 +6292,8 @@ def timetable_export_template2():
 
     buf = io.BytesIO()
     wb.save(buf)
+    from app.utils.xlsx import restore_worksheet_extensions
+    restore_worksheet_extensions(base_path, buf)
     buf.seek(0)
     fname = f'template2_{trimester_filter or "all"}.xlsx'
     return send_file(buf, as_attachment=True, download_name=fname,
@@ -5519,7 +6331,8 @@ def timetable_summary():
     profs_set = set()
     for e in entries:
         for p in e.class_session.all_professors:
-            profs_set.add(p.name)
+            if p.user:
+                profs_set.add(p.user.name)
 
     stats_text = (
         f"Trimester: {trimester}\n"
@@ -5533,10 +6346,11 @@ def timetable_summary():
 
     api_key = current_app.config.get('ANTHROPIC_API_KEY', '')
     if not api_key:
-        return jsonify({'error': 'ANTHROPIC_API_KEY not configured in config.py'}), 500
+        return jsonify({'error': 'Timetable summary service is not configured.'}), 503
 
-    client = _anthropic.Anthropic(api_key=api_key)
-    msg = client.messages.create(
+    try:
+        client = _anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
         model='claude-haiku-4-5-20251001',
         max_tokens=300,
         messages=[{
@@ -5549,7 +6363,12 @@ def timetable_summary():
                 f'Timetable statistics:\n{stats_text}'
             ),
         }],
-    )
+        )
+    except Exception as exc:
+        current_app.logger.warning(
+            'Timetable summary provider failed (%s).', type(exc).__name__
+        )
+        return jsonify({'error': 'Timetable summary service is temporarily unavailable.'}), 503
     summary = msg.content[0].text.strip()
     return jsonify({'summary': summary})
 
