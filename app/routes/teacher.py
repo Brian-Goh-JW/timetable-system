@@ -474,24 +474,15 @@ def flag_respond(flag_id):
 @teacher_bp.route('/change-password', methods=['GET', 'POST'])
 @login_required
 def change_password():
-    if request.method == 'POST':
-        current_pw  = request.form.get('current_password', '').strip()
-        new_pw      = request.form.get('new_password', '').strip()
-        confirm_pw  = request.form.get('confirm_password', '').strip()
+    """Keep old bookmarks on the single shared account-security flow.
 
-        if not current_user.check_password(current_pw):
-            flash('Current password is incorrect.', 'danger')
-        elif len(new_pw) < 8:
-            flash('New password must be at least 8 characters.', 'danger')
-        elif new_pw != confirm_pw:
-            flash('New passwords do not match.', 'danger')
-        else:
-            current_user.set_password(new_pw)
-            db.session.commit()
-            flash('Password changed successfully.', 'success')
-            return redirect(url_for('teacher.dashboard'))
-
-    return render_template('teacher/change_password.html')
+    The former professor-only page enforced a weaker password policy than
+    ``/account/change-password``. It no longer accepts credentials itself.
+    """
+    return redirect(
+        url_for('auth.change_password'),
+        code=303 if request.method == 'POST' else 302,
+    )
 
 
 @teacher_bp.route('/availability/<int:decl_id>/delete', methods=['POST'])

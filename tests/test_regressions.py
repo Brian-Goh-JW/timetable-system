@@ -179,6 +179,24 @@ class RegressionTests(unittest.TestCase):
                 db.session.delete(User.query.filter_by(role=role).one())
                 db.session.commit()
 
+    def test_legacy_professor_password_page_uses_shared_security_policy(self):
+        client = self._client_for_role('professor')
+        professor = User.query.filter_by(role='professor').one()
+        original_hash = professor.password_hash
+
+        response = client.get('/teacher/change-password')
+        self.assertEqual(302, response.status_code)
+        self.assertTrue(response.headers['Location'].endswith('/account/change-password'))
+
+        response = client.post('/teacher/change-password', data={
+            'current_password': 'unused',
+            'new_password': 'Weak1234',
+            'confirm_password': 'Weak1234',
+        })
+        self.assertEqual(303, response.status_code)
+        self.assertTrue(response.headers['Location'].endswith('/account/change-password'))
+        self.assertEqual(original_hash, db.session.get(User, professor.id).password_hash)
+
     def test_timetable_workflow_actions_match_scope_and_publication_state(self):
         client, _ = self._admin_client()
         _, group, course = self._base_data()

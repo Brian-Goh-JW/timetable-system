@@ -158,6 +158,18 @@ python -m unittest discover -s tests -v
 
 Tests use an isolated in-memory database and do not modify local operational data. GitHub Actions runs compilation, regression tests, and dependency consistency checks on every push and pull request.
 
+Before packaging a submission, apply migrations and run these final checks locally:
+
+```bash
+flask --app wsgi.py db upgrade
+flask --app wsgi.py db check
+python -m compileall -q app bootstrap scripts tests config.py run.py wsgi.py
+python -m unittest discover -s tests -v
+python -m pip check
+```
+
+`flask db check` should report that no new upgrade operations were detected.
+
 ## Main components
 
 - Flask, Flask-Login, Flask-WTF, Flask-Mail, Flask-Migrate, and SQLAlchemy
