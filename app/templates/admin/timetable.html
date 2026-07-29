@@ -110,6 +110,17 @@
         background: #fff;
         font-size: .76rem;
     }
+    .admin-term-toolbar .schedule-toolbar-row { align-items: center; }
+    .admin-term-year {
+        min-height: 38px;
+        min-width: 132px;
+        padding: .45rem 2rem .45rem .75rem;
+        border: 1px solid rgba(100,116,139,.16);
+        border-radius: 10px;
+        background-color: rgba(255,255,255,.82);
+        color: #334155;
+        font-weight: 750;
+    }
 </style>
 {% endblock %}
 
@@ -128,8 +139,51 @@
         <p>Generate a draft, check its constraint results, then publish it for professors and students.</p>
         {% endif %}
     </div>
-    {% if active_trimester %}<span class="badge bg-dark align-self-start mt-1">{{ active_trimester }}</span>{% endif %}
 </div>
+
+{% if active_ay %}
+<div class="schedule-toolbar admin-term-toolbar mb-3">
+    <div class="schedule-toolbar-row">
+        <div class="control-field">
+            <label class="control-label" for="sel-ay"><i class="bi bi-mortarboard"></i>Academic year</label>
+            <select class="form-select form-select-sm admin-term-year" id="sel-ay" onchange="navigateAcademicYear(this.value)">
+                {% for ay in ay_options %}
+                <option value="{{ ay }}" {% if ay == active_ay %}selected{% endif %}>AY20{{ ay[2:4] }}/{{ ay[4:6] }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="control-field control-field-grow">
+            <span class="control-label"><i class="bi bi-arrow-left-right"></i>Open timetable</span>
+            <nav class="term-switcher term-switcher-scroll" aria-label="Select a trimester">
+                <a class="term-option {% if is_all_scope %}active{% endif %}"
+                   href="{{ url_for('admin.timetable', trimester=active_ay ~ '-all', source=(source if source else 'generated')) }}"
+                   {% if is_all_scope %}aria-current="page"{% endif %}>
+                    <span>Year overview</span>
+                </a>
+                {% for tri_num in [1, 2, 3] %}
+                {% set tri_key = active_ay ~ '-T' ~ tri_num %}
+                <a class="term-option {% if active_trimester == tri_key %}active{% endif %}"
+                   href="{{ url_for('admin.timetable', trimester=tri_key, source=(source if source else 'generated')) }}"
+                   {% if active_trimester == tri_key %}aria-current="page"{% endif %}>
+                    <span>Trimester {{ tri_num }}</span>
+                </a>
+                {% endfor %}
+            </nav>
+        </div>
+    </div>
+</div>
+<script>
+window.navigateAcademicYear = function(academicYear) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('trimester', academicYear + '-all');
+    url.searchParams.set('source', '{{ source or "generated" }}');
+    url.searchParams.delete('view');
+    url.searchParams.delete('week');
+    url.searchParams.delete('prog');
+    window.location.href = url.toString();
+};
+</script>
+{% endif %}
 
 <div class="row g-3">
 
@@ -164,7 +218,7 @@
                     <span class="badge bg-warning text-dark">Drafts pending</span>
                     {% endif %}
                 </div>
-                <div class="row g-2 text-center mb-3">
+                <div class="row g-2 text-center">
                     <div class="col-6">
                         <div class="rounded bg-light border py-2">
                             <div class="fs-5 fw-bold">{{ overview_total }}</div>
@@ -177,17 +231,6 @@
                             <div class="small text-muted">Published</div>
                         </div>
                     </div>
-                </div>
-                <div class="control-label mb-2"><i class="bi bi-calendar3"></i>Manage trimester</div>
-                <div class="term-switcher term-switcher-compact w-100" role="group" aria-label="Open a trimester">
-                    {% for tri_num in [1, 2, 3] %}
-                    {% set tri_key = active_ay ~ '-T' ~ tri_num %}
-                    {% if tri_key in trimesters %}
-                    <a class="term-option" href="{{ url_for('admin.timetable', trimester=tri_key, source='generated') }}">
-                        <span class="term-ay">Open</span><span>T{{ tri_num }}</span>
-                    </a>
-                    {% endif %}
-                    {% endfor %}
                 </div>
             </div>
         </div>
@@ -266,7 +309,7 @@
                 <div class="mb-3 p-2 bg-light rounded border small">
                     <i class="bi bi-calendar-check me-1 text-muted"></i>
                     Generating for <strong>{{ gen_trimester }}</strong>
-                    <div class="text-muted mt-1">Change this with the trimester selector on the right.</div>
+                    <div class="text-muted mt-1">Use the trimester buttons above to switch to T1, T2 or T3.</div>
                 </div>
 
                 <form method="POST" id="form-single">
@@ -616,41 +659,12 @@
 
         <!-- Filter bar -->
         {% if trimesters %}
-        {% set distinct_ays = namespace(vals=[]) %}
-        {% for t in trimesters %}
-          {% if t[:6] not in distinct_ays.vals %}{% set distinct_ays.vals = distinct_ays.vals + [t[:6]] %}{% endif %}
-        {% endfor %}
-        {% set active_ay = active_trimester[:6] if active_trimester else distinct_ays.vals[-1] %}
         {% set active_tri_num = 'all' if (not active_trimester or active_trimester[-4:] == '-all') else active_trimester[-1] %}
         {% set prog_display = {'CPC': 'General'} %}
 
         <div class="schedule-toolbar mb-3">
         <!-- Row 1 (primary): what am I looking at, and what view -->
         <div class="schedule-toolbar-row">
-
-            {# Academic Year #}
-            <div class="control-field">
-            <label class="control-label" for="sel-ay"><i class="bi bi-calendar-range"></i>Academic year</label>
-            <select class="form-select form-select-sm w-auto select-glass" id="sel-ay" onchange="navigate()">
-                {% for ay in distinct_ays.vals %}
-                <option value="{{ ay }}" {% if ay == active_ay %}selected{% endif %}>AY20{{ ay[2:4] }}/{{ ay[4:6] }}</option>
-                {% endfor %}
-            </select>
-            </div>
-
-            {# Trimester #}
-            <div class="control-field">
-            <label class="control-label" for="sel-tri"><i class="bi bi-calendar3"></i>Trimester</label>
-            <select class="form-select form-select-sm w-auto select-glass" id="sel-tri" onchange="navigate()">
-                <option value="all" {% if active_tri_num == 'all' %}selected{% endif %}>All Tri</option>
-                {% for tri_num in ['1', '2', '3'] %}
-                {% set tri_key = active_ay ~ '-T' ~ tri_num %}
-                {% if tri_key in trimesters %}
-                <option value="{{ tri_num }}" {% if active_tri_num == tri_num %}selected{% endif %}>T{{ tri_num }}</option>
-                {% endif %}
-                {% endfor %}
-            </select>
-            </div>
 
             {# View toggle #}
             {% if active_trimester and entries %}
@@ -773,8 +787,8 @@
         (function() {
             window.navigate = function(viewOverride) {
                 const url = new URL(window.location.href);
-                const ay  = document.getElementById('sel-ay').value;
-                const tri = document.getElementById('sel-tri').value;
+                const ay  = '{{ active_ay }}';
+                const tri = '{{ active_tri_num }}';
                 const src = document.getElementById('sel-source') ? document.getElementById('sel-source').value : '{{ source or "generated" }}';
                 const prog = document.getElementById('sel-prog') ? document.getElementById('sel-prog').value : '{{ prog_filter or "" }}';
                 const currentView = '{{ view_mode }}';

@@ -4516,11 +4516,11 @@ def system_info():
 # "not the snuggest room fit") is preserved regardless of which rule is
 # being adjusted.
 PRIORITY_TIERS = [
-    ('much_lower', 0.25, 'Much Lower'),
-    ('lower', 0.5, 'Lower'),
-    ('default', 1.0, 'Default'),
-    ('higher', 2.0, 'Higher'),
-    ('much_higher', 4.0, 'Much Higher'),
+    ('much_lower', 0.25, 'Very low'),
+    ('lower', 0.5, 'Low'),
+    ('default', 1.0, 'Recommended'),
+    ('higher', 2.0, 'High'),
+    ('much_higher', 4.0, 'Very high'),
 ]
 _PRIORITY_TIER_MULTIPLIERS = {key: mult for key, mult, _ in PRIORITY_TIERS}
 

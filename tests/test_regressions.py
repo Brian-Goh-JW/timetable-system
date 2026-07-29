@@ -206,6 +206,12 @@ class RegressionTests(unittest.TestCase):
         self.assertIn(b'across all three trimesters', all_response.data)
         self.assertIn(b'Academic year', all_response.data)
         self.assertIn(b'<div class="fs-5 fw-bold">1</div>', all_response.data)
+        self.assertIn(b'aria-label="Select a trimester"', all_response.data)
+        self.assertIn(b'Trimester 1', all_response.data)
+        self.assertIn(b'Trimester 2', all_response.data)
+        self.assertIn(b'Trimester 3', all_response.data)
+        self.assertIn(b'trimester=AY2526-T2&amp;source=generated', all_response.data)
+        self.assertIn(b'trimester=AY2526-T3&amp;source=generated', all_response.data)
         self.assertIn(b'Clear all AY2526 timetables?', all_response.data)
         self.assertNotIn(b'value="AY2526-all"', all_response.data)
         self.assertNotIn(b'Readiness checks passed across the academic year', all_response.data)
@@ -216,6 +222,9 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(200, published_response.status_code)
         self.assertIn(b'Validation passed', published_response.data)
         self.assertIn(b'<strong>Published.</strong>', published_response.data)
+        self.assertIn(b'Use the trimester buttons above', published_response.data)
+        self.assertIn(b'trimester=AY2526-T2&amp;source=generated', published_response.data)
+        self.assertIn(b'trimester=AY2526-T3&amp;source=generated', published_response.data)
         self.assertNotIn(b'name="action" value="publish"', published_response.data)
         self.assertIn(b'Clear AY2526-T1', published_response.data)
 
@@ -934,6 +943,21 @@ class RegressionTests(unittest.TestCase):
         self.assertIn('Hard Rules', page)
         self.assertIn('Preferences', page)
         self.assertIn('Change History', page)
+
+    def test_constraint_settings_explain_preferences_in_plain_language(self):
+        client, _ = self._admin_client()
+        response = client.get('/admin/constraint-settings')
+        page = response.get_data(as_text=True)
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn('Timetable Preferences', page)
+        self.assertIn('Hard rules always apply', page)
+        self.assertIn('Turn a preference on or off', page)
+        self.assertIn('Very low', page)
+        self.assertIn('Recommended', page)
+        self.assertIn('Very high', page)
+        self.assertIn('Restore recommended', page)
+        self.assertNotIn('&minus;&minus;', page)
 
     def test_course_scoped_recurring_event_matches_only_its_course(self):
         programme, group, course = self._base_data()

@@ -1,64 +1,231 @@
 {% extends 'base.html' %}
-{% block title %}Constraint Settings - SIT Timetable{% endblock %}
+{% block title %}Timetable Preferences - SIT Timetable{% endblock %}
 
 {% block extra_head %}
 <style>
-    .tier-picker .btn { min-width: 2.4rem; font-weight: 600; }
-    .customised-row { background: rgba(245, 158, 11, 0.07); }
+    .preference-guide {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: .75rem;
+        margin-bottom: 1rem;
+    }
+    .preference-guide-item {
+        display: flex;
+        align-items: flex-start;
+        gap: .7rem;
+        padding: .9rem 1rem;
+        border: 1px solid rgba(100,116,139,.16);
+        border-radius: 14px;
+        background: rgba(255,255,255,.66);
+    }
+    .preference-guide-icon {
+        display: inline-flex;
+        width: 2rem;
+        height: 2rem;
+        flex: 0 0 2rem;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        background: rgba(192,39,45,.1);
+        color: #b4232a;
+    }
+    .preference-summary {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        flex-wrap: wrap;
+        color: #64748b;
+        font-size: .82rem;
+    }
+    .preference-summary .summary-pill {
+        padding: .35rem .65rem;
+        border: 1px solid rgba(100,116,139,.16);
+        border-radius: 999px;
+        background: rgba(255,255,255,.72);
+        color: #475569;
+        font-weight: 650;
+    }
+    .preference-actions {
+        position: sticky;
+        top: .75rem;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1rem;
+        padding: .7rem .8rem;
+        border: 1px solid rgba(255,255,255,.78);
+        border-radius: 14px;
+        background: rgba(255,255,255,.86);
+        box-shadow: 0 8px 24px rgba(31,38,135,.09);
+        -webkit-backdrop-filter: blur(14px);
+        backdrop-filter: blur(14px);
+    }
+    .preference-actions-buttons { display: flex; gap: .5rem; }
+    .preference-card { overflow: hidden; }
+    .preference-card .card-header { padding: .85rem 1rem; }
+    .preference-card .table { table-layout: fixed; }
+    .preference-card th {
+        color: #64748b;
+        font-size: .7rem;
+        font-weight: 800;
+        letter-spacing: .07em;
+        text-transform: uppercase;
+    }
+    .preference-card td { padding-top: .8rem; padding-bottom: .8rem; }
+    .preference-rule-title { color: #273244; font-weight: 650; line-height: 1.35; }
+    .preference-rule-note { color: #7b8798; font-size: .72rem; }
+    .preference-row { transition: opacity .15s ease, background .15s ease; }
+    .preference-row.is-disabled { opacity: .58; }
+    .preference-row.is-customised { background: rgba(245,158,11,.065); }
+    .tier-picker {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 3px;
+        width: 100%;
+        padding: 3px;
+        border: 1px solid rgba(100,116,139,.16);
+        border-radius: 11px;
+        background: rgba(241,245,249,.86);
+    }
+    .tier-picker .btn {
+        min-height: 34px;
+        padding: .35rem .38rem;
+        border: 0 !important;
+        border-radius: 8px !important;
+        color: #64748b;
+        background: transparent;
+        font-size: .7rem;
+        font-weight: 750;
+        line-height: 1.1;
+        white-space: nowrap;
+    }
+    .tier-picker .btn:hover { color: #a51f26; background: rgba(192,39,45,.07); }
+    .tier-picker .btn.active {
+        color: #fff;
+        background: linear-gradient(135deg, #d42e35, #971e23) !important;
+        box-shadow: 0 3px 9px rgba(192,39,45,.25);
+    }
+    #settingsChanged { display: none; color: #a16207; font-weight: 650; }
+
+    @media (max-width: 991.98px) {
+        .preference-guide { grid-template-columns: 1fr; }
+        .preference-actions { top: .5rem; }
+        .preference-card .table { table-layout: auto; }
+        .preference-card thead { display: none; }
+        .preference-card tbody,
+        .preference-card tr,
+        .preference-card td { display: block; width: 100% !important; }
+        .preference-card tr { padding: .8rem 1rem; border-bottom: 1px solid rgba(100,116,139,.13); }
+        .preference-card tr:last-child { border-bottom: 0; }
+        .preference-card td { padding: .3rem 0; border: 0; }
+        .preference-toggle-cell { display: flex !important; align-items: center; gap: .55rem; }
+        .preference-toggle-cell::after { content: 'Use this preference'; color: #64748b; font-size: .78rem; font-weight: 650; }
+    }
+    @media (max-width: 575.98px) {
+        .preference-actions { align-items: stretch; flex-direction: column; }
+        .preference-actions-buttons { display: grid; grid-template-columns: 1fr 1fr; }
+        .tier-picker { grid-template-columns: repeat(3, 1fr); }
+        .tier-picker .btn { white-space: normal; }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
+{% set counts = namespace(total=0, enabled=0, customised=0) %}
+{% for group in rows_by_category %}
+    {% for row in group.rows %}
+        {% set counts.total = counts.total + 1 %}
+        {% if row.enabled %}{% set counts.enabled = counts.enabled + 1 %}{% endif %}
+        {% if row.is_customised %}{% set counts.customised = counts.customised + 1 %}{% endif %}
+    {% endfor %}
+{% endfor %}
 
-<div class="d-flex justify-content-end align-items-center mb-4">
-    <button type="submit" form="constraintSettingsForm" class="btn text-white" style="background-color:#c0272d;">
-        <i class="bi bi-check-lg me-1"></i>Save Settings
-    </button>
+<div class="page-heading">
+    <div>
+        <div class="page-eyebrow">Scheduling quality</div>
+        <h1>Timetable Preferences</h1>
+        <p>Choose what the generator should prefer when more than one valid timetable is possible.</p>
+    </div>
+    <a href="{{ url_for('admin.system_info') }}" class="btn btn-outline-secondary align-self-start">
+        <i class="bi bi-info-circle me-1"></i>View all rules
+    </a>
+</div>
+
+<div class="preference-guide" aria-label="How timetable preferences work">
+    <div class="preference-guide-item">
+        <span class="preference-guide-icon"><i class="bi bi-shield-check"></i></span>
+        <div><strong>Hard rules always apply</strong><div class="small text-muted">These preferences cannot allow clashes, unsuitable rooms or other hard conflicts.</div></div>
+    </div>
+    <div class="preference-guide-item">
+        <span class="preference-guide-icon"><i class="bi bi-toggle-on"></i></span>
+        <div><strong>Turn a preference on or off</strong><div class="small text-muted">Turn it off only when the generator should ignore that scheduling preference.</div></div>
+    </div>
+    <div class="preference-guide-item">
+        <span class="preference-guide-icon"><i class="bi bi-bar-chart-steps"></i></span>
+        <div><strong>Set its importance</strong><div class="small text-muted">Higher priorities matter more when two preferences compete. Recommended suits normal use.</div></div>
+    </div>
 </div>
 
 <form method="POST" id="constraintSettingsForm">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="preference-actions">
+        <div>
+            <div class="preference-summary">
+                <span class="summary-pill"><i class="bi bi-check2-circle me-1"></i>{{ counts.enabled }} of {{ counts.total }} in use</span>
+                {% if counts.customised %}<span class="summary-pill"><i class="bi bi-pencil me-1"></i>{{ counts.customised }} changed</span>{% endif %}
+                <span id="settingsChanged"><i class="bi bi-circle-fill me-1" style="font-size:.45rem;"></i>Unsaved changes</span>
+            </div>
+            <div class="small text-muted mt-1">Changes apply the next time a trimester is generated.</div>
+        </div>
+        <div class="preference-actions-buttons">
+            <button type="button" class="btn btn-outline-secondary" id="restoreRecommended">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Restore recommended
+            </button>
+            <button type="submit" class="btn text-white" style="background-color:#c0272d;">
+                <i class="bi bi-check-lg me-1"></i>Save preferences
+            </button>
+        </div>
+    </div>
+
     {% for group in rows_by_category %}
-    <div class="card glass-card animate-in mb-3">
-        <div class="card-header bg-transparent border-bottom fw-semibold">
-            <i class="bi {{ group.icon }} me-2 text-muted"></i>{{ group.category }}
+    <section class="card glass-card animate-in mb-3 preference-card">
+        <div class="card-header bg-transparent border-bottom">
+            <div class="fw-semibold"><i class="bi {{ group.icon }} me-2 text-muted"></i>{{ group.category }}</div>
         </div>
         <div class="card-body p-0">
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                     <tr>
-                        <th class="ps-3" style="width:7%;">On</th>
-                        <th style="width:43%;">Rule</th>
-                        <th class="pe-3" style="width:50%;">Priority</th>
+                        <th class="ps-3" style="width:7%;">Use</th>
+                        <th style="width:43%;">Preference</th>
+                        <th class="pe-3" style="width:50%;">Importance</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for r in group.rows %}
-                    <tr title="Reference: {{ r.id }}" class="{% if r.is_customised %}customised-row{% endif %}">
-                        <td class="ps-3">
+                    <tr class="preference-row {% if not r.enabled %}is-disabled{% endif %} {% if r.is_customised %}is-customised{% endif %}" data-preference-row>
+                        <td class="ps-3 preference-toggle-cell">
                             <div class="form-check form-switch mb-0">
-                                <input class="form-check-input" type="checkbox" role="switch"
+                                <input class="form-check-input preference-enabled" type="checkbox" role="switch"
                                        name="enabled_{{ r.id }}" id="enabled_{{ r.id }}"
+                                       aria-label="Use {{ r.title }}"
                                        {% if r.enabled %}checked{% endif %}>
                             </div>
                         </td>
-                        <td class="small">
-                            {{ r.title }}
+                        <td>
+                            <div class="preference-rule-title">{{ r.title }}</div>
+                            <div class="preference-rule-note">Quality preference · does not override hard rules</div>
                         </td>
                         <td class="pe-3">
                             <input type="hidden" name="tier_{{ r.id }}" id="tier_{{ r.id }}" value="{{ r.selected_tier }}">
-                            <div class="btn-group btn-group-sm segmented-toggle tier-picker" role="group">
+                            <div class="tier-picker" role="group" aria-label="Importance for {{ r.title }}">
                                 {% for key, mult, label in priority_tiers %}
                                 <button type="button" class="btn {% if r.selected_tier == key %}active{% endif %}"
-                                        title="{{ label }}"
-                                        onclick="setTier('{{ r.id }}', '{{ key }}', this)">
-                                    {% if key == 'much_lower' %}&minus;&minus;
-                                    {% elif key == 'lower' %}&minus;
-                                    {% elif key == 'default' %}Default
-                                    {% elif key == 'higher' %}+
-                                    {% elif key == 'much_higher' %}++
-                                    {% endif %}
-                                </button>
+                                        aria-pressed="{{ 'true' if r.selected_tier == key else 'false' }}"
+                                        onclick="setTier('{{ r.id }}', '{{ key }}', this)">{{ label }}</button>
                                 {% endfor %}
                             </div>
                         </td>
@@ -67,17 +234,55 @@
                 </tbody>
             </table>
         </div>
-    </div>
+    </section>
     {% endfor %}
 </form>
 
 <script>
+function markSettingsChanged() {
+    document.getElementById('settingsChanged').style.display = 'inline-flex';
+}
+
+function refreshPreferenceRow(row) {
+    const enabled = row.querySelector('.preference-enabled').checked;
+    const tier = row.querySelector('input[name^="tier_"]').value;
+    row.classList.toggle('is-disabled', !enabled);
+    row.classList.toggle('is-customised', !enabled || tier !== 'default');
+}
+
 function setTier(id, tier, btn) {
     document.getElementById('tier_' + id).value = tier;
-    btn.closest('.btn-group').querySelectorAll('.btn').forEach(function(b) { b.classList.remove('active'); });
-    btn.classList.add('active');
-    btn.closest('tr').classList.toggle('customised-row', tier !== 'default');
+    btn.closest('.tier-picker').querySelectorAll('.btn').forEach(function(button) {
+        const selected = button === btn;
+        button.classList.toggle('active', selected);
+        button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+    });
+    refreshPreferenceRow(btn.closest('[data-preference-row]'));
+    markSettingsChanged();
 }
+
+document.querySelectorAll('.preference-enabled').forEach(function(toggle) {
+    toggle.addEventListener('change', function() {
+        refreshPreferenceRow(toggle.closest('[data-preference-row]'));
+        markSettingsChanged();
+    });
+});
+
+document.getElementById('restoreRecommended').addEventListener('click', function() {
+    document.querySelectorAll('[data-preference-row]').forEach(function(row) {
+        const toggle = row.querySelector('.preference-enabled');
+        const tierInput = row.querySelector('input[name^="tier_"]');
+        toggle.checked = true;
+        tierInput.value = 'default';
+        row.querySelectorAll('.tier-picker .btn').forEach(function(button) {
+            const selected = button.textContent.trim() === 'Recommended';
+            button.classList.toggle('active', selected);
+            button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        });
+        refreshPreferenceRow(row);
+    });
+    markSettingsChanged();
+});
 </script>
 
 {% endblock %}
