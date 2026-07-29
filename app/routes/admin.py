@@ -3465,12 +3465,21 @@ def timetable_versions():
     versions = query.all()
     summaries = {version.id: version_summary(version) for version in versions}
     comparison = None
+    comparison_error = None
     left_id = request.args.get('left', type=int)
     right_id = request.args.get('right', type=int)
     if left_id and right_id:
         left = db.session.get(ScheduleVersion, left_id)
         right = db.session.get(ScheduleVersion, right_id)
-        if left and right and left.trimester == right.trimester:
+        if left_id == right_id:
+            comparison_error = 'Choose two different schedule versions to compare.'
+        elif not left or not right:
+            comparison_error = 'One of the selected schedule versions no longer exists.'
+        elif left.trimester != right.trimester:
+            comparison_error = 'Schedule versions can only be compared within the same trimester.'
+        elif trimester and (left.trimester != trimester or right.trimester != trimester):
+            comparison_error = 'The selected versions do not match the active trimester filter.'
+        else:
             comparison = {
                 'left': left, 'right': right,
                 'result': compare_versions(left, right),
@@ -3482,6 +3491,8 @@ def timetable_versions():
         'admin/timetable_versions.html', versions=versions,
         summaries=summaries, trimesters=trimesters,
         active_trimester=trimester, comparison=comparison,
+        comparison_error=comparison_error,
+        left_id=left_id, right_id=right_id,
     )
 
 

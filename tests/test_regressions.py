@@ -29,6 +29,7 @@ from app.models.professor import Professor
 from app.models.room import Room
 from app.models.class_session_professor import ClassSessionProfessor
 from app.models.solve_run import SolveRun
+from app.models.schedule_version import ScheduleVersion
 from app.models.student_group import StudentGroup
 from app.models.timeslot import TimeSlot
 from app.models.timetable_entry import TimetableEntry
@@ -98,6 +99,58 @@ class RegressionTests(unittest.TestCase):
             session['_user_id'] = str(admin.id)
             session['_fresh'] = True
         return client, admin
+
+    def _client_for_role(self, role):
+        user = User(
+            name=role.capitalize(), email=f'{role}@example.com', role=role,
+            password_hash='unused',
+        )
+        db.session.add(user)
+        db.session.commit()
+        client = self.app.test_client()
+        with client.session_transaction() as session:
+            session['_user_id'] = str(user.id)
+            session['_fresh'] = True
+        return client
+
+    def test_account_actions_are_grouped_in_dropdown_for_every_role(self):
+        for role in ('admin', 'professor', 'student'):
+            with self.subTest(role=role):
+                client = self._client_for_role(role)
+                response = client.get('/account/change-password')
+                self.assertEqual(200, response.status_code)
+                self.assertIn(b'id="accountMenu"', response.data)
+                self.assertIn(b'aria-labelledby="accountMenu"', response.data)
+                self.assertIn(b'Change Password', response.data)
+                self.assertIn(b'Logout', response.data)
+                db.session.delete(User.query.filter_by(role=role).one())
+                db.session.commit()
+
+    def test_schedule_version_comparison_requires_two_versions_in_one_trimester(self):
+        client, admin = self._admin_client()
+        first = ScheduleVersion(
+            trimester='AY2526-T1', label='First release', status='archived',
+            source='publication', entries_json='[]', stats_json='{}',
+            created_by=admin.id,
+        )
+        db.session.add(first)
+        db.session.commit()
+
+        response = client.get('/admin/timetable/versions?trimester=AY2526-T1')
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b'One saved version is available', response.data)
+        self.assertNotIn(b'id="version-left"', response.data)
+
+        db.session.add(ScheduleVersion(
+            trimester='AY2526-T1', label='Second release', status='published',
+            source='publication', entries_json='[]', stats_json='{}',
+            created_by=admin.id,
+        ))
+        db.session.commit()
+        response = client.get('/admin/timetable/versions?trimester=AY2526-T1')
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b'id="version-left"', response.data)
+        self.assertIn(b'id="version-right"', response.data)
 
     def test_availability_expands_to_real_clock_overlaps(self):
         p2 = SimpleNamespace(

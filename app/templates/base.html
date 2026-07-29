@@ -459,11 +459,13 @@
                     {% endif %}
                 </ul>
 
-                <!-- User info + logout -->
+                <!-- Account actions shared by admin, professor, and student -->
                 {% if current_user.is_authenticated %}
                 <ul class="navbar-nav ms-auto align-items-center">
-                    <li class="nav-item me-2">
-                        <span class="navbar-text">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle d-flex align-items-center"
+                           href="#" id="accountMenu" role="button"
+                           data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="bi bi-person-circle me-1"></i>
                             {{ current_user.name }}
                             {% if current_user.name | lower != current_user.role | lower %}
@@ -471,20 +473,27 @@
                                 {{ current_user.role | capitalize }}
                             </span>
                             {% endif %}
-                        </span>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('auth.change_password') }}">
-                            <i class="bi bi-key me-1"></i>Password
                         </a>
-                    </li>
-                    <li class="nav-item">
-                        <form method="POST" action="{{ url_for('auth.logout') }}" class="m-0">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="nav-link btn btn-link border-0">
-                                <i class="bi bi-box-arrow-right me-1"></i>Logout
-                            </button>
-                        </form>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="accountMenu">
+                            <li class="px-2 py-1">
+                                <div class="fw-semibold text-dark">{{ current_user.name }}</div>
+                                <div class="small text-muted">{{ current_user.role | capitalize }} account</div>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item" href="{{ url_for('auth.change_password') }}">
+                                    <i class="bi bi-key"></i> Change Password
+                                </a>
+                            </li>
+                            <li>
+                                <form method="POST" action="{{ url_for('auth.logout') }}" class="m-0">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="dropdown-item border-0 w-100 text-start">
+                                        <i class="bi bi-box-arrow-right"></i> Logout
+                                    </button>
+                                </form>
+                            </li>
+                        </ul>
                     </li>
                 </ul>
                 {% endif %}
