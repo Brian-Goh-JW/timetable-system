@@ -115,12 +115,18 @@
 
 {% block content %}
 {% set is_bb_view = (source == 'bb') %}
+{% set active_ay = active_trimester[:6] if active_trimester and active_trimester|length >= 6 else '' %}
+{% set is_all_scope = active_trimester and active_trimester[-4:] == '-all' %}
 
 <div class="page-heading">
     <div>
         <div class="page-eyebrow">Generate, review, publish</div>
         <h1>Timetable</h1>
-        <p>Choose one trimester, run the readiness guard, review the verified draft and publish only when it is ready.</p>
+        {% if is_all_scope %}
+        <p>View generated and published schedules across all three trimesters.</p>
+        {% else %}
+        <p>Generate a draft, check its constraint results, then publish it for professors and students.</p>
+        {% endif %}
     </div>
     {% if active_trimester %}<span class="badge bg-dark align-self-start mt-1">{{ active_trimester }}</span>{% endif %}
 </div>
@@ -129,8 +135,6 @@
 
     <!-- Left: Generate panel -->
     <div class="col-lg-3">
-
-        {% set active_ay = active_trimester[:6] if active_trimester and active_trimester|length >= 6 else '' %}
 
         {% if is_bb_view %}
         <div class="alert alert-info py-3 mb-3">
@@ -142,6 +146,50 @@
                 </a>
             </div>
         </div>
+        {% else %}
+
+        {% if is_all_scope %}
+        {% set overview_published = entries | selectattr('is_published') | list | length %}
+        {% set overview_total = entries | length %}
+        <div class="card glass-card animate-in mb-3">
+            <div class="card-body p-3">
+                <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+                    <div>
+                        <div class="small text-uppercase text-muted fw-semibold">Academic year</div>
+                        <div class="fs-5 fw-bold">{{ active_ay }}</div>
+                    </div>
+                    {% if overview_total and overview_published == overview_total %}
+                    <span class="badge bg-success"><i class="bi bi-broadcast me-1"></i>Published</span>
+                    {% else %}
+                    <span class="badge bg-warning text-dark">Drafts pending</span>
+                    {% endif %}
+                </div>
+                <div class="row g-2 text-center mb-3">
+                    <div class="col-6">
+                        <div class="rounded bg-light border py-2">
+                            <div class="fs-5 fw-bold">{{ overview_total }}</div>
+                            <div class="small text-muted">Generated</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="rounded bg-light border py-2">
+                            <div class="fs-5 fw-bold text-success">{{ overview_published }}</div>
+                            <div class="small text-muted">Published</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="small text-muted fw-semibold mb-2">Manage trimester</div>
+                <div class="btn-group w-100" role="group" aria-label="Open a trimester">
+                    {% for tri_num in [1, 2, 3] %}
+                    {% set tri_key = active_ay ~ '-T' ~ tri_num %}
+                    {% if tri_key in trimesters %}
+                    <a class="btn btn-outline-secondary" href="{{ url_for('admin.timetable', trimester=tri_key, source='generated') }}">T{{ tri_num }}</a>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
         {% else %}
 
         <!-- ============================================================ -->
@@ -174,7 +222,12 @@
         </div>
         {% else %}
         <div class="alert alert-success py-2 mb-3">
-            <i class="bi bi-check-circle me-2"></i>No blocking issues. You can generate the timetable.
+            <i class="bi bi-check-circle me-2"></i>
+            {% if gen_has_existing %}
+            No hard-constraint blockers. This trimester is ready to re-generate.
+            {% else %}
+            No hard-constraint blockers. This trimester is ready to generate.
+            {% endif %}
         </div>
         {% endif %}
 
@@ -199,7 +252,11 @@
              separate picker (see gen_trimester comment in admin.py). -->
         <div class="card glass-card animate-in mb-3">
             <div class="card-header bg-transparent border-bottom fw-semibold">
+                {% if gen_trimester %}
                 <i class="bi bi-cpu me-2 text-muted"></i>Generate Timetable
+                {% else %}
+                <i class="bi bi-calendar3 me-2 text-muted"></i>Choose a Trimester
+                {% endif %}
             </div>
             <div class="card-body">
 
@@ -258,9 +315,18 @@
                     </button>
                 </form>
                 {% else %}
-                <div class="text-center text-muted small py-3">
-                    <i class="bi bi-arrow-up-right fs-4 d-block mb-2"></i>
-                    Select a specific trimester (not "All Tri") on the right to generate for it.
+                <div class="text-center small py-2">
+                    <p class="text-muted mb-3">Generation runs one trimester at a time so each draft can be checked before publication.</p>
+                    <div class="d-grid gap-2" aria-label="Choose a trimester to generate">
+                        {% for tri_num in [1, 2, 3] %}
+                        {% set tri_key = active_ay ~ '-T' ~ tri_num %}
+                        {% if tri_key in trimesters %}
+                        <a class="btn btn-outline-danger" href="{{ url_for('admin.timetable', trimester=tri_key, source='generated') }}">
+                            Open Trimester {{ tri_num }}
+                        </a>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
                 </div>
                 {% endif %}
 
@@ -289,9 +355,9 @@
                  role="button" aria-expanded="{{ 'true' if review_flagged else 'false' }}" aria-controls="reviewSection">
                 <i class="bi bi-clipboard-check text-muted"></i>
                 {% if review_flagged %}
-                <span class="text-warning">Worth a look before publishing</span>
+                <span class="text-warning">Review recommended</span>
                 {% else %}
-                <span class="text-success">Generated cleanly</span>
+                <span class="text-success">Validation passed</span>
                 {% endif %}
                 <i class="bi bi-chevron-down text-muted collapse-chevron ms-auto"></i>
             </div>
@@ -300,19 +366,19 @@
 
                     {% if constraint_summary %}
                     <div class="mb-3 pb-3 border-bottom">
-                        <div class="fw-semibold small text-uppercase text-muted mb-2">How This Was Generated</div>
+                        <div class="fw-semibold small text-uppercase text-muted mb-2">Constraint Results</div>
                         <div class="row g-2 text-center mb-2">
                             <div class="col-6 border-end">
                                 <div class="fs-5 fw-bold text-danger">
                                     <i class="bi bi-shield-check"></i> {{ constraint_summary.hard_rule_count }}
                                 </div>
-                                <div class="small text-muted">Hard constraints - all satisfied</div>
+                                <div class="small text-muted">Hard constraints satisfied</div>
                             </div>
                             <div class="col-6">
                                 <div class="fs-5 fw-bold {% if constraint_summary.soft_total_violations > 0 %}text-warning{% else %}text-success{% endif %}">
                                     <i class="bi bi-sliders"></i> {{ constraint_summary.soft_total_violations }}
                                 </div>
-                                <div class="small text-muted">Soft violation(s) across {{ constraint_summary.soft_rule_count }} rules</div>
+                                <div class="small text-muted">Soft preferences not met across {{ constraint_summary.soft_rule_count }} rules</div>
                             </div>
                         </div>
                         <button class="btn btn-sm btn-outline-secondary w-100" type="button"
@@ -398,7 +464,7 @@
                     <div class="small">
                         <div class="fw-semibold text-warning mb-2">
                             <i class="bi bi-exclamation-triangle me-2"></i>
-                            Preferred Declaration Violations
+                            Availability Preferences Not Met
                             <span class="badge bg-warning text-dark ms-1">{{ violations | length }}</span>
                         </div>
                         <div class="table-responsive">
@@ -455,7 +521,7 @@
         {% if active_trimester and entries %}
         <div class="d-flex align-items-center gap-2 mb-2 mt-4">
             <span class="badge rounded-pill" style="background-color:#c0272d;">3</span>
-            <span class="fw-semibold text-uppercase small text-muted">Publish</span>
+            <span class="fw-semibold text-uppercase small text-muted">Publication</span>
         </div>
         <div class="card glass-card animate-in mb-3">
             <div class="card-header bg-transparent border-bottom fw-semibold">
@@ -464,9 +530,15 @@
             <div class="card-body">
                 {% set published = entries | selectattr('is_published') | list | length %}
                 {% set total = entries | length %}
+                {% if published == total %}
+                <div class="text-success small">
+                    <i class="bi bi-check-circle-fill me-2"></i><strong>Published.</strong>
+                    All {{ total }} sessions are visible to professors and students.
+                </div>
+                {% else %}
                 <p class="small text-muted mb-3">
-                    {{ published }}/{{ total }} sessions published for <strong>{{ active_trimester }}</strong>.
-                    Once published, professors and students can view their timetable.
+                    {{ published }} of {{ total }} sessions are currently published.
+                    Publish this validated draft when it is ready for professors and students.
                 </p>
                 <form method="POST">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -474,63 +546,59 @@
                     <input type="hidden" name="trimester" value="{{ active_trimester }}">
                     <button type="submit" class="btn btn-success w-100"
                             onclick="return confirm('Publish the timetable for {{ active_trimester }}? Professors and students will be able to see it.')">
-                        <i class="bi bi-megaphone me-1"></i>Publish
+                        <i class="bi bi-megaphone me-1"></i>Publish Timetable
                     </button>
                 </form>
+                {% endif %}
             </div>
         </div>
         {% endif %}
 
-        <!-- ============================================================ -->
-        <!-- DANGER ZONE - collapsed and de-emphasized on purpose, since   -->
-        <!-- resetting isn't part of the normal generate->review->publish  -->
-        <!-- flow (used to sit right under Publish looking like a normal   -->
-        <!-- next step - Brian, 2026-07-12)                                -->
-        <!-- ============================================================ -->
-        {% if active_trimester and entries %}
-        <div class="mt-4 mb-3">
-            <a href="#" class="small text-muted text-decoration-none d-flex align-items-center gap-1"
-               style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#dangerZone"
-               role="button" aria-expanded="false" aria-controls="dangerZone">
-                <i class="bi bi-three-dots"></i> Advanced / Danger Zone
-                <i class="bi bi-chevron-down collapse-chevron"></i>
-            </a>
-            <div class="collapse mt-2" id="dangerZone">
-                <div class="card glass-card animate-in border-0 border-start border-danger border-3">
-                    <div class="card-header bg-transparent border-bottom fw-semibold text-danger">
-                        <i class="bi bi-trash me-2"></i>Reset Timetable
+        {% endif %}{# end single-trimester workflow #}
+        {% endif %}{# end is_bb_view else #}
+
+        {% if not is_bb_view and active_trimester and entries %}
+        <button type="button" class="btn btn-sm btn-link text-danger text-decoration-none px-0 mt-2"
+                data-bs-toggle="modal" data-bs-target="#clearTimetableModal">
+            <i class="bi bi-trash3 me-1"></i>Clear timetable data
+        </button>
+
+        <div class="modal fade" id="clearTimetableModal" tabindex="-1"
+             aria-labelledby="clearTimetableModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header border-0 pb-0">
+                        <h5 class="modal-title" id="clearTimetableModalLabel">
+                            {% if is_all_scope %}Clear all {{ active_ay }} timetables?{% else %}Clear {{ active_trimester }} timetable?{% endif %}
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
-                    <div class="card-body">
-                        <p class="small text-muted mb-2">
-                            Deletes all entries for <strong>{{ active_trimester }}</strong> including published ones.
-                        </p>
-                        <form method="POST" class="mb-2">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="modal-body">
+                        <div class="alert alert-danger mb-3">
+                            <i class="bi bi-exclamation-triangle me-2"></i>This cannot be undone.
+                        </div>
+                        {% if is_all_scope %}
+                        <p>Deletes all generated entries across T1, T2 and T3 for <strong>{{ active_ay }}</strong>, including published entries.</p>
+                        {% else %}
+                        <p>Deletes all generated entries for <strong>{{ active_trimester }}</strong>, including published entries.</p>
+                        {% endif %}
+                        <p class="small text-muted mb-0">Imported backbone/reference entries are kept. Published schedules disappear from professor and student accounts until a new draft is generated and published.</p>
+                    </div>
+                    <div class="modal-footer border-0 pt-0">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                        {% if is_all_scope %}
+                        <form method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="action" value="reset_ay">
+                            <input type="hidden" name="clear_ay" value="{{ active_ay }}">
+                            <button type="submit" class="btn btn-danger">Clear all {{ active_ay }} timetables</button>
+                        </form>
+                        {% else %}
+                        <form method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="action" value="reset">
                             <input type="hidden" name="trimester" value="{{ active_trimester }}">
-                            <button type="submit" class="btn btn-outline-danger w-100"
-                                    onclick="return confirm('Delete all timetable entries for {{ active_trimester }}? This cannot be undone.')">
-                                <i class="bi bi-trash me-1"></i>Clear This Trimester
-                            </button>
-                        </form>
-
-                        <!-- Clear full AY -->
-                        {% if '-T' in active_trimester %}
-                            {% set cur_ay = active_trimester.split('-T')[0] %}
-                        {% elif active_trimester and active_trimester[-4:] == '-all' %}
-                            {% set cur_ay = active_trimester[:-4] %}
-                        {% else %}
-                            {% set cur_ay = '' %}
-                        {% endif %}
-                        {% if cur_ay %}
-                        <form method="POST">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <input type="hidden" name="action" value="reset_ay">
-                            <input type="hidden" name="clear_ay" value="{{ cur_ay }}">
-                            <button type="submit" class="btn btn-danger w-100"
-                                    onclick="return confirm('Delete ALL timetable entries for {{ cur_ay }} (T1 + T2 + T3)? This cannot be undone.')">
-                                <i class="bi bi-trash-fill me-1"></i>Clear Full {{ cur_ay }}
-                            </button>
+                            <button type="submit" class="btn btn-danger">Clear {{ active_trimester }}</button>
                         </form>
                         {% endif %}
                     </div>
@@ -538,8 +606,6 @@
             </div>
         </div>
         {% endif %}
-
-        {% endif %}{# end is_bb_view else #}
 
     </div>
 

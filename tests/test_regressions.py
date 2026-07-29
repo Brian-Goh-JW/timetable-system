@@ -178,6 +178,55 @@ class RegressionTests(unittest.TestCase):
                 db.session.delete(User.query.filter_by(role=role).one())
                 db.session.commit()
 
+    def test_timetable_workflow_actions_match_scope_and_publication_state(self):
+        client, _ = self._admin_client()
+        _, group, course = self._base_data()
+        slot = TimeSlot(
+            day_of_week='Monday', period_label='P1',
+            start_time=time(9), end_time=time(11),
+        )
+        class_session = ClassSession(
+            course=course, session_type='lecture', delivery_mode='online',
+            duration_hours=2, student_group=group, trimester=1,
+            teaching_weeks='1', group_label='All',
+        )
+        entry = TimetableEntry(
+            class_session=class_session, timeslot=slot, week_number=1,
+            trimester='AY2526-T1', academic_year='AY2526',
+            is_published=True, is_backbone=False,
+        )
+        db.session.add_all([slot, class_session, entry])
+        db.session.commit()
+
+        all_response = client.get(
+            '/admin/timetable?trimester=AY2526-all&source=generated'
+        )
+        self.assertEqual(200, all_response.status_code)
+        self.assertIn(b'across all three trimesters', all_response.data)
+        self.assertIn(b'Academic year', all_response.data)
+        self.assertIn(b'<div class="fs-5 fw-bold">1</div>', all_response.data)
+        self.assertIn(b'Clear all AY2526 timetables?', all_response.data)
+        self.assertNotIn(b'value="AY2526-all"', all_response.data)
+        self.assertNotIn(b'Readiness checks passed across the academic year', all_response.data)
+
+        published_response = client.get(
+            '/admin/timetable?trimester=AY2526-T1&source=generated'
+        )
+        self.assertEqual(200, published_response.status_code)
+        self.assertIn(b'Validation passed', published_response.data)
+        self.assertIn(b'<strong>Published.</strong>', published_response.data)
+        self.assertNotIn(b'name="action" value="publish"', published_response.data)
+        self.assertIn(b'Clear AY2526-T1', published_response.data)
+
+        entry.is_published = False
+        db.session.commit()
+        draft_response = client.get(
+            '/admin/timetable?trimester=AY2526-T1&source=generated'
+        )
+        self.assertEqual(200, draft_response.status_code)
+        self.assertIn(b'name="action" value="publish"', draft_response.data)
+        self.assertIn(b'Publish Timetable', draft_response.data)
+
     def test_schedule_history_page_is_not_user_facing(self):
         client, _admin = self._admin_client()
         response = client.get('/admin/timetable/versions')
