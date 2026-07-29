@@ -1,151 +1,258 @@
 {% extends 'base.html' %}
 {% block title %}Audit Log - SIT Timetable{% endblock %}
 
+{% block extra_head %}
+<style>
+    .audit-metric {
+        min-height: 104px;
+        border: 1px solid rgba(255,255,255,.72);
+        border-radius: 16px;
+        background: rgba(255,255,255,.62);
+        box-shadow: 0 6px 18px rgba(31,38,135,.07);
+    }
+    .audit-metric .metric-number { color:#1e293b; font-size:1.45rem; font-weight:800; line-height:1; }
+    .audit-section-title { display:flex; align-items:center; gap:.55rem; margin-bottom:.15rem; }
+    .audit-section-title i { color:#b4232a; }
+    .audit-change {
+        display:grid;
+        grid-template-columns:minmax(70px,1fr) auto minmax(70px,1fr);
+        gap:.35rem;
+        align-items:center;
+        min-width:220px;
+    }
+    .audit-change .before { color:#b91c1c; text-decoration:line-through; }
+    .audit-change .after { color:#15803d; font-weight:650; }
+    .audit-category {
+        display:inline-flex;
+        align-items:center;
+        gap:.3rem;
+        padding:.28rem .5rem;
+        border-radius:999px;
+        font-size:.7rem;
+        font-weight:750;
+        white-space:nowrap;
+    }
+    .audit-category-timetable { background:#fee2e2; color:#991b1b; }
+    .audit-category-import { background:#dbeafe; color:#1d4ed8; }
+    .audit-category-data { background:#dcfce7; color:#166534; }
+    .audit-category-coordination { background:#fef3c7; color:#92400e; }
+    .audit-category-settings { background:#ede9fe; color:#6d28d9; }
+    .audit-empty-filter { display:none; }
+    @media (max-width: 767.98px) {
+        .audit-change { min-width:180px; }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 
-<div class="d-flex justify-content-end align-items-center mb-4">
-    <div class="d-flex align-items-center gap-2">
-        <span class="badge bg-secondary fs-6" id="audit-count">{{ logs | length }} entries</span>
-        <div class="action-dropdown">
-            <a href="{{ url_for('admin.audit_log_export', trimester=active_trimester) }}" class="btn btn-sm">
-                <span class="icon-chip icon-chip-blue"><i class="bi bi-download"></i></span>Export CSV
-            </a>
+<div class="page-heading">
+    <div>
+        <div class="page-eyebrow">Administration history</div>
+        <h1>Audit Log</h1>
+        <p>Review completed timetable changes, imports and administrator updates. Only actions that changed the system are recorded.</p>
+    </div>
+    <div class="action-dropdown">
+        <a href="{{ url_for('admin.audit_log_export', trimester=active_trimester) }}" class="btn">
+            <span class="icon-chip icon-chip-blue"><i class="bi bi-download"></i></span>Export CSV
+        </a>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-6 col-lg-3">
+        <div class="audit-metric p-3">
+            <div class="control-label mb-3"><i class="bi bi-journal-check"></i>Recorded actions</div>
+            <div class="metric-number">{{ audit_total }}</div>
+            <div class="small text-muted mt-1">Meaningful completed changes</div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="audit-metric p-3">
+            <div class="control-label mb-3"><i class="bi bi-calendar2-check"></i>Timetable</div>
+            <div class="metric-number">{{ logs|length + category_counts.Timetable }}</div>
+            <div class="small text-muted mt-1">Edits, generation and publication</div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="audit-metric p-3">
+            <div class="control-label mb-3"><i class="bi bi-file-earmark-arrow-up"></i>Imports</div>
+            <div class="metric-number">{{ category_counts.Import }}</div>
+            <div class="small text-muted mt-1">Applied workbook imports</div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="audit-metric p-3">
+            <div class="control-label mb-3"><i class="bi bi-pencil-square"></i>Data &amp; settings</div>
+            <div class="metric-number">{{ category_counts.Data + category_counts.Coordination + category_counts.Settings }}</div>
+            <div class="small text-muted mt-1">Managed records and configuration</div>
         </div>
     </div>
 </div>
 
-{% if logs %}
-<!-- Search -->
-<div class="mb-3" style="max-width:380px;">
-    <div class="input-group input-group-sm">
-        <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
-        <input type="text" id="audit-search" class="form-control"
-               placeholder="Search edits (module, admin, trimester, room, professor…)"
+<div class="filter-bar mb-4 d-flex flex-wrap gap-2 align-items-center">
+    <div class="input-group input-group-sm" style="max-width:360px;">
+        <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+        <input type="search" id="audit-search" class="form-control border-start-0"
+               placeholder="Search action, admin, module or room…"
                oninput="filterAudit()" autocomplete="off">
     </div>
+    <select id="audit-category" class="form-select form-select-sm" style="width:auto;" onchange="filterAudit()" aria-label="Filter audit log by area">
+        <option value="all">All activity</option>
+        <option value="timetable">Timetable</option>
+        <option value="import">Imports</option>
+        <option value="data">Data</option>
+        <option value="coordination">Coordination</option>
+        <option value="settings">Settings</option>
+    </select>
+    <span class="text-muted small" id="audit-count">{{ audit_total }} entries</span>
 </div>
-{% endif %}
 
-{% if logs %}
-<div class="card border-0 shadow-sm">
-    <div class="card-body p-0">
-        <table class="table table-hover align-middle mb-0 small">
-            <thead class="table-light">
-                <tr>
-                    <th class="ps-3">Timestamp</th>
-                    <th>Admin</th>
-                    <th>Trimester</th>
-                    <th>Session</th>
-                    <th>Scope</th>
-                    <th>Timeslot</th>
-                    <th>Room</th>
-                    <th>Professor</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for log in logs %}
-                <tr>
-                    <td class="ps-3 text-muted" style="white-space:nowrap;">
-                        {{ log.timestamp.strftime('%d %b %Y %H:%M') }}
-                    </td>
-                    <td class="fw-medium">{{ log.user.name }}</td>
-                    <td>{{ log.trimester }}</td>
-                    <td>
-                        {% if log.module_code %}
-                            <span class="fw-medium">{{ log.module_code }}</span>
-                            <div class="text-muted text-capitalize">{{ log.session_type }}</div>
-                        {% else %}
-                            <span class="text-muted">-</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if log.action == 'edit_all_weeks' %}
-                            <span class="badge bg-primary">All weeks</span>
-                        {% else %}
-                            <span class="badge bg-secondary">{{ log.week_label }}</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if log.old_timeslot != log.new_timeslot %}
-                            <span class="text-danger text-decoration-line-through">{{ log.old_timeslot }}</span>
-                            <i class="bi bi-arrow-right mx-1 text-muted"></i>
-                            <span class="text-success">{{ log.new_timeslot }}</span>
-                        {% else %}
-                            <span class="text-muted">{{ log.new_timeslot }}</span>
-                            <span class="badge bg-light text-muted ms-1">unchanged</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if log.old_room != log.new_room %}
-                            <span class="text-danger text-decoration-line-through">{{ log.old_room }}</span>
-                            <i class="bi bi-arrow-right mx-1 text-muted"></i>
-                            <span class="text-success">{{ log.new_room }}</span>
-                        {% else %}
-                            <span class="text-muted">{{ log.new_room }}</span>
-                            <span class="badge bg-light text-muted ms-1">unchanged</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if log.old_professor != log.new_professor %}
-                            <span class="text-danger text-decoration-line-through">{{ log.old_professor }}</span>
-                            <i class="bi bi-arrow-right mx-1 text-muted"></i>
-                            <span class="text-success">{{ log.new_professor }}</span>
-                        {% else %}
-                            <span class="text-muted">{{ log.new_professor }}</span>
-                            <span class="badge bg-light text-muted ms-1">unchanged</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+<div class="audit-empty-filter alert alert-light border text-center" id="audit-empty-filter">
+    <i class="bi bi-search me-1"></i>No audit entries match these filters.
+</div>
+
+<section class="audit-section mb-4" data-audit-section>
+    <div class="d-flex justify-content-between align-items-end mb-2">
+        <div>
+            <h5 class="audit-section-title"><i class="bi bi-calendar2-check"></i>Timetable changes</h5>
+            <div class="small text-muted">Manual changes retain the exact before-and-after values.</div>
+        </div>
+        <span class="badge bg-light text-secondary border">{{ logs|length }}</span>
     </div>
-</div>
 
-{% else %}
-<div class="card border-0 shadow-sm">
-    <div class="card-body text-center text-muted py-5">
-        <i class="bi bi-clock-history fs-2 d-block mb-2"></i>
-        No manual edits recorded yet.
-        {% if active_trimester %}
-            <div class="small mt-1">No edits for <strong>{{ active_trimester }}</strong>.</div>
-        {% endif %}
+    {% if logs %}
+    <div class="card border-0 shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 small">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3">When</th>
+                        <th>Administrator</th>
+                        <th>Session</th>
+                        <th>Scope</th>
+                        <th>Timeslot</th>
+                        <th>Room</th>
+                        <th>Professor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr class="audit-row" data-category="timetable">
+                        <td class="ps-3 text-muted" style="white-space:nowrap;">
+                            <div class="fw-medium text-dark">{{ log.timestamp.strftime('%d %b %Y') }}</div>
+                            <div>{{ log.timestamp.strftime('%H:%M') }}</div>
+                        </td>
+                        <td class="fw-medium">{{ log.user.name if log.user else 'Former administrator' }}</td>
+                        <td>
+                            <div class="fw-semibold">{{ log.module_code or 'Session' }}</div>
+                            <div class="text-muted text-capitalize">{{ log.session_type or log.trimester }}</div>
+                        </td>
+                        <td>
+                            <span class="audit-category audit-category-timetable">
+                                <i class="bi bi-pencil"></i>{{ 'All weeks' if log.action == 'edit_all_weeks' else (log.week_label or 'One week') }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if log.old_timeslot != log.new_timeslot %}
+                            <div class="audit-change"><span class="before">{{ log.old_timeslot or '-' }}</span><i class="bi bi-arrow-right text-muted"></i><span class="after">{{ log.new_timeslot or '-' }}</span></div>
+                            {% else %}<span class="text-muted">{{ log.new_timeslot or 'Unchanged' }}</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if log.old_room != log.new_room %}
+                            <div class="audit-change"><span class="before">{{ log.old_room or '-' }}</span><i class="bi bi-arrow-right text-muted"></i><span class="after">{{ log.new_room or '-' }}</span></div>
+                            {% else %}<span class="text-muted">{{ log.new_room or 'Unchanged' }}</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if log.old_professor != log.new_professor %}
+                            <div class="audit-change"><span class="before">{{ log.old_professor or '-' }}</span><i class="bi bi-arrow-right text-muted"></i><span class="after">{{ log.new_professor or '-' }}</span></div>
+                            {% else %}<span class="text-muted">{{ log.new_professor or 'Unchanged' }}</span>{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
-</div>
-{% endif %}
+    {% else %}
+    <div class="card border-0 shadow-sm"><div class="card-body text-center text-muted py-4">
+        <i class="bi bi-calendar2-check fs-3 d-block mb-2"></i>No manual timetable edits recorded yet.
+    </div></div>
+    {% endif %}
+</section>
 
-<h5 class="mt-4 mb-3">All Administrative Operations</h5>
-<div class="card border-0 shadow-sm">
-  <div class="table-responsive"><table class="table table-hover align-middle mb-0 small">
-    <thead class="table-light"><tr><th class="ps-3">Timestamp</th><th>Admin</th><th>Action</th><th>Summary</th><th>Entity</th></tr></thead>
-    <tbody>
-      {% for item in system_logs %}<tr>
-        <td class="ps-3 text-muted">{{ item.created_at.strftime('%d %b %Y %H:%M') }}</td>
-        <td>{{ item.user.name if item.user else 'System worker' }}</td>
-        <td><code>{{ item.action }}</code></td><td>{{ item.summary or '-' }}</td>
-        <td>{{ item.entity_type or '-' }}{% if item.entity_id %} #{{ item.entity_id }}{% endif %}</td>
-      </tr>{% else %}<tr><td colspan="5" class="text-center text-muted py-4">No administrative operations recorded yet.</td></tr>{% endfor %}
-    </tbody>
-  </table></div>
-</div>
+<section class="audit-section" data-audit-section>
+    <div class="d-flex justify-content-between align-items-end mb-2">
+        <div>
+            <h5 class="audit-section-title"><i class="bi bi-person-check"></i>Administrator activity</h5>
+            <div class="small text-muted">Imports, managed-data updates, coordination and timetable operations.</div>
+        </div>
+        <span class="badge bg-light text-secondary border">{{ system_logs|length }}</span>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 small">
+                <thead class="table-light"><tr><th class="ps-3">When</th><th>Administrator</th><th>Area</th><th>Completed action</th><th>Record</th></tr></thead>
+                <tbody>
+                    {% for item in system_logs %}
+                    {% set cat = item.display_category|lower %}
+                    <tr class="audit-row" data-category="{{ cat }}">
+                        <td class="ps-3 text-muted" style="white-space:nowrap;">
+                            <div class="fw-medium text-dark">{{ item.created_at.strftime('%d %b %Y') }}</div>
+                            <div>{{ item.created_at.strftime('%H:%M') }}</div>
+                        </td>
+                        <td class="fw-medium">{{ item.user.name if item.user else 'System worker' }}</td>
+                        <td><span class="audit-category audit-category-{{ cat }}">
+                            {% if cat == 'timetable' %}<i class="bi bi-calendar2-check"></i>
+                            {% elif cat == 'import' %}<i class="bi bi-file-earmark-arrow-up"></i>
+                            {% elif cat == 'coordination' %}<i class="bi bi-flag"></i>
+                            {% elif cat == 'settings' %}<i class="bi bi-sliders"></i>
+                            {% else %}<i class="bi bi-database-check"></i>{% endif %}
+                            {{ item.display_category }}
+                        </span></td>
+                        <td>
+                            <div class="fw-semibold">{{ item.summary or item.action|replace('.', ' ')|title }}</div>
+                            {% if item.display_context %}<div class="text-muted">{{ item.display_context }}</div>{% endif %}
+                        </td>
+                        <td class="text-muted text-capitalize">
+                            {{ item.entity_type|replace('_', ' ') if item.entity_type else '-' }}{% if item.entity_id %} #{{ item.entity_id }}{% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-center text-muted py-4">No administrator changes recorded yet.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
 
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-var _auditTotal = {{ logs | length }};
+var auditTotal = {{ audit_total }};
 function filterAudit() {
-    var q = document.getElementById('audit-search').value.trim().toLowerCase();
+    var query = document.getElementById('audit-search').value.trim().toLowerCase();
+    var category = document.getElementById('audit-category').value;
     var shown = 0;
-    document.querySelectorAll('tbody tr').forEach(function(r) {
-        var match = r.textContent.toLowerCase().indexOf(q) !== -1;
-        r.style.display = match ? '' : 'none';
-        if (match) { shown += 1; }
+    document.querySelectorAll('.audit-row').forEach(function(row) {
+        var matchesText = !query || row.textContent.toLowerCase().indexOf(query) !== -1;
+        var matchesCategory = category === 'all' || row.dataset.category === category;
+        var visible = matchesText && matchesCategory;
+        row.style.display = visible ? '' : 'none';
+        if (visible) { shown += 1; }
     });
-    var badge = document.getElementById('audit-count');
-    if (badge) {
-        badge.textContent = (q ? shown + ' of ' + _auditTotal : _auditTotal) + ' entries';
-    }
+    document.querySelectorAll('[data-audit-section]').forEach(function(section) {
+        var hasVisible = Array.from(section.querySelectorAll('.audit-row')).some(function(row) {
+            return row.style.display !== 'none';
+        });
+        section.style.display = hasVisible || !section.querySelector('.audit-row') ? '' : 'none';
+    });
+    document.getElementById('audit-count').textContent =
+        ((query || category !== 'all') ? shown + ' of ' + auditTotal : auditTotal) + ' entries';
+    document.getElementById('audit-empty-filter').style.display = shown === 0 && auditTotal > 0 ? 'block' : 'none';
 }
 </script>
 {% endblock %}

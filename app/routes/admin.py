@@ -3488,9 +3488,35 @@ def flag_resolve(flag_id):
 # Audit Log
 # ---------------------------------------------------------------------------
 
+def _audit_category(action):
+    """Turn a stored audit action into a concise user-facing area."""
+    if action.startswith(('solver.', 'timetable.')):
+        return 'Timetable'
+    if action.startswith('coordination.'):
+        return 'Coordination'
+    if action.startswith('settings.'):
+        return 'Settings'
+    if action.startswith('data.') and '.imported' in action:
+        return 'Import'
+    if action.startswith('data.'):
+        return 'Data'
+    return 'Administration'
+
+
+def _meaningful_system_audits():
+    """Exclude legacy request-transport rows from the administrator log."""
+    from app.models.system_audit import SystemAudit
+    return SystemAudit.query.filter(
+        db.or_(
+            SystemAudit.entity_type.is_(None),
+            SystemAudit.entity_type != 'http_request',
+        )
+    )
+
 @admin_bp.route('/audit-log')
 @login_required
 def audit_log():
+    import json
     from app.models.system_audit import SystemAudit
     trimester_filter = request.args.get('trimester', '')
 
@@ -3503,11 +3529,33 @@ def audit_log():
         query = query.filter_by(trimester=trimester_filter)
 
     logs = query.all()
-    system_logs = SystemAudit.query.order_by(SystemAudit.created_at.desc()).limit(500).all()
+    system_logs = (_meaningful_system_audits()
+                   .order_by(SystemAudit.created_at.desc())
+                   .limit(500).all())
+    for item in system_logs:
+        item.display_category = _audit_category(item.action)
+        try:
+            metadata = json.loads(item.metadata_json or '{}')
+        except (TypeError, ValueError):
+            metadata = {}
+        context = []
+        if metadata.get('trimester'):
+            context.append(metadata['trimester'])
+        if metadata.get('academic_year') and metadata['academic_year'] not in context:
+            context.append(metadata['academic_year'])
+        item.display_context = ' · '.join(context)
+
+    category_counts = {
+        category: sum(1 for item in system_logs if item.display_category == category)
+        for category in ('Timetable', 'Import', 'Data', 'Coordination', 'Settings')
+    }
+    audit_total = len(logs) + len(system_logs)
 
     return render_template('admin/audit_log.html',
                            logs=logs,
                            system_logs=system_logs,
+                           audit_total=audit_total,
+                           category_counts=category_counts,
                            trimesters=trimesters,
                            active_trimester=trimester_filter)
 
@@ -3515,9 +3563,10 @@ def audit_log():
 @admin_bp.route('/audit-log/export')
 @login_required
 def audit_log_export():
-    """Download audit log as CSV."""
+    """Download meaningful timetable and administrator changes as CSV."""
     import csv
     import io
+    from app.models.system_audit import SystemAudit
     from flask import Response
 
     trimester_filter = request.args.get('trimester', '')
@@ -3528,20 +3577,45 @@ def audit_log_export():
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['Timestamp', 'Admin', 'Trimester', 'Module', 'Session Type',
-                     'Scope', 'Old Timeslot', 'New Timeslot',
-                     'Old Room', 'New Room', 'Old Professor', 'New Professor'])
+    writer.writerow(['Timestamp', 'Admin', 'Area', 'Action', 'Context', 'Details'])
     for log in logs:
+        changes = []
+        if log.old_timeslot != log.new_timeslot:
+            changes.append(f'Timeslot: {log.old_timeslot or "-"} -> {log.new_timeslot or "-"}')
+        if log.old_room != log.new_room:
+            changes.append(f'Room: {log.old_room or "-"} -> {log.new_room or "-"}')
+        if log.old_professor != log.new_professor:
+            changes.append(f'Professor: {log.old_professor or "-"} -> {log.new_professor or "-"}')
         writer.writerow([
             log.timestamp.strftime('%Y-%m-%d %H:%M'),
             log.user.name if log.user else '',
-            log.trimester or '',
-            log.module_code or '',
-            log.session_type or '',
-            'All weeks' if log.action == 'edit_all_weeks' else (log.week_label or ''),
-            log.old_timeslot or '', log.new_timeslot or '',
-            log.old_room or '',    log.new_room or '',
-            log.old_professor or '', log.new_professor or '',
+            'Timetable',
+            'Manual timetable edit',
+            ' · '.join(filter(None, [log.trimester, log.module_code,
+                                     log.session_type, log.week_label])),
+            '; '.join(changes) or 'Saved with no field-value change',
+        ])
+
+    import json
+    system_logs = (_meaningful_system_audits()
+                   .order_by(SystemAudit.created_at.desc()).all())
+    for item in system_logs:
+        try:
+            metadata = json.loads(item.metadata_json or '{}')
+        except (TypeError, ValueError):
+            metadata = {}
+        context = ' · '.join(filter(None, [
+            metadata.get('trimester'), metadata.get('academic_year'),
+            f'{item.entity_type} #{item.entity_id}' if item.entity_type and item.entity_id
+            else item.entity_type,
+        ]))
+        writer.writerow([
+            item.created_at.strftime('%Y-%m-%d %H:%M'),
+            item.user.name if item.user else 'System worker',
+            _audit_category(item.action),
+            item.summary or item.action,
+            context,
+            '',
         ])
 
     filename = f'audit_log{"_" + trimester_filter if trimester_filter else ""}.csv'

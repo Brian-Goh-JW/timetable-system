@@ -39,6 +39,7 @@ from app.models.timetable_entry import TimetableEntry
 from app.models.user import User
 from app.models.student_enrollment import StudentSectionAssignment
 from app.models.student_enrollment import StudentEnrollment
+from app.models.system_audit import SystemAudit
 from app.routes.admin import (
     _audit_generated_hard_conflicts,
     _check_week_conflicts,
@@ -887,6 +888,52 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual('DENY', response.headers['X-Frame-Options'])
         self.assertEqual('nosniff', response.headers['X-Content-Type-Options'])
         self.assertIn("frame-ancestors 'none'", response.headers['Content-Security-Policy'])
+
+    def test_audit_log_records_meaningful_admin_actions_without_http_noise(self):
+        client, admin = self._admin_client()
+        response = client.post('/admin/events/add', data={
+            'name': 'Audit test closure',
+            'event_date': '2026-09-01',
+            'is_full_day': 'on',
+            'scope': 'school_wide',
+            'outcome': 'cancel',
+        })
+        self.assertEqual(302, response.status_code)
+
+        meaningful = SystemAudit.query.filter_by(action='data.event.created').one()
+        self.assertEqual('data.event.created', meaningful.action)
+        self.assertEqual('event', meaningful.entity_type)
+        self.assertIn('Audit test closure', meaningful.summary)
+
+        db.session.add(SystemAudit(
+            user_id=admin.id,
+            action='admin.event_add',
+            entity_type='http_request',
+            summary='POST /admin/events/add',
+        ))
+        db.session.commit()
+
+        page = client.get('/admin/audit-log').get_data(as_text=True)
+        self.assertIn('Audit test closure', page)
+        self.assertNotIn('POST /admin/events/add', page)
+        self.assertNotIn('http_request', page)
+
+        export = client.get('/admin/audit-log/export').get_data(as_text=True)
+        self.assertIn('Audit test closure', export)
+        self.assertNotIn('POST /admin/events/add', export)
+        self.assertNotIn('http_request', export)
+
+    def test_system_info_uses_readable_reference_sections(self):
+        client, _ = self._admin_client()
+        response = client.get('/admin/system-info')
+        page = response.get_data(as_text=True)
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn('Rules and data quality', page)
+        self.assertIn('Data Quality', page)
+        self.assertIn('Hard Rules', page)
+        self.assertIn('Preferences', page)
+        self.assertIn('Change History', page)
 
     def test_course_scoped_recurring_event_matches_only_its_course(self):
         programme, group, course = self._base_data()

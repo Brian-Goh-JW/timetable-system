@@ -14,7 +14,7 @@
             {% if pending_declarations_count %}<span class="badge bg-warning text-dark ms-1">{{ pending_declarations_count }}</span>{% endif %}
         </a>
         <a class="term-option active" aria-current="page" href="{{ url_for('admin.timetable_flags') }}">
-            <i class="bi bi-chat-square-check"></i>Schedule Responses
+            <i class="bi bi-flag"></i>Schedule Responses
             {% if open_flags or acknowledged_flags %}<span class="badge bg-light text-danger ms-1">{{ open_flags|length + acknowledged_flags|length }}</span>{% endif %}
         </a>
     </nav>

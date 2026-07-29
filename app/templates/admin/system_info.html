@@ -1,6 +1,77 @@
 {% extends 'base.html' %}
 {% block title %}System Info - SIT Timetable{% endblock %}
 
+{% block extra_head %}
+<style>
+    .system-metric {
+        height:100%;
+        min-height:112px;
+        padding:1rem;
+        border:1px solid rgba(255,255,255,.72);
+        border-radius:16px;
+        background:rgba(255,255,255,.62);
+        box-shadow:0 6px 18px rgba(31,38,135,.07);
+    }
+    .system-metric-number { color:#1e293b; font-size:1.55rem; font-weight:850; line-height:1; }
+    .system-guide {
+        display:flex;
+        align-items:center;
+        gap:.75rem;
+        padding:.85rem 1rem;
+        border:1px solid rgba(59,130,246,.14);
+        border-radius:14px;
+        background:rgba(239,246,255,.7);
+        color:#475569;
+    }
+    .system-info-tabs {
+        padding:.4rem;
+        gap:.35rem;
+        border:1px solid rgba(255,255,255,.72);
+        border-radius:15px;
+        background:rgba(255,255,255,.58);
+        box-shadow:0 5px 16px rgba(31,38,135,.07);
+    }
+    .system-info-tabs .nav-link {
+        display:inline-flex;
+        min-height:42px;
+        align-items:center;
+        gap:.4rem;
+        padding:.5rem .75rem;
+        border:1px solid transparent;
+        border-radius:10px;
+        color:#64748b;
+        font-size:.8rem;
+        font-weight:750;
+    }
+    .system-info-tabs .nav-link:hover { border-color:rgba(192,39,45,.18); background:#fff; color:#a51f26; }
+    .system-info-tabs .nav-link.active {
+        border-color:rgba(151,30,35,.35);
+        background:linear-gradient(135deg,#d42e35,#971e23);
+        color:#fff;
+        box-shadow:0 5px 13px rgba(192,39,45,.24);
+    }
+    .system-info-tabs .nav-link.active .badge { background:#fff !important; color:#991b1b !important; }
+    .system-tab-intro {
+        display:flex;
+        align-items:flex-start;
+        gap:.65rem;
+        margin-bottom:.8rem;
+        padding:.75rem .9rem;
+        border-left:3px solid #c0272d;
+        border-radius:0 10px 10px 0;
+        background:rgba(255,255,255,.5);
+        color:#64748b;
+        font-size:.82rem;
+    }
+    .system-detail-toggle { padding:0; border:0; font-size:.73rem; font-weight:650; }
+    @media (max-width:767.98px) {
+        .system-info-tabs { flex-wrap:nowrap !important; overflow-x:auto; }
+        .system-info-tabs .nav-item { flex:0 0 auto; }
+        .system-guide { align-items:flex-start; }
+    }
+</style>
+{% endblock %}
+
 {% macro status_badge(status) %}
     {% if status == 'Implemented' %}
     <span class="badge bg-success">{{ status }}</span>
@@ -14,7 +85,7 @@
 {% endmacro %}
 
 {% macro assumption_group_card(group, uid) %}
-<div class="col-lg-6">
+<div class="{% if group.kind == 'count' %}col-12{% else %}col-xl-6{% endif %}">
     <div class="card glass-card h-100">
         <div class="card-header bg-transparent border-bottom d-flex align-items-center gap-2">
             <div class="icon-orb icon-orb-{{ group.color }}" style="width:36px;height:36px;min-width:36px;">
@@ -32,10 +103,11 @@
                             <div>{{ a.label }}</div>
                             {% if a.note %}
                                 {% if a.note | length > 90 %}
-                                <a class="text-muted text-decoration-none" data-bs-toggle="collapse"
-                                   href="#{{ uid }}-{{ loop.index }}" role="button" style="font-size:0.72rem;">
-                                    <i class="bi bi-chevron-right collapse-chevron" style="font-size:0.65rem;"></i> details
-                                </a>
+                                <button class="system-detail-toggle btn btn-link text-muted text-decoration-none" type="button"
+                                        data-bs-toggle="collapse" data-bs-target="#{{ uid }}-{{ loop.index }}"
+                                        aria-expanded="false" aria-controls="{{ uid }}-{{ loop.index }}">
+                                    <i class="bi bi-chevron-right collapse-chevron" style="font-size:0.65rem;"></i> View explanation
+                                </button>
                                 <div class="collapse" id="{{ uid }}-{{ loop.index }}">
                                     <div class="text-muted mt-1" style="font-size:0.78rem;">{{ a.note }}</div>
                                 </div>
@@ -116,37 +188,49 @@
 {% set gap_flagged = data_gap_groups | map(attribute='rows') | sum(start=[]) | selectattr('count', 'defined') | selectattr('count', 'gt', 0) | list | length %}
 {% set changelog_count = changelog_groups | map(attribute='rows') | map('length') | sum %}
 
-<div class="card glass-card mb-4">
-    <div class="card-body">
-        <div class="row g-3 small">
-            <div class="col-md-4 col-lg">
-                <div class="fw-semibold text-danger"><i class="bi bi-flag me-1"></i>Data Gaps</div>
-                <div class="text-muted">Information that's simply <u>missing</u> - not assumed, not guessed, just not there yet. Usually the first thing worth checking.</div>
-            </div>
-            <div class="col-md-4 col-lg">
-                <div class="fw-semibold text-danger"><i class="bi bi-shield-check me-1"></i>Hard Constraints</div>
-                <div class="text-muted">Rules that can <u>never</u> be broken. If satisfying one is impossible, the system stops instead of guessing.</div>
-            </div>
-            <div class="col-md-4 col-lg">
-                <div class="fw-semibold text-primary"><i class="bi bi-sliders me-1"></i>Soft Constraints</div>
-                <div class="text-muted">Preferences. The system tries to honour these but will break one rather than fail entirely.</div>
-            </div>
-            <div class="col-md-4 col-lg">
-                <div class="fw-semibold text-warning"><i class="bi bi-exclamation-diamond me-1"></i>Assumed Values</div>
-                <div class="text-muted">Choices the system made on your behalf where no uploaded data said what to do. Worth double-checking.</div>
-            </div>
-            <div class="col-md-4 col-lg">
-                <div class="fw-semibold text-secondary"><i class="bi bi-clock-history me-1"></i>Change Log</div>
-                <div class="text-muted">A dated record of mistakes found and fixed in the data. History, not the system's current state.</div>
-            </div>
-        </div>
+<div class="page-heading">
+    <div>
+        <div class="page-eyebrow">Rules and data quality</div>
+        <h1>System Info</h1>
+        <p>Understand what the generator enforces, what it prefers, and which data still needs review.</p>
     </div>
+    <a href="{{ url_for('admin.constraint_settings') }}" class="btn btn-outline-secondary align-self-start">
+        <i class="bi bi-sliders me-1"></i>Constraint Settings
+    </a>
 </div>
 
-<ul class="nav nav-pills mb-4 flex-wrap gap-2" id="sysInfoTabs" role="tablist">
+<div class="row g-3 mb-3">
+    <div class="col-6 col-xl-3"><div class="system-metric">
+        <div class="control-label mb-3"><i class="bi bi-flag"></i>Needs review</div>
+        <div class="system-metric-number {% if gap_flagged %}text-danger{% else %}text-success{% endif %}">{{ gap_flagged }}</div>
+        <div class="small text-muted mt-1">Data-quality items with a non-zero count</div>
+    </div></div>
+    <div class="col-6 col-xl-3"><div class="system-metric">
+        <div class="control-label mb-3"><i class="bi bi-shield-check"></i>Hard rules</div>
+        <div class="system-metric-number">{{ hard_count }}</div>
+        <div class="small text-muted mt-1">Always enforced during generation</div>
+    </div></div>
+    <div class="col-6 col-xl-3"><div class="system-metric">
+        <div class="control-label mb-3"><i class="bi bi-sliders"></i>Preferences</div>
+        <div class="system-metric-number">{{ soft_count }}</div>
+        <div class="small text-muted mt-1">Used to rank valid timetables</div>
+    </div></div>
+    <div class="col-6 col-xl-3"><div class="system-metric">
+        <div class="control-label mb-3"><i class="bi bi-exclamation-diamond"></i>Assumptions</div>
+        <div class="system-metric-number">{{ assumed_count }}</div>
+        <div class="small text-muted mt-1">Documented defaults to verify</div>
+    </div>
+</div></div>
+
+<div class="system-guide mb-3">
+    <i class="bi bi-info-circle fs-5 text-primary"></i>
+    <div><strong>Start with Data Quality.</strong> Hard rules explain why generation can stop; preferences explain how the system chooses among safe results. For who changed data and when, use the <a href="{{ url_for('admin.audit_log') }}">Audit Log</a>.</div>
+</div>
+
+<ul class="nav nav-pills system-info-tabs mb-3 flex-wrap" id="sysInfoTabs" role="tablist">
     <li class="nav-item" role="presentation">
         <button class="nav-link active d-flex align-items-center gap-2" id="tab-gaps-btn" data-bs-toggle="tab" data-bs-target="#tab-gaps" type="button" role="tab" aria-controls="tab-gaps" aria-selected="true">
-            <i class="bi bi-flag"></i> Data Gaps
+            <i class="bi bi-flag"></i> Data Quality
             {% if gap_flagged > 0 %}
             <span class="badge bg-danger">{{ gap_flagged }} to review</span>
             {% else %}
@@ -156,22 +240,22 @@
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link d-flex align-items-center gap-2" id="tab-hard-btn" data-bs-toggle="tab" data-bs-target="#tab-hard" type="button" role="tab" aria-controls="tab-hard" aria-selected="false">
-            <i class="bi bi-shield-check"></i> Hard Constraints <span class="badge bg-danger">{{ hard_count }}</span>
+            <i class="bi bi-shield-check"></i> Hard Rules <span class="badge bg-danger">{{ hard_count }}</span>
         </button>
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link d-flex align-items-center gap-2" id="tab-soft-btn" data-bs-toggle="tab" data-bs-target="#tab-soft" type="button" role="tab" aria-controls="tab-soft" aria-selected="false">
-            <i class="bi bi-sliders"></i> Soft Constraints <span class="badge bg-primary">{{ soft_count }}</span>
+            <i class="bi bi-sliders"></i> Preferences <span class="badge bg-primary">{{ soft_count }}</span>
         </button>
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link d-flex align-items-center gap-2" id="tab-assumed-btn" data-bs-toggle="tab" data-bs-target="#tab-assumed" type="button" role="tab" aria-controls="tab-assumed" aria-selected="false">
-            <i class="bi bi-exclamation-diamond"></i> Assumed Values <span class="badge bg-warning text-dark">{{ assumed_count }}</span>
+            <i class="bi bi-exclamation-diamond"></i> Assumptions <span class="badge bg-warning text-dark">{{ assumed_count }}</span>
         </button>
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link d-flex align-items-center gap-2" id="tab-changelog-btn" data-bs-toggle="tab" data-bs-target="#tab-changelog" type="button" role="tab" aria-controls="tab-changelog" aria-selected="false">
-            <i class="bi bi-clock-history"></i> Change Log <span class="badge bg-secondary">{{ changelog_count }}</span>
+            <i class="bi bi-clock-history"></i> Change History <span class="badge bg-secondary">{{ changelog_count }}</span>
         </button>
     </li>
 </ul>
@@ -179,6 +263,7 @@
 <div class="tab-content" id="sysInfoTabsContent">
 
     <div class="tab-pane fade show active" id="tab-gaps" role="tabpanel" aria-labelledby="tab-gaps-btn">
+        <div class="system-tab-intro"><i class="bi bi-flag text-danger"></i><div><strong>Data Quality</strong><br>Live checks against the current database. Non-zero counts deserve review before the next generation run.</div></div>
         <div class="row g-3 mb-4">
             {% for group in data_gap_groups %}
                 {{ assumption_group_card(group, 'gap-' ~ loop.index) }}
@@ -187,9 +272,10 @@
     </div>
 
     <div class="tab-pane fade" id="tab-hard" role="tabpanel" aria-labelledby="tab-hard-btn">
+        <div class="system-tab-intro"><i class="bi bi-shield-check text-danger"></i><div><strong>Hard Rules</strong><br>Every generated timetable must pass these checks. If a rule cannot be satisfied, generation stops before writing a timetable.</div></div>
         <div class="d-flex justify-content-end gap-2 mb-2">
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllCollapses('tab-hard', true)">Expand All</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllCollapses('tab-hard', false)">Collapse All</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllCollapses('tab-hard', true)"><i class="bi bi-arrows-expand me-1"></i>Expand all</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllCollapses('tab-hard', false)"><i class="bi bi-arrows-collapse me-1"></i>Collapse all</button>
         </div>
         <div class="row g-3 mb-4">
             {% for group in constraints.hard %}
@@ -199,9 +285,10 @@
     </div>
 
     <div class="tab-pane fade" id="tab-soft" role="tabpanel" aria-labelledby="tab-soft-btn">
+        <div class="system-tab-intro"><i class="bi bi-sliders text-primary"></i><div><strong>Preferences</strong><br>These rules improve timetable quality but never override a hard rule. Their relative priorities are configurable.</div></div>
         <div class="d-flex justify-content-end gap-2 mb-2">
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllCollapses('tab-soft', true)">Expand All</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllCollapses('tab-soft', false)">Collapse All</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllCollapses('tab-soft', true)"><i class="bi bi-arrows-expand me-1"></i>Expand all</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAllCollapses('tab-soft', false)"><i class="bi bi-arrows-collapse me-1"></i>Collapse all</button>
         </div>
         <div class="row g-3 mb-4">
             {% for group in constraints.soft %}
@@ -211,6 +298,7 @@
     </div>
 
     <div class="tab-pane fade" id="tab-assumed" role="tabpanel" aria-labelledby="tab-assumed-btn">
+        <div class="system-tab-intro"><i class="bi bi-exclamation-diamond text-warning"></i><div><strong>Assumptions</strong><br>Defaults and mappings the system uses when an uploaded source does not provide a value. These are disclosed for verification.</div></div>
         <div class="row g-3 mb-4">
             {% for group in assumption_groups %}
                 {{ assumption_group_card(group, 'assumed-' ~ loop.index) }}
@@ -219,6 +307,7 @@
     </div>
 
     <div class="tab-pane fade" id="tab-changelog" role="tabpanel" aria-labelledby="tab-changelog-btn">
+        <div class="system-tab-intro"><i class="bi bi-clock-history text-secondary"></i><div><strong>Change History</strong><br>Reference notes about past data corrections. This is not the administrator activity log.</div></div>
         <div class="row g-3 mb-4">
             {% for group in changelog_groups %}
                 {{ assumption_group_card(group, 'changelog-' ~ loop.index) }}

@@ -765,7 +765,7 @@
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.declarations' %}active{% endif %}"
                                            href="{{ url_for('admin.declarations') }}"><i class="bi bi-calendar-check"></i> Professor Availability</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.timetable_flags' %}active{% endif %}"
-                                           href="{{ url_for('admin.timetable_flags') }}"><i class="bi bi-chat-square-check"></i> Schedule Responses</a></li>
+                                           href="{{ url_for('admin.timetable_flags') }}"><i class="bi bi-flag"></i> Schedule Responses</a></li>
                                     <li><hr class="dropdown-divider"></li>
                                     <li><h6 class="dropdown-header">Setup</h6></li>
                                     <li><a class="dropdown-item {% if request.endpoint and 'event' in request.endpoint %}active{% endif %}"
@@ -803,7 +803,7 @@
                             <li class="nav-item">
                                 <a class="nav-link {% if request.endpoint == 'teacher.flags' %}active{% endif %} position-relative"
                                    href="{{ url_for('teacher.flags') }}">
-                                    <i class="bi bi-chat-square-check me-1"></i>Action Required
+                                    <i class="bi bi-flag me-1"></i>Action Required
                                     {% if nav_teacher_action_count and nav_teacher_action_count > 0 %}
                                     <span class="badge rounded-pill bg-warning text-dark ms-1">{{ nav_teacher_action_count }}</span>
                                     {% endif %}

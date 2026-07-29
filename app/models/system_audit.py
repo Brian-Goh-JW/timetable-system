@@ -4,7 +4,7 @@ from app import db
 
 
 class SystemAudit(db.Model):
-    """Append-only audit record for every state-changing admin operation."""
+    """Append-only record of meaningful administrator changes."""
 
     __tablename__ = 'system_audits'
 

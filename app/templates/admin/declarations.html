@@ -14,7 +14,7 @@
             {% if pending %}<span class="badge bg-light text-danger ms-1">{{ pending|length }}</span>{% endif %}
         </a>
         <a class="term-option" href="{{ url_for('admin.timetable_flags') }}">
-            <i class="bi bi-chat-square-check"></i>Schedule Responses
+            <i class="bi bi-flag"></i>Schedule Responses
             {% if schedule_actions_count %}<span class="badge bg-warning text-dark ms-1">{{ schedule_actions_count }}</span>{% endif %}
         </a>
     </nav>
