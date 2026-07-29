@@ -11,42 +11,55 @@
     </div>
 </div>
 
-<!-- Trimester tabs -->
+<!-- Timetable controls -->
 {% if trimesters %}
-<div class="mb-2 d-flex flex-wrap gap-2">
-    {% for t in trimesters %}
-    <a href="{{ url_for('teacher.timetable', trimester=t, view=view_mode) }}"
-       class="filter-chip {% if active_trimester == t %}active{% endif %}">
-        {% if t | length >= 9 and '-T' in t %}
-            {{ t[:2] ~ t[2:4] ~ '/' ~ t[4:6] ~ ' Tri ' ~ t[-1] }}
-        {% else %}
-            {{ t }}
+<div class="schedule-toolbar mb-3">
+    <div class="schedule-toolbar-row">
+        <div class="control-field control-field-grow">
+            <span class="control-label"><i class="bi bi-calendar3"></i>Trimester</span>
+            <nav class="term-switcher term-switcher-scroll" aria-label="Select trimester">
+                {% for t in trimesters %}
+                <a href="{{ url_for('teacher.timetable', trimester=t, view=view_mode) }}"
+                   class="term-option {% if active_trimester == t %}active{% endif %}"
+                   {% if active_trimester == t %}aria-current="page"{% endif %}>
+                    {% if t | length >= 9 and '-T' in t %}
+                    <span class="term-ay">AY{{ t[2:4] }}/{{ t[4:6] }}</span><span>T{{ t[-1] }}</span>
+                    {% else %}
+                    <span>{{ t }}</span>
+                    {% endif %}
+                </a>
+                {% endfor %}
+            </nav>
+        </div>
+
+        {% if active_trimester and entries %}
+        <div class="control-field">
+            <span class="control-label"><i class="bi bi-layout-split"></i>View</span>
+            <div class="segmented-toggle">
+                <a href="{{ url_for('teacher.timetable', trimester=active_trimester, view='list') }}"
+                   class="btn btn-sm {% if view_mode == 'list' %}active{% endif %}"
+                   {% if view_mode == 'list' %}aria-current="page"{% endif %}>
+                    <i class="bi bi-list-ul me-1"></i>List
+                </a>
+                <a href="{{ url_for('teacher.timetable', trimester=active_trimester, view='weekly', week=week_number) }}"
+                   class="btn btn-sm {% if view_mode == 'weekly' %}active{% endif %}"
+                   {% if view_mode == 'weekly' %}aria-current="page"{% endif %}>
+                    <i class="bi bi-calendar-week me-1"></i>Weekly
+                </a>
+            </div>
+        </div>
+        <div class="toolbar-actions">
+            <a href="{{ url_for('teacher.timetable_ical', trimester=active_trimester) }}"
+               class="toolbar-action" title="Download for Outlook, Google Calendar or Apple Calendar">
+                <i class="bi bi-calendar-plus"></i>Add to Calendar
+            </a>
+        </div>
         {% endif %}
-    </a>
-    {% endfor %}
+    </div>
 </div>
 {% endif %}
 
 {% if active_trimester and entries %}
-
-<!-- View toggle -->
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <small class="text-muted">
-        {% if view_mode == 'weekly' %}Weekly calendar - click a block for details
-        {% else %}Recurring slot each teaching week{% endif %}
-    </small>
-    <div class="btn-group btn-group-sm">
-        <a href="{{ url_for('teacher.timetable_ical', trimester=active_trimester) }}" class="btn btn-outline-success" title="Import into Outlook, Google Calendar, or Apple Calendar"><i class="bi bi-calendar-plus me-1"></i>Add to Calendar</a>
-        <a href="{{ url_for('teacher.timetable', trimester=active_trimester, view='list') }}"
-           class="btn btn-outline-secondary {% if view_mode == 'list' %}active{% endif %}">
-            <i class="bi bi-list-ul me-1"></i>List
-        </a>
-        <a href="{{ url_for('teacher.timetable', trimester=active_trimester, view='weekly', week=week_number) }}"
-           class="btn btn-outline-secondary {% if view_mode == 'weekly' %}active{% endif %}">
-            <i class="bi bi-calendar-week me-1"></i>Weekly
-        </a>
-    </div>
-</div>
 
 {# ------------------------------------------------------------------ #}
 {# WEEKLY VIEW                                                         #}
@@ -54,40 +67,40 @@
 {% if view_mode == 'weekly' %}
 
 <!-- Week navigator -->
-<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+<div class="schedule-weekbar mb-3">
     {% if prev_week_num %}
     <a href="{{ url_for('teacher.timetable', trimester=active_trimester, view='weekly', week=prev_week_num) }}"
-       class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-chevron-left"></i> Wk {{ prev_week_num }}
+       class="week-nav-button" title="Previous week" aria-label="Previous week">
+        <i class="bi bi-chevron-left"></i>
     </a>
     {% else %}
-    <button class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-chevron-left"></i></button>
+    <button class="week-nav-button" disabled aria-label="Previous week"><i class="bi bi-chevron-left"></i></button>
     {% endif %}
 
-    <span class="fw-semibold">
-        Week {{ week_number }}
+    <div class="week-current">
+        <div class="week-current-title"><i class="bi bi-calendar-week me-1"></i>Week {{ week_number }}</div>
         {% if current_cal_week and current_cal_week.start_date %}
-            &nbsp;·&nbsp;
-            <span class="text-muted fw-normal">
+            <div class="week-current-dates">
                 {{ current_cal_week.start_date.strftime('%d %b') }} – {{ current_cal_week.end_date.strftime('%d %b %Y') }}
-            </span>
+            </div>
         {% endif %}
         {% if current_cal_week and current_cal_week.is_term_break %}
-            <span class="badge bg-warning text-dark ms-1">Term Break</span>
+            <span class="badge bg-warning text-dark mt-1">Term Break</span>
         {% endif %}
-    </span>
+    </div>
 
     {% if next_week_num %}
     <a href="{{ url_for('teacher.timetable', trimester=active_trimester, view='weekly', week=next_week_num) }}"
-       class="btn btn-sm btn-outline-secondary">
-        Wk {{ next_week_num }} <i class="bi bi-chevron-right"></i>
+       class="week-nav-button" title="Next week" aria-label="Next week">
+        <i class="bi bi-chevron-right"></i>
     </a>
     {% else %}
-    <button class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-chevron-right"></i></button>
+    <button class="week-nav-button" disabled aria-label="Next week"><i class="bi bi-chevron-right"></i></button>
     {% endif %}
 
-    <div class="ms-auto">
-        <select class="form-select form-select-sm" style="width:auto;"
+    <div class="control-field ms-auto">
+        <label class="control-label" for="teacher-week-jump"><i class="bi bi-signpost"></i>Jump to</label>
+        <select class="form-select form-select-sm" id="teacher-week-jump" style="width:auto;"
                 onchange="window.location=this.value">
             {% for cw in calendar_weeks %}
             <option value="{{ url_for('teacher.timetable', trimester=active_trimester, view='weekly', week=cw.week_number) }}"

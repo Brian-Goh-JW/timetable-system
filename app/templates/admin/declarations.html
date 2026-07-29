@@ -8,16 +8,16 @@
         <h1>Professor Availability</h1>
         <p>Review professor requests before generating the timetable.</p>
     </div>
-    <div class="btn-group" role="group" aria-label="Professor coordination">
-        <a class="btn btn-sm btn-danger" href="{{ url_for('admin.declarations') }}">
-            Availability
+    <nav class="term-switcher" aria-label="Professor coordination">
+        <a class="term-option active" aria-current="page" href="{{ url_for('admin.declarations') }}">
+            <i class="bi bi-calendar-x"></i>Availability
             {% if pending %}<span class="badge bg-light text-danger ms-1">{{ pending|length }}</span>{% endif %}
         </a>
-        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.timetable_flags') }}">
-            Schedule Responses
+        <a class="term-option" href="{{ url_for('admin.timetable_flags') }}">
+            <i class="bi bi-chat-square-check"></i>Schedule Responses
             {% if schedule_actions_count %}<span class="badge bg-warning text-dark ms-1">{{ schedule_actions_count }}</span>{% endif %}
         </a>
-    </div>
+    </nav>
 </div>
 
 <div class="alert alert-light border mb-4">

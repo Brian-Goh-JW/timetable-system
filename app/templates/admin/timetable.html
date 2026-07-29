@@ -178,12 +178,14 @@
                         </div>
                     </div>
                 </div>
-                <div class="small text-muted fw-semibold mb-2">Manage trimester</div>
-                <div class="btn-group w-100" role="group" aria-label="Open a trimester">
+                <div class="control-label mb-2"><i class="bi bi-calendar3"></i>Manage trimester</div>
+                <div class="term-switcher term-switcher-compact w-100" role="group" aria-label="Open a trimester">
                     {% for tri_num in [1, 2, 3] %}
                     {% set tri_key = active_ay ~ '-T' ~ tri_num %}
                     {% if tri_key in trimesters %}
-                    <a class="btn btn-outline-secondary" href="{{ url_for('admin.timetable', trimester=tri_key, source='generated') }}">T{{ tri_num }}</a>
+                    <a class="term-option" href="{{ url_for('admin.timetable', trimester=tri_key, source='generated') }}">
+                        <span class="term-ay">Open</span><span>T{{ tri_num }}</span>
+                    </a>
                     {% endif %}
                     {% endfor %}
                 </div>
@@ -622,17 +624,23 @@
         {% set active_tri_num = 'all' if (not active_trimester or active_trimester[-4:] == '-all') else active_trimester[-1] %}
         {% set prog_display = {'CPC': 'General'} %}
 
+        <div class="schedule-toolbar mb-3">
         <!-- Row 1 (primary): what am I looking at, and what view -->
-        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+        <div class="schedule-toolbar-row">
 
             {# Academic Year #}
+            <div class="control-field">
+            <label class="control-label" for="sel-ay"><i class="bi bi-calendar-range"></i>Academic year</label>
             <select class="form-select form-select-sm w-auto select-glass" id="sel-ay" onchange="navigate()">
                 {% for ay in distinct_ays.vals %}
                 <option value="{{ ay }}" {% if ay == active_ay %}selected{% endif %}>AY20{{ ay[2:4] }}/{{ ay[4:6] }}</option>
                 {% endfor %}
             </select>
+            </div>
 
             {# Trimester #}
+            <div class="control-field">
+            <label class="control-label" for="sel-tri"><i class="bi bi-calendar3"></i>Trimester</label>
             <select class="form-select form-select-sm w-auto select-glass" id="sel-tri" onchange="navigate()">
                 <option value="all" {% if active_tri_num == 'all' %}selected{% endif %}>All Tri</option>
                 {% for tri_num in ['1', '2', '3'] %}
@@ -642,24 +650,30 @@
                 {% endif %}
                 {% endfor %}
             </select>
+            </div>
 
             {# View toggle #}
             {% if active_trimester and entries %}
+            <div class="control-field">
+            <span class="control-label"><i class="bi bi-layout-split"></i>View</span>
             <div class="btn-group btn-group-sm segmented-toggle">
                 <button type="button" onclick="navigate('list')"
-                        class="btn {% if view_mode == 'list' %}active{% endif %}">
+                        class="btn {% if view_mode == 'list' %}active{% endif %}"
+                        aria-pressed="{{ 'true' if view_mode == 'list' else 'false' }}">
                     <i class="bi bi-list-ul me-1"></i>List
                 </button>
                 <button type="button" onclick="navigate('weekly')"
                         class="btn {% if view_mode == 'weekly' %}active{% endif %}"
+                        aria-pressed="{{ 'true' if view_mode == 'weekly' else 'false' }}"
                         {% if active_tri_num == 'all' %}disabled title="Select a specific trimester (not \'All Tri\') to use Weekly view"{% endif %}>
                     <i class="bi bi-calendar-week me-1"></i>Weekly
                 </button>
             </div>
+            </div>
             {% endif %}
 
             <!-- Export/Reports - secondary actions on what's currently selected above -->
-            <div class="ms-auto d-flex gap-2">
+            <div class="toolbar-actions">
                 {% if active_trimester and active_trimester[-4:] != '-all' %}
                 <div class="btn-group action-dropdown">
                     <button type="button" class="btn btn-sm dropdown-toggle" data-bs-toggle="dropdown">
@@ -709,28 +723,36 @@
         </div>
 
         <!-- Row 2 (secondary): narrow down what's shown -->
-        <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+        <div class="schedule-toolbar-row">
 
             {# Year level (client-side filter) #}
             {% if year_levels %}
+            <div class="control-field">
+            <label class="control-label" for="sel-year"><i class="bi bi-people"></i>Year</label>
             <select class="form-select form-select-sm w-auto select-glass" id="sel-year" onchange="filterYear(this.value)">
                 <option value="all">All Years</option>
                 {% for yr in year_levels %}
                 <option value="{{ yr }}">Y{{ yr }}</option>
                 {% endfor %}
             </select>
+            </div>
             {% endif %}
 
             {# Source #}
             {% if has_backbone_ay %}
+            <div class="control-field">
+            <label class="control-label" for="sel-source"><i class="bi bi-layers"></i>Schedule</label>
             <select class="form-select form-select-sm w-auto select-glass" id="sel-source" onchange="navigate()">
                 <option value="generated" {% if source != 'bb' %}selected{% endif %}><i class="bi bi-cpu"></i> Generated</option>
                 <option value="bb" {% if source == 'bb' %}selected{% endif %}>Backbone (BB)</option>
             </select>
+            </div>
             {% endif %}
 
             {# Programme #}
             {% if programmes %}
+            <div class="control-field control-field-wide">
+            <label class="control-label" for="sel-prog"><i class="bi bi-mortarboard"></i>Programme</label>
             <select class="form-select form-select-sm w-auto select-glass" id="sel-prog" onchange="navigate()">
                 <option value="">All Programmes</option>
                 {% for code, name in programmes %}
@@ -741,8 +763,10 @@
                 </option>
                 {% endfor %}
             </select>
+            </div>
             {% endif %}
 
+        </div>
         </div>
 
         <script>
@@ -767,13 +791,6 @@
         })();
         </script>
 
-        {% if active_trimester and entries %}
-        <small class="text-muted d-block mb-2">
-            {% if view_mode == 'weekly' %}Weekly calendar - click a block for details
-            {% else %}Recurring weekly slot for each session{% endif %}
-        </small>
-        {% endif %}
-
         {% endif %}
 
         {# ------------------------------------------------------------------ #}
@@ -782,19 +799,19 @@
         {% if view_mode == 'weekly' and active_trimester and entries %}
 
         <!-- Week navigator -->
-        <div class="filter-bar d-flex align-items-center gap-3 mb-3 flex-wrap">
-            <div class="btn-group action-dropdown">
+        <div class="schedule-weekbar mb-3">
+            <div>
                 {% if prev_week_num %}
                 <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=prev_week_num, prog=prog_filter or None, source=source or None) }}"
-                   class="btn btn-sm" title="Previous week">
+                   class="week-nav-button" title="Previous week" aria-label="Previous week">
                     <i class="bi bi-chevron-left"></i>
                 </a>
                 {% else %}
-                <button class="btn btn-sm" disabled><i class="bi bi-chevron-left"></i></button>
+                <button class="week-nav-button" disabled aria-label="Previous week"><i class="bi bi-chevron-left"></i></button>
                 {% endif %}
             </div>
 
-            <div class="d-flex align-items-center gap-2">
+            <div class="week-current d-flex align-items-center gap-2">
                 <span class="icon-chip icon-chip-blue"><i class="bi bi-calendar-week"></i></span>
                 <span class="fw-semibold">
                     Week {{ week_number }}
@@ -809,20 +826,21 @@
                 </span>
             </div>
 
-            <div class="btn-group action-dropdown">
+            <div>
                 {% if next_week_num %}
                 <a href="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=next_week_num, prog=prog_filter or None, source=source or None) }}"
-                   class="btn btn-sm" title="Next week">
+                   class="week-nav-button" title="Next week" aria-label="Next week">
                     <i class="bi bi-chevron-right"></i>
                 </a>
                 {% else %}
-                <button class="btn btn-sm" disabled><i class="bi bi-chevron-right"></i></button>
+                <button class="week-nav-button" disabled aria-label="Next week"><i class="bi bi-chevron-right"></i></button>
                 {% endif %}
             </div>
 
             <!-- Week jump dropdown -->
-            <div class="ms-auto">
-                <select class="form-select form-select-sm select-glass" style="width:auto;"
+            <div class="control-field ms-auto">
+                <label class="control-label" for="admin-week-jump"><i class="bi bi-signpost"></i>Jump to</label>
+                <select class="form-select form-select-sm select-glass" id="admin-week-jump" style="width:auto;"
                         onchange="window.location=this.value">
                     {% for cw in calendar_weeks %}
                     <option value="{{ url_for('admin.timetable', trimester=active_trimester, view='weekly', week=cw.week_number, prog=prog_filter or None, source=source or None) }}"

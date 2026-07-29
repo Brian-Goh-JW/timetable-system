@@ -8,16 +8,16 @@
         <h1>Schedule Responses</h1>
         <p>Confirm flexible availability exceptions with professors and track the outcome.</p>
     </div>
-    <div class="btn-group" role="group" aria-label="Professor coordination">
-        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.declarations') }}">
-            Availability
+    <nav class="term-switcher" aria-label="Professor coordination">
+        <a class="term-option" href="{{ url_for('admin.declarations') }}">
+            <i class="bi bi-calendar-x"></i>Availability
             {% if pending_declarations_count %}<span class="badge bg-warning text-dark ms-1">{{ pending_declarations_count }}</span>{% endif %}
         </a>
-        <a class="btn btn-sm btn-danger" href="{{ url_for('admin.timetable_flags') }}">
-            Schedule Responses
+        <a class="term-option active" aria-current="page" href="{{ url_for('admin.timetable_flags') }}">
+            <i class="bi bi-chat-square-check"></i>Schedule Responses
             {% if open_flags or acknowledged_flags %}<span class="badge bg-light text-danger ms-1">{{ open_flags|length + acknowledged_flags|length }}</span>{% endif %}
         </a>
-    </div>
+    </nav>
 </div>
 
 <div class="alert alert-light border mb-4 small">
