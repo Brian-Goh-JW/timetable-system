@@ -1,10 +1,25 @@
 {% extends 'base.html' %}
 {% block title %}Set Availability - SIT Timetable{% endblock %}
+{% block extra_head %}
+<style>
+    .availability-day { padding: .75rem 0; border-bottom: 1px solid #edf0f4; }
+    .availability-day:last-child { border-bottom: 0; }
+    .availability-day-name { width: 82px; flex: 0 0 82px; padding-top: .45rem; color: #475569; font-size: .78rem; font-weight: 750; }
+    .availability-options { display: flex; flex-wrap: wrap; gap: .45rem; padding: 0 0 .3rem; }
+    .availability-options .btn { min-width: 108px; border-color: #d6dee8; color: #475569; background: #fff; text-align: left; }
+    .availability-options .btn:hover { border-color: #c0272d; color: #a51f26; }
+    .availability-options .btn-check:checked + .btn { border-color: #c0272d; color: #fff; background: #c0272d; box-shadow: 0 4px 12px rgba(192,39,45,.22); }
+    .availability-options small { display: block; margin-top: 2px; opacity: .78; font-size: .65rem; font-weight: 500; }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="mb-4">
-    <h4 class="mb-1">Set Availability</h4>
-    <p class="text-muted mb-0">Tell the timetable admin about a time you cannot teach or would strongly prefer to avoid.</p>
+<div class="page-heading">
+    <div>
+        <div class="page-eyebrow">Professor workspace</div>
+        <h1>Set Availability</h1>
+        <p>Tell the timetable admin about a time you cannot teach or would strongly prefer to avoid.</p>
+    </div>
 </div>
 
 <div class="alert alert-light border mb-4 small">
@@ -15,24 +30,33 @@
 </div>
 
 <div class="row g-4">
-    <div class="col-lg-5">
+    <div class="col-12">
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white border-bottom fw-semibold"><i class="bi bi-calendar-plus me-2 text-danger"></i>New Availability Request</div>
             <div class="card-body">
                 <form method="POST">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
-                        <label for="timeslot_id" class="form-label fw-medium">Time to avoid <span class="text-danger">*</span></label>
-                        <select class="form-select" id="timeslot_id" name="timeslot_id" required>
-                            <option value="">Select day and time</option>
-                            {% for day in day_order %}{% if slots_by_day[day] %}
-                            <optgroup label="{{ day }}">
-                                {% for ts in slots_by_day[day] %}
-                                <option value="{{ ts.id }}">{{ ts.period_label }} ({{ ts.start_time.strftime('%H:%M') }}&ndash;{{ ts.end_time.strftime('%H:%M') }})</option>
-                                {% endfor %}
-                            </optgroup>
-                            {% endif %}{% endfor %}
-                        </select>
+                        <fieldset>
+                            <legend class="form-label fw-medium mb-1">Time to avoid <span class="text-danger">*</span></legend>
+                            <div class="small text-muted mb-2">Choose one day and teaching period for this request.</div>
+                            <div class="border rounded-3 px-3 bg-light bg-opacity-50">
+                                {% for day in day_order %}{% if slots_by_day[day] %}
+                                <div class="availability-day d-flex">
+                                    <div class="availability-day-name">{{ day[:3] }}</div>
+                                    <div class="availability-options flex-grow-1">
+                                        {% for ts in slots_by_day[day] %}
+                                        <input class="btn-check" type="radio" id="slot_{{ ts.id }}" name="timeslot_id" value="{{ ts.id }}" required>
+                                        <label class="btn btn-sm" for="slot_{{ ts.id }}">
+                                            {{ ts.period_label }}
+                                            <small>{{ ts.start_time.strftime('%H:%M') }}&ndash;{{ ts.end_time.strftime('%H:%M') }}</small>
+                                        </label>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                                {% endif %}{% endfor %}
+                            </div>
+                        </fieldset>
                     </div>
                     <div class="mb-3">
                         <label class="form-label fw-medium">When it applies</label>
@@ -61,7 +85,7 @@
         </div>
     </div>
 
-    <div class="col-lg-7">
+    <div class="col-12">
         <div class="card border-0 shadow-sm">
             <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
                 <span class="fw-semibold"><i class="bi bi-list-check me-2 text-muted"></i>My Availability Requests</span>

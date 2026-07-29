@@ -3,6 +3,14 @@
 
 {% block content %}
 
+<div class="page-heading">
+    <div>
+        <div class="page-eyebrow">Student workspace</div>
+        <h1>My Timetable</h1>
+        <p>View the published schedule for your assigned cohort and selected trimester.</p>
+    </div>
+    {% if selected_group %}<span class="badge bg-dark align-self-start mt-1">{{ selected_group.group_label }}</span>{% endif %}
+</div>
 
 <!-- Trimester tabs -->
 {% if trimesters %}
@@ -29,7 +37,7 @@
         {% else %}Recurring slot each teaching week{% endif %}
     </small>
     <div class="btn-group btn-group-sm">
-        <a href="{{ url_for('student.timetable_ical', trimester=active_trimester) }}" class="btn btn-outline-success" title="Import into Outlook, Google Calendar, or Apple Calendar"><i class="bi bi-calendar-plus me-1"></i>Calendar</a>
+        <a href="{{ url_for('student.timetable_ical', trimester=active_trimester) }}" class="btn btn-outline-success" title="Import into Outlook, Google Calendar, or Apple Calendar"><i class="bi bi-calendar-plus me-1"></i>Add to Calendar</a>
         <a href="{{ url_for('student.timetable', trimester=active_trimester, view='list') }}"
            class="btn btn-outline-secondary {% if view_mode == 'list' %}active{% endif %}">
             <i class="bi bi-list-ul me-1"></i>List

@@ -3,6 +3,14 @@
 
 {% block content %}
 
+<div class="page-heading">
+    <div>
+        <div class="page-eyebrow">Professor workspace</div>
+        <h1>Welcome, {{ current_user.name }}</h1>
+        <p>View your published teaching schedule, submit availability and respond to timetable questions.</p>
+    </div>
+    <a href="{{ url_for('teacher.timetable') }}" class="btn text-white" style="background-color:#c0272d;"><i class="bi bi-calendar-week me-1"></i>My Timetable</a>
+</div>
 
 <!-- Flags alert banner -->
 {% if open_flags > 0 %}
@@ -32,7 +40,7 @@
 <!-- Stats row -->
 <div class="row g-3 mb-4">
     <div class="col-sm-4">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card h-100">
             <div class="card-body d-flex align-items-center gap-3">
                 <div class="rounded-3 p-3 bg-danger bg-opacity-10 text-danger">
                     <i class="bi bi-collection fs-4"></i>
@@ -46,7 +54,7 @@
     </div>
 
     <div class="col-sm-4">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card h-100">
             <div class="card-body d-flex align-items-center gap-3">
                 <div class="rounded-3 p-3 bg-success bg-opacity-10 text-success">
                     <i class="bi bi-calendar-check fs-4"></i>
@@ -60,7 +68,7 @@
     </div>
 
     <div class="col-sm-4">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card h-100">
             <div class="card-body d-flex align-items-center gap-3">
                 <div class="rounded-3 p-3 bg-warning bg-opacity-10 text-warning">
                     <i class="bi bi-hourglass-split fs-4"></i>
@@ -76,7 +84,7 @@
 
 <div class="row g-3">
     <div class="col-md-6">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card h-100">
             <div class="card-header bg-white border-bottom fw-semibold">
                 <i class="bi bi-calendar3 me-2 text-muted"></i>My Timetable
             </div>
@@ -98,7 +106,7 @@
     </div>
 
     <div class="col-md-6">
-        <div class="card border-0 shadow-sm h-100">
+        <div class="card glass-card h-100">
             <div class="card-header bg-white border-bottom fw-semibold">
                 <i class="bi bi-calendar-x me-2 text-muted"></i>Set Availability
             </div>

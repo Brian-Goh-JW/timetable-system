@@ -3,7 +3,13 @@
 
 {% block content %}
 
-<div class="d-flex justify-content-end align-items-center gap-2 mb-4">
+<div class="page-heading">
+    <div>
+        <div class="page-eyebrow">Data setup</div>
+        <h1>Modules</h1>
+        <p>Define every module and its teaching sessions before checking generation readiness.</p>
+    </div>
+    <div class="d-flex align-items-center gap-2">
     <div class="btn-group action-dropdown">
         <button type="button" class="btn dropdown-toggle" data-bs-toggle="dropdown">
             <span class="icon-chip icon-chip-blue"><i class="bi bi-file-earmark-spreadsheet"></i></span>Import / Export
@@ -28,6 +34,7 @@
     <a href="{{ url_for('admin.course_add') }}" class="btn text-white" style="background-color:#c0272d;">
         <i class="bi bi-plus-lg me-1"></i>Add Module
     </a>
+    </div>
 </div>
 
 <!-- Import modal -->
@@ -107,7 +114,7 @@
                     <th>Delivery</th>
                     <th>Sessions / Week</th>
                     <th>Split Count</th>
-                    <th class="text-end pe-4">Action</th>
+                    <th class="text-end pe-4">Actions</th>
                 </tr>
             </thead>
             <tbody>

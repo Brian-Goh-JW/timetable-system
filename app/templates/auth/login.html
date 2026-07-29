@@ -3,97 +3,169 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - SIT Timetable System</title>
+    <title>Sign in - SIT Timetable</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/sit-timetable-mark.svg') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
+        :root { --brand: #c0272d; --brand-dark: #8f1d23; }
+        * { box-sizing: border-box; }
         body {
-            background-color: #f0f2f5;
-        }
-        .login-card {
-            max-width: 420px;
-            width: 100%;
-        }
-        .sit-header {
-            background-color: #c0272d;
-            color: white;
-            padding: 1.25rem 1.5rem;
-            border-radius: 0.5rem 0.5rem 0 0;
-        }
-        .sit-header h4 {
+            min-height: 100vh;
             margin: 0;
-            font-weight: 600;
-            letter-spacing: 0.3px;
+            font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            color: #1e293b;
+            background:
+                radial-gradient(circle at 12% 15%, rgba(192,39,45,.18), transparent 35%),
+                radial-gradient(circle at 90% 82%, rgba(37,99,235,.13), transparent 38%),
+                linear-gradient(135deg, #fff7f7 0%, #f5f7fb 55%, #edf3fb 100%);
         }
-        .sit-header p {
-            margin: 0.25rem 0 0;
-            font-size: 0.85rem;
-            opacity: 0.85;
+        .login-shell { width: min(960px, calc(100% - 2rem)); }
+        .login-panel {
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,.72);
+            border-radius: 24px;
+            background: rgba(255,255,255,.86);
+            box-shadow: 0 28px 80px rgba(31,38,135,.18), 0 4px 14px rgba(15,23,42,.08);
+            backdrop-filter: blur(22px);
+        }
+        .login-brand {
+            position: relative;
+            min-height: 570px;
+            overflow: hidden;
+            padding: 3rem;
+            color: #fff;
+            background: linear-gradient(145deg, #d9363e 0%, #b12229 52%, #78181e 100%);
+        }
+        .login-brand::before,
+        .login-brand::after {
+            position: absolute;
+            border: 1px solid rgba(255,255,255,.14);
+            border-radius: 28px;
+            content: "";
+            transform: rotate(-12deg);
+        }
+        .login-brand::before { right: -80px; bottom: 30px; width: 310px; height: 310px; }
+        .login-brand::after { right: 48px; bottom: 100px; width: 170px; height: 170px; }
+        .product-lockup { position: relative; z-index: 1; }
+        .product-mark { width: 52px; height: 52px; border-radius: 14px; box-shadow: 0 10px 26px rgba(50,4,8,.25); }
+        .login-brand h1 { max-width: 360px; margin-top: 4.8rem; font-size: clamp(2rem, 4vw, 3rem); font-weight: 800; letter-spacing: -.045em; }
+        .login-brand p { max-width: 390px; color: rgba(255,255,255,.82); line-height: 1.7; }
+        .trust-list { position: relative; z-index: 1; margin-top: 2rem; padding: 0; list-style: none; }
+        .trust-list li { display: flex; align-items: center; gap: .65rem; margin-bottom: .85rem; color: rgba(255,255,255,.9); font-size: .88rem; }
+        .trust-list i { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 50%; background: rgba(255,255,255,.16); }
+        .login-form-panel { min-height: 570px; padding: 3.4rem; }
+        .login-form-panel h2 { font-size: 1.65rem; font-weight: 750; letter-spacing: -.025em; }
+        .form-label { color: #334155; font-size: .84rem; font-weight: 650; }
+        .form-control, .input-group-text {
+            min-height: 48px;
+            border-color: #dbe3ec;
+            background: #f8fafc;
+        }
+        .form-control:focus {
+            border-color: var(--brand);
+            background: #fff;
+            box-shadow: 0 0 0 .2rem rgba(192,39,45,.12);
+        }
+        .password-toggle { border-color: #dbe3ec; background: #f8fafc; color: #64748b; }
+        .btn-sign-in {
+            min-height: 48px;
+            border: 0;
+            border-radius: 10px;
+            color: #fff;
+            font-weight: 700;
+            background: linear-gradient(110deg, var(--brand), var(--brand-dark));
+            box-shadow: 0 9px 20px rgba(192,39,45,.25);
+        }
+        .btn-sign-in:hover { color: #fff; background: linear-gradient(110deg, #ad2027, #76171c); }
+        .security-note { color: #64748b; font-size: .75rem; line-height: 1.45; }
+        @media (max-width: 767.98px) {
+            .login-brand { min-height: auto; padding: 1.5rem; }
+            .login-brand h1, .login-brand > p, .trust-list { display: none; }
+            .login-form-panel { min-height: auto; padding: 2rem 1.5rem; }
+            .login-panel { border-radius: 18px; }
         }
     </style>
 </head>
-<body class="d-flex align-items-center justify-content-center min-vh-100">
+<body class="d-flex align-items-center justify-content-center py-4">
+    <main class="login-shell" aria-labelledby="login-title">
+        <div class="login-panel row g-0">
+            <section class="login-brand col-md-6" aria-label="Product introduction">
+                <div class="product-lockup d-flex align-items-center gap-3">
+                    <img class="product-mark" src="{{ url_for('static', filename='images/sit-timetable-mark.svg') }}" alt="">
+                    <div>
+                        <div class="fw-bold fs-5">SIT Timetable</div>
+                        <div class="small opacity-75">Academic scheduling workspace</div>
+                    </div>
+                </div>
+                <h1>One clear schedule for everyone.</h1>
+                <p>Prepare data, verify constraints, generate a conflict-free draft and publish role-specific timetables from one secure workspace.</p>
+                <ul class="trust-list">
+                    <li><i class="bi bi-shield-check"></i>Hard constraints verified before publishing</li>
+                    <li><i class="bi bi-people"></i>Dedicated admin, professor and student views</li>
+                    <li><i class="bi bi-calendar2-check"></i>Weekly, list and calendar-ready schedules</li>
+                </ul>
+            </section>
 
-    <div class="login-card">
-        <!-- Header -->
-        <div class="sit-header">
-            <h4>SIT Timetable System</h4>
-            <p>Engineering Cluster - Timetabling System</p>
-        </div>
+            <section class="login-form-panel col-md-6 d-flex flex-column justify-content-center">
+                <div class="mb-4">
+                    <div class="text-uppercase text-danger fw-bold mb-2" style="font-size:.7rem; letter-spacing:.11em;">Welcome back</div>
+                    <h2 id="login-title" class="mb-2">Sign in to continue</h2>
+                    <p class="text-muted small mb-0">Use the account provided by your timetable administrator.</p>
+                </div>
 
-        <!-- Card body -->
-        <div class="card border-top-0 rounded-top-0 shadow-sm">
-            <div class="card-body p-4">
-                <h5 class="mb-4 text-secondary fw-normal">Sign in to your account</h5>
-
-                <!-- Flash messages -->
                 {% with messages = get_flashed_messages(with_categories=true) %}
                     {% for category, message in messages %}
-                        <div class="alert alert-{{ category }} alert-dismissible fade show py-2" role="alert">
+                        <div class="alert alert-{{ category }} alert-dismissible fade show py-2 small" role="alert">
                             {{ message }}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                         </div>
                     {% endfor %}
                 {% endwith %}
 
-                <!-- Login form -->
                 <form method="POST" action="{{ url_for('auth.login') }}" novalidate>
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
-                        <label for="email" class="form-label fw-medium">Email address</label>
-                        <input
-                            type="email"
-                            class="form-control"
-                            id="email"
-                            name="email"
-                            placeholder="your@sit.edu.sg"
-                            required
-                            autofocus
-                        >
+                        <label for="email" class="form-label">Email address</label>
+                        <input type="email" class="form-control" id="email" name="email"
+                               placeholder="your@sit.edu.sg" autocomplete="username" required autofocus>
                     </div>
 
-                    <div class="mb-4">
-                        <label for="password" class="form-label fw-medium">Password</label>
-                        <input
-                            type="password"
-                            class="form-control"
-                            id="password"
-                            name="password"
-                            placeholder="Enter your password"
-                            required
-                        >
+                    <div class="mb-2">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <label for="password" class="form-label">Password</label>
+                            <a class="small text-decoration-none" href="{{ url_for('auth.forgot_password') }}">Forgot password?</a>
+                        </div>
+                        <div class="input-group">
+                            <input type="password" class="form-control border-end-0" id="password" name="password"
+                                   placeholder="Enter your password" autocomplete="current-password" required>
+                            <button class="btn password-toggle border-start-0" type="button" id="toggle-password" aria-label="Show password" aria-pressed="false">
+                                <i class="bi bi-eye" aria-hidden="true"></i>
+                            </button>
+                        </div>
                     </div>
 
-                    <button type="submit" class="btn w-100" style="background-color:#c0272d; color:white;">
-                        Sign In
-                    </button>
-                    <div class="text-center mt-3">
-                        <a class="small" href="{{ url_for('auth.forgot_password') }}">Forgot password?</a>
-                    </div>
+                    <button type="submit" class="btn btn-sign-in w-100 mt-4">Sign in <i class="bi bi-arrow-right ms-1"></i></button>
                 </form>
-            </div>
+
+                <p class="security-note mt-4 mb-0"><i class="bi bi-lock me-1"></i>Your password is transmitted only to this timetable system and is never displayed in the application.</p>
+            </section>
         </div>
-    </div>
+    </main>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('toggle-password').addEventListener('click', function () {
+            const input = document.getElementById('password');
+            const showing = input.type === 'text';
+            input.type = showing ? 'password' : 'text';
+            this.setAttribute('aria-pressed', showing ? 'false' : 'true');
+            this.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+            this.querySelector('i').className = showing ? 'bi bi-eye' : 'bi bi-eye-slash';
+        });
+    </script>
 </body>
 </html>

@@ -3,7 +3,12 @@
 
 {% block content %}
 
-<div class="d-flex justify-content-end align-items-center mb-4">
+<div class="page-heading">
+    <div>
+        <div class="page-eyebrow">Data setup</div>
+        <h1>Students</h1>
+        <p>Manage student accounts, cohort assignments and individual module enrolments.</p>
+    </div>
     <div class="d-flex gap-2">
         <div class="btn-group action-dropdown">
             <button type="button" class="btn dropdown-toggle" data-bs-toggle="dropdown">
@@ -111,7 +116,7 @@
                     <th class="ps-4">Name</th>
                     <th>Email</th>
                     <th>Assigned Group</th>
-                    <th class="text-end pe-4">Action</th>
+                    <th class="text-end pe-4">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -132,22 +137,16 @@
                         {% endif %}
                     </td>
                     <td class="text-end pe-4">
-                        <a href="{{ url_for('admin.student_enrolments', user_id=s.id) }}" class="btn btn-sm btn-outline-primary" title="Module enrolments and sections"><i class="bi bi-journal-check"></i></a>
-                        <form method="POST" action="{{ url_for('admin.user_toggle_active', user_id=s.id) }}" class="d-inline">
-                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm {% if s.active %}btn-outline-warning{% else %}btn-outline-success{% endif %}" title="{% if s.active %}Disable login{% else %}Enable login{% endif %}"><i class="bi bi-person-{% if s.active %}dash{% else %}check{% endif %}"></i></button>
-                        </form>
-                        <a href="{{ url_for('admin.student_edit', user_id=s.id) }}"
-                           class="btn btn-sm btn-outline-secondary me-1">
-                            <i class="bi bi-pencil me-1"></i>Edit
-                        </a>
-                        <form method="POST" action="{{ url_for('admin.student_delete', user_id=s.id) }}"
-                              class="d-inline"
-                              onsubmit="return confirm('Delete account for {{ s.name }}? This cannot be undone.')">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="btn btn-sm btn-outline-danger">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </form>
+                        <div class="dropdown d-inline-block">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-label="Actions for {{ s.name }}">Actions</button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item" href="{{ url_for('admin.student_enrolments', user_id=s.id) }}"><i class="bi bi-journal-check me-2"></i>Module enrolments</a></li>
+                                <li><a class="dropdown-item" href="{{ url_for('admin.student_edit', user_id=s.id) }}"><i class="bi bi-pencil me-2"></i>Edit account</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><form method="POST" action="{{ url_for('admin.user_toggle_active', user_id=s.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="dropdown-item {% if s.active %}text-warning{% else %}text-success{% endif %}" type="submit"><i class="bi bi-person-{% if s.active %}dash{% else %}check{% endif %} me-2"></i>{{ 'Disable login' if s.active else 'Enable login' }}</button></form></li>
+                                <li><form method="POST" action="{{ url_for('admin.student_delete', user_id=s.id) }}" onsubmit="return confirm('Delete account for {{ s.name }}? This cannot be undone.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="dropdown-item text-danger"><i class="bi bi-trash me-2"></i>Delete account</button></form></li>
+                            </ul>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}

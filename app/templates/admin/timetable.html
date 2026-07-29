@@ -116,6 +116,14 @@
 {% block content %}
 {% set is_bb_view = (source == 'bb') %}
 
+<div class="page-heading">
+    <div>
+        <div class="page-eyebrow">Generate, review, publish</div>
+        <h1>Timetable</h1>
+        <p>Choose one trimester, run the readiness guard, review the verified draft and publish only when it is ready.</p>
+    </div>
+    {% if active_trimester %}<span class="badge bg-dark align-self-start mt-1">{{ active_trimester }}</span>{% endif %}
+</div>
 
 <div class="row g-3">
 
@@ -1320,10 +1328,13 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     document.addEventListener('DOMContentLoaded', function () {
-        document.getElementById('form-single').addEventListener('submit', function(e) {
-            e.preventDefault();
-            startSolve(this);
-        });
+        var singleForm = document.getElementById('form-single');
+        if (singleForm) {
+            singleForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                startSolve(this);
+            });
+        }
         document.getElementById('solver-close-btn').addEventListener('click', hideWidget);
     });
 })();

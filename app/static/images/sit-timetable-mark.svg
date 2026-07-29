@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">SIT Timetable</title>
+  <desc id="desc">A calendar grid with a verified schedule checkmark</desc>
+  <defs>
+    <linearGradient id="brand" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d9363e"/>
+      <stop offset="1" stop-color="#8f1d23"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#brand)"/>
+  <path d="M18 18h28a5 5 0 0 1 5 5v23a5 5 0 0 1-5 5H18a5 5 0 0 1-5-5V23a5 5 0 0 1 5-5Z" fill="#fff"/>
+  <path d="M13 27h38" stroke="#b3242b" stroke-width="3"/>
+  <path d="M22 13v10M42 13v10" stroke="#fff" stroke-width="4" stroke-linecap="round"/>
+  <g fill="#d9e1ec">
+    <rect x="19" y="32" width="7" height="6" rx="1.5"/>
+    <rect x="29" y="32" width="7" height="6" rx="1.5"/>
+    <rect x="39" y="32" width="7" height="6" rx="1.5"/>
+    <rect x="19" y="41" width="7" height="6" rx="1.5"/>
+    <rect x="29" y="41" width="7" height="6" rx="1.5"/>
+  </g>
+  <path d="m38.5 44 3.2 3.2 6.5-7" fill="none" stroke="#159455" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

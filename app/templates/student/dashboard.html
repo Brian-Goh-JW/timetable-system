@@ -2,36 +2,57 @@
 {% block title %}Dashboard - SIT Timetable{% endblock %}
 
 {% block content %}
-
-
-<div class="card border-0 shadow-sm" style="max-width:480px;">
-    <div class="card-header bg-white border-bottom fw-semibold">
-        <i class="bi bi-calendar3 me-2 text-muted"></i>Class Timetable
+<div class="page-heading">
+    <div>
+        <div class="page-eyebrow">Student workspace</div>
+        <h1>Your class timetable</h1>
+        <p>Open your published cohort schedule or add it to your personal calendar.</p>
     </div>
-    <div class="card-body">
-        <p class="small text-muted mb-3">
-            View the published weekly schedule for your cohort.
-            {% if latest_trimester %}
-                Latest available trimester: <strong>{{ latest_trimester }}</strong>.
-            {% else %}
-                No timetable has been published yet.
-            {% endif %}
-        </p>
-        {% if current_user.student_group %}
-        <p class="small text-muted mb-3">
-            Your group: <span class="badge bg-secondary">{{ current_user.student_group.group_label }}</span>
-        </p>
-        {% else %}
-        <p class="small text-warning mb-3">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            No group assigned yet - contact your administrator.
-        </p>
-        {% endif %}
-        <a href="{{ url_for('student.timetable') }}" class="btn btn-sm text-white"
-           style="background-color:#c0272d;">
-            <i class="bi bi-calendar3 me-1"></i>View Timetable
-        </a>
-    </div>
+    {% if latest_trimester %}
+    <span class="badge bg-success align-self-start mt-1"><i class="bi bi-broadcast me-1"></i>{{ latest_trimester }} published</span>
+    {% endif %}
 </div>
 
+{% if current_user.student_group %}
+<section class="card glass-card animate-in mb-4">
+    <div class="card-body p-4 p-md-5 d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-4">
+        <div>
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <span class="badge bg-dark">{{ current_user.student_group.group_label }}</span>
+                {% if latest_trimester %}<span class="text-muted small">Latest schedule: {{ latest_trimester }}</span>{% endif %}
+            </div>
+            <h2 class="h3 fw-bold mb-2">See where you need to be</h2>
+            <p class="text-muted mb-0">Use the weekly view for a calendar layout or the list view for a compact recurring schedule.</p>
+        </div>
+        <a href="{{ url_for('student.timetable', trimester=latest_trimester, view='weekly', week=1) if latest_trimester else url_for('student.timetable') }}"
+           class="btn btn-lg text-white" style="background-color:#c0272d;">
+            <i class="bi bi-calendar-week me-1"></i>Open Weekly Timetable
+        </a>
+    </div>
+</section>
+
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card glass-card h-100">
+            <div class="card-body d-flex gap-3">
+                <div class="icon-orb icon-orb-blue"><i class="bi bi-list-check fs-5"></i></div>
+                <div><h2 class="h6 fw-bold mb-1">Recurring class list</h2><p class="small text-muted mb-3">A compact view of each module, professor, room and teaching period.</p><a href="{{ url_for('student.timetable', trimester=latest_trimester, view='list') if latest_trimester else url_for('student.timetable') }}" class="btn btn-sm btn-outline-secondary">View list</a></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card glass-card h-100">
+            <div class="card-body d-flex gap-3">
+                <div class="icon-orb icon-orb-green"><i class="bi bi-calendar-plus fs-5"></i></div>
+                <div><h2 class="h6 fw-bold mb-1">Add to your calendar</h2><p class="small text-muted mb-3">Download the published schedule for Outlook, Google Calendar or Apple Calendar.</p>{% if latest_trimester %}<a href="{{ url_for('student.timetable_ical', trimester=latest_trimester) }}" class="btn btn-sm btn-outline-success"><i class="bi bi-download me-1"></i>Download .ics</a>{% else %}<span class="small text-muted">Available after publication.</span>{% endif %}</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle me-2"></i><strong>No student group assigned.</strong>
+    Contact the timetable administrator so your cohort schedule can be displayed.
+</div>
+{% endif %}
 {% endblock %}

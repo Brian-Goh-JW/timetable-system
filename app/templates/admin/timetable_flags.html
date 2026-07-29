@@ -2,12 +2,13 @@
 {% block title %}Schedule Responses - SIT Timetable{% endblock %}
 
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+<div class="page-heading">
     <div>
-        <h4 class="mb-1">Schedule Responses</h4>
-        <p class="text-muted mb-0">Confirm flexible availability exceptions with teachers and track the outcome.</p>
+        <div class="page-eyebrow">Professor coordination</div>
+        <h1>Schedule Responses</h1>
+        <p>Confirm flexible availability exceptions with professors and track the outcome.</p>
     </div>
-    <div class="btn-group" role="group" aria-label="Teacher coordination">
+    <div class="btn-group" role="group" aria-label="Professor coordination">
         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.declarations') }}">
             Availability
             {% if pending_declarations_count %}<span class="badge bg-warning text-dark ms-1">{{ pending_declarations_count }}</span>{% endif %}
@@ -21,18 +22,18 @@
 
 <div class="alert alert-light border mb-4 small">
     These requests appear only when generation safely uses a time marked <strong>Try to avoid</strong>.
-    Send the request in the portal, let the teacher accept or decline, then handle any declined slot before publishing.
+    Send the request in the portal, let the professor accept or decline, then handle any declined slot before publishing.
 </div>
 
 <div class="row g-3 mb-4">
-    <div class="col-md-4"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="small text-muted">Waiting for teacher</div><div class="fs-3 fw-bold">{{ open_flags|length }}</div></div></div></div>
+    <div class="col-md-4"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="small text-muted">Waiting for professor</div><div class="fs-3 fw-bold">{{ open_flags|length }}</div></div></div></div>
     <div class="col-md-4"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="small text-muted">Admin action needed</div><div class="fs-3 fw-bold text-danger">{{ acknowledged_flags|length }}</div></div></div></div>
     <div class="col-md-4"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="small text-muted">Completed</div><div class="fs-3 fw-bold text-success">{{ resolved_flags|length }}</div></div></div></div>
 </div>
 
 <div class="card border-0 shadow-sm mb-4">
     <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
-        <span class="fw-semibold"><i class="bi bi-send me-2 text-warning"></i>Waiting for Teacher</span>
+        <span class="fw-semibold"><i class="bi bi-send me-2 text-warning"></i>Waiting for Professor</span>
         <span class="badge bg-warning text-dark">{{ open_flags|length }}</span>
     </div>
     {% if open_flags %}
@@ -57,7 +58,7 @@
                 <div class="col-lg-3">
                     <form method="POST" action="{{ url_for('admin.flag_notify', flag_id=f.id) }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <label class="form-label small mb-1" for="deadline_{{ f.id }}">Teacher response deadline</label>
+                        <label class="form-label small mb-1" for="deadline_{{ f.id }}">Professor response deadline</label>
                         <div class="d-flex gap-2">
                             <input type="date" id="deadline_{{ f.id }}" name="response_deadline" class="form-control form-control-sm"
                                    value="{{ f.response_deadline.strftime('%Y-%m-%d') if f.response_deadline else default_deadline }}" required>
@@ -72,14 +73,14 @@
         {% endfor %}
     </div>
     {% else %}
-    <div class="card-body text-center text-muted py-4"><i class="bi bi-check-circle fs-2 text-success d-block mb-2"></i>No teacher responses are outstanding.</div>
+    <div class="card-body text-center text-muted py-4"><i class="bi bi-check-circle fs-2 text-success d-block mb-2"></i>No professor responses are outstanding.</div>
     {% endif %}
 </div>
 
 {% if acknowledged_flags %}
 <div class="card border-0 shadow-sm mb-4 border-start border-danger border-3">
     <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
-        <span class="fw-semibold text-danger"><i class="bi bi-exclamation-octagon me-2"></i>Teacher Cannot Accept Slot</span>
+        <span class="fw-semibold text-danger"><i class="bi bi-exclamation-octagon me-2"></i>Professor Cannot Accept Slot</span>
         <span class="badge bg-danger">{{ acknowledged_flags|length }}</span>
     </div>
     <div class="list-group list-group-flush">
@@ -90,7 +91,7 @@
                 <div class="col-lg-4"><div class="small"><strong>Assigned:</strong> {{ f.timetable_entry.timeslot.day_of_week }} · {{ f.timetable_entry.timeslot.period_label }}</div><div class="small text-muted mt-1">{% if response and response.comments %}“{{ response.comments }}”{% else %}No additional comments.{% endif %}</div></div>
                 <div class="col-lg-5 d-flex flex-wrap gap-2 justify-content-lg-end">
                     <a class="btn btn-sm btn-outline-danger" href="{{ url_for('admin.timetable', trimester=f.timetable_entry.trimester) }}"><i class="bi bi-calendar-week me-1"></i>Open Timetable</a>
-                    <form method="POST" action="{{ url_for('admin.flag_resolve', flag_id=f.id) }}" onsubmit="return confirm('Confirm that this teacher schedule issue has been handled?')">
+                    <form method="POST" action="{{ url_for('admin.flag_resolve', flag_id=f.id) }}" onsubmit="return confirm('Confirm that this professor schedule issue has been handled?')">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i>Mark Handled</button>
                     </form>

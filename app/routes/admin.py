@@ -236,7 +236,17 @@ def dashboard():
     # always-visible cards, most of which show nothing most of the time.
     from app.engine.checker import get_blocking_issues
     no_prof_count = len(no_prof_sessions)
-    blockers, _warnings = get_blocking_issues()
+    blockers, readiness_warnings = get_blocking_issues()
+    generated_count = len(trimester_status)
+    published_count = sum(1 for row in trimester_status if row['is_published'])
+    data_gap_count = stats['courses_missing_split'] + no_prof_count
+    stats.update({
+        'unassigned_sessions': no_prof_count,
+        'blocking_issues': len(blockers),
+        'readiness_warnings': len(readiness_warnings),
+        'generated_trimesters': generated_count,
+        'published_trimesters': published_count,
+    })
     needs_attention = [
         {'label': 'Modules missing a split count', 'count': stats['courses_missing_split'],
          'href': url_for('admin.courses'), 'icon': 'bi-diagram-2'},
@@ -244,10 +254,59 @@ def dashboard():
          'href': url_for('admin.system_info'), 'icon': 'bi-person-x'},
         {'label': 'Blocking issues (generation would fail)', 'count': len(blockers),
          'href': url_for('admin.timetable'), 'icon': 'bi-exclamation-octagon'},
-        {'label': 'Teacher schedule responses', 'count': stats['open_flags'],
+        {'label': 'Professor schedule responses', 'count': stats['open_flags'],
          'href': url_for('admin.timetable_flags'), 'icon': 'bi-flag'},
         {'label': 'Availability requests to review', 'count': stats['pending_declarations'],
          'href': url_for('admin.declarations'), 'icon': 'bi-clock-history'},
+    ]
+
+    # A compact, read-only guide through the admin workflow.  This does not
+    # alter readiness or generation behaviour; it presents existing system
+    # state as a clear next-action sequence.
+    workflow_steps = [
+        {
+            'title': 'Prepare data',
+            'detail': ('Core data is ready.' if data_gap_count == 0
+                       else f'{data_gap_count} data warning(s) should be reviewed.'),
+            'status': 'ready' if data_gap_count == 0 else 'attention',
+            'href': url_for('admin.courses'),
+            'icon': 'bi-database-check',
+        },
+        {
+            'title': 'Review constraints',
+            'detail': ('No professor requests await review.' if stats['pending_declarations'] == 0
+                       else f"{stats['pending_declarations']} availability request(s) await review."),
+            'status': 'ready' if stats['pending_declarations'] == 0 else 'attention',
+            'href': url_for('admin.declarations'),
+            'icon': 'bi-shield-check',
+        },
+        {
+            'title': 'Generate draft',
+            'detail': (f'{generated_count} trimester schedule(s) available.' if generated_count
+                       else ('Resolve blockers before generation.' if blockers else 'Ready to generate a trimester.')),
+            'status': ('blocked' if blockers else ('done' if generated_count else 'ready')),
+            'href': url_for('admin.timetable'),
+            'icon': 'bi-cpu',
+        },
+        {
+            'title': 'Review results',
+            'detail': (f"{stats['open_flags']} schedule response(s) require action."
+                       if stats['open_flags'] else
+                       (f'{len(readiness_warnings)} non-blocking warning(s) disclosed.'
+                        if readiness_warnings else 'No open schedule responses.')),
+            'status': 'attention' if stats['open_flags'] or readiness_warnings else 'ready',
+            'href': url_for('admin.timetable_flags') if stats['open_flags'] else url_for('admin.timetable'),
+            'icon': 'bi-clipboard-check',
+        },
+        {
+            'title': 'Publish',
+            'detail': (f'{published_count} of {generated_count} generated schedule(s) published.'
+                       if generated_count else 'Generate a draft before publishing.'),
+            'status': ('done' if generated_count and published_count == generated_count
+                       else ('ready' if generated_count else 'blocked')),
+            'href': url_for('admin.timetable'),
+            'icon': 'bi-megaphone',
+        },
     ]
 
     # Recent Activity - manual timetable edits made through the admin UI
@@ -263,6 +322,7 @@ def dashboard():
         courses_missing_split=courses_missing_split,
         kpis=kpis,
         needs_attention=needs_attention,
+        workflow_steps=workflow_steps,
         recent_activity=recent_activity,
     )
 

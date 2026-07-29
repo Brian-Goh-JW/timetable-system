@@ -3,8 +3,46 @@
 
 {% block content %}
 
+<div class="page-heading">
+    <div>
+        <div class="page-eyebrow">Admin workspace</div>
+        <h1>Build and publish the timetable</h1>
+        <p>Follow the five steps below. The system will stop generation before writing any timetable when a hard constraint is unresolved.</p>
+    </div>
+    <a href="{{ url_for('admin.timetable') }}" class="btn text-white" style="background-color:#c0272d;">
+        <i class="bi bi-calendar-week me-1"></i>Open Timetable
+    </a>
+</div>
+
+<section class="card glass-card animate-in mb-4" aria-labelledby="workflow-title">
+    <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <div>
+                <h2 id="workflow-title" class="h6 fw-bold mb-1">Setup and generation flow</h2>
+                <div class="small text-muted">Select any step to continue where attention is needed.</div>
+            </div>
+            {% if stats.blocking_issues %}
+            <span class="badge bg-danger"><i class="bi bi-shield-x me-1"></i>{{ stats.blocking_issues }} blocker{{ '' if stats.blocking_issues == 1 else 's' }}</span>
+            {% else %}
+            <span class="badge bg-success"><i class="bi bi-shield-check me-1"></i>Pre-check clear</span>
+            {% endif %}
+        </div>
+        <div class="workflow-strip">
+            {% for step in workflow_steps %}
+            <a class="workflow-step is-{{ step.status }}" href="{{ step.href }}">
+                <span class="workflow-step-number">{% if step.status == 'done' %}<i class="bi bi-check-lg"></i>{% else %}{{ loop.index }}{% endif %}</span>
+                <div class="workflow-step-title"><i class="bi {{ step.icon }} me-1"></i>{{ step.title }}</div>
+                <div class="workflow-step-detail">{{ step.detail }}</div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</section>
 
 <!-- Summary cards -->
+<div class="d-flex align-items-center mb-2">
+    <h2 class="h6 mb-0 fw-semibold text-muted small text-uppercase">Data overview</h2>
+</div>
 <div class="row g-3 mb-4 stagger">
 
     <div class="col-sm-6 col-lg-3">

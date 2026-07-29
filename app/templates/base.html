@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}SIT Timetable System{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/sit-timetable-mark.svg') }}">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,6 +24,22 @@
         .navbar-sit {
             background: linear-gradient(100deg, #d42e35 0%, #c0272d 45%, #971e23 100%);
             box-shadow: 0 4px 24px rgba(150, 20, 25, 0.35);
+        }
+        .brand-mark {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            box-shadow: 0 5px 14px rgba(70, 8, 12, 0.28);
+        }
+        .brand-copy { line-height: 1.05; }
+        .brand-copy small {
+            display: block;
+            margin-top: 3px;
+            color: rgba(255, 255, 255, 0.72);
+            font-size: 0.62rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
         }
         .navbar-sit .navbar-brand,
         .navbar-sit .nav-link,
@@ -324,25 +341,111 @@
             text-align: center;
             animation: pulseBadge 2s ease-in-out infinite;
         }
+
+        /* Shared page orientation: every screen should explain what it is and
+           what the user can do before presenting controls or a large table. */
+        .page-heading {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+        }
+        .page-heading h1 {
+            margin: 0;
+            color: #1e293b;
+            font-size: clamp(1.35rem, 2vw, 1.8rem);
+            font-weight: 750;
+            letter-spacing: -0.025em;
+        }
+        .page-heading p {
+            max-width: 720px;
+            margin: 0.32rem 0 0;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+        .page-eyebrow {
+            margin-bottom: 0.25rem;
+            color: #b4232a;
+            font-size: 0.7rem;
+            font-weight: 800;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+        .workflow-strip {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 0.65rem;
+        }
+        .workflow-step {
+            position: relative;
+            min-height: 122px;
+            padding: 0.95rem;
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            border-radius: 14px;
+            background: rgba(255,255,255,0.76);
+            color: #334155;
+            text-decoration: none;
+            transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+        }
+        .workflow-step:hover {
+            transform: translateY(-2px);
+            border-color: rgba(192,39,45,.35);
+            box-shadow: 0 10px 24px rgba(31,38,135,.1);
+            color: #1e293b;
+        }
+        .workflow-step-number {
+            display: inline-grid;
+            width: 28px;
+            height: 28px;
+            place-items: center;
+            border-radius: 50%;
+            background: #e2e8f0;
+            color: #475569;
+            font-size: .75rem;
+            font-weight: 800;
+        }
+        .workflow-step.is-ready .workflow-step-number,
+        .workflow-step.is-done .workflow-step-number { background: #dcfce7; color: #15803d; }
+        .workflow-step.is-attention .workflow-step-number { background: #fef3c7; color: #b45309; }
+        .workflow-step.is-blocked .workflow-step-number { background: #fee2e2; color: #b91c1c; }
+        .workflow-step-title { margin-top: .7rem; font-size: .88rem; font-weight: 750; }
+        .workflow-step-detail { margin-top: .2rem; color: #64748b; font-size: .72rem; line-height: 1.35; }
+
+        @media (max-width: 991.98px) {
+            .navbar-sit .navbar-collapse { padding: .75rem 0 1rem; }
+            .navbar-sit .navbar-nav { align-items: stretch !important; }
+            .workflow-strip { grid-template-columns: 1fr 1fr; }
+        }
+        @media (max-width: 575.98px) {
+            .app-container { padding-left: 1rem; padding-right: 1rem; }
+            .page-heading { flex-direction: column; }
+            .page-heading > .d-flex { width: 100%; flex-wrap: wrap; }
+            .workflow-strip { grid-template-columns: 1fr; }
+        }
     </style>
     {% block extra_head %}{% endblock %}
 </head>
 <body>
 
     <!-- Navbar -->
-    <nav class="navbar navbar-expand-lg navbar-sit p-0">
-        <div class="app-container">
+    <nav class="navbar navbar-expand-lg navbar-sit py-2">
+        <div class="app-container d-flex align-items-center">
+            {% if current_user.is_authenticated and current_user.role == 'admin' %}
+                {% set home_url = url_for('admin.dashboard') %}
+            {% elif current_user.is_authenticated and current_user.role == 'professor' %}
+                {% set home_url = url_for('teacher.dashboard') %}
+            {% elif current_user.is_authenticated and current_user.role == 'student' %}
+                {% set home_url = url_for('student.dashboard') %}
+            {% else %}
+                {% set home_url = url_for('auth.login') %}
+            {% endif %}
+            <a class="navbar-brand me-4 d-flex align-items-center gap-2" href="{{ home_url }}" aria-label="SIT Timetable home">
+                <img class="brand-mark" src="{{ url_for('static', filename='images/sit-timetable-mark.svg') }}" alt="">
+                <span class="brand-copy fw-bold fs-5">SIT Timetable<small>Schedule with confidence</small></span>
+            </a>
 
-            <!-- Row 1: centered brand -->
-            <div class="d-flex justify-content-center py-2 border-bottom" style="border-color: rgba(255,255,255,0.15) !important;">
-                <a class="navbar-brand fw-bold fs-4 m-0 d-flex align-items-center" href="#">
-                    <i class="bi bi-calendar3 me-2"></i>SIT Timetable
-                </a>
-            </div>
-
-            <!-- Row 2: nav links, toggler, user info -->
-            <div class="d-flex align-items-center py-2">
-            <button class="navbar-toggler border-light" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain">
+            <button class="navbar-toggler border-light ms-auto" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain" aria-controls="navbarMain" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
 
@@ -405,9 +508,9 @@
                                     {% endif %}
                                 </a>
                                 <ul class="dropdown-menu dropdown-menu-end">
-                                    <li><h6 class="dropdown-header">Teacher coordination</h6></li>
+                                    <li><h6 class="dropdown-header">Professor coordination</h6></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.declarations' %}active{% endif %}"
-                                           href="{{ url_for('admin.declarations') }}"><i class="bi bi-calendar-check"></i> Teacher Availability</a></li>
+                                           href="{{ url_for('admin.declarations') }}"><i class="bi bi-calendar-check"></i> Professor Availability</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.timetable_flags' %}active{% endif %}"
                                            href="{{ url_for('admin.timetable_flags') }}"><i class="bi bi-chat-square-check"></i> Schedule Responses</a></li>
                                     <li><hr class="dropdown-divider"></li>
@@ -417,7 +520,7 @@
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.academic_terms' %}active{% endif %}"
                                            href="{{ url_for('admin.academic_terms') }}"><i class="bi bi-calendar3"></i> Academic Terms</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.data_import' %}active{% endif %}"
-                                           href="{{ url_for('admin.data_import') }}"><i class="bi bi-upload"></i> Import</a></li>
+                                           href="{{ url_for('admin.data_import') }}"><i class="bi bi-upload"></i> Bulk Data Import</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.constraint_settings' %}active{% endif %}"
                                            href="{{ url_for('admin.constraint_settings') }}"><i class="bi bi-sliders"></i> Constraint Settings</a></li>
                                     <li><hr class="dropdown-divider"></li>
@@ -455,11 +558,11 @@
                         {% elif current_user.role == 'student' %}
                             <li class="nav-item">
                                 <a class="nav-link {% if request.endpoint == 'student.dashboard' %}active{% endif %}"
-                                   href="{{ url_for('student.dashboard') }}">Dashboard</a>
+                                   href="{{ url_for('student.dashboard') }}"><i class="bi bi-house me-1"></i>Dashboard</a>
                             </li>
                             <li class="nav-item">
                                 <a class="nav-link {% if request.endpoint == 'student.timetable' %}active{% endif %}"
-                                   href="{{ url_for('student.timetable') }}">My Timetable</a>
+                                   href="{{ url_for('student.timetable') }}"><i class="bi bi-calendar-week me-1"></i>My Timetable</a>
                             </li>
                         {% endif %}
 
@@ -505,7 +608,6 @@
                 </ul>
                 {% endif %}
 
-            </div>
             </div>
         </div>
     </nav>

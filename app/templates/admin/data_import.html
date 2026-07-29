@@ -1,7 +1,15 @@
 {% extends 'base.html' %}
-{% block title %}Import Data - SIT Timetable{% endblock %}
+{% block title %}Bulk Data Import - SIT Timetable{% endblock %}
 
 {% block content %}
+
+<div class="page-heading">
+    <div>
+        <div class="page-eyebrow">Data setup</div>
+        <h1>Bulk Data Import</h1>
+        <p>Load a complete session requirements workbook. Review the preview before any database changes are applied.</p>
+    </div>
+</div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
 {% for cat, msg in messages %}
