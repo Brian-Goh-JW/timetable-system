@@ -399,16 +399,19 @@
                             <li class="nav-item dropdown">
                                 <a class="nav-link dropdown-toggle {% if tools_active %}active{% endif %}"
                                    href="#" role="button" data-bs-toggle="dropdown" style="position: relative;">
-                                    <i class="bi bi-gear me-1"></i>Admin Tools
-                                    {% if nav_open_flags_count and nav_open_flags_count > 0 %}
-                                    <span class="nav-flag-badge">{{ nav_open_flags_count }}</span>
+                                    <i class="bi bi-gear me-1"></i>Manage
+                                    {% if nav_admin_action_count and nav_admin_action_count > 0 %}
+                                    <span class="nav-flag-badge">{{ nav_admin_action_count }}</span>
                                     {% endif %}
                                 </a>
                                 <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><h6 class="dropdown-header">Teacher coordination</h6></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.declarations' %}active{% endif %}"
-                                           href="{{ url_for('admin.declarations') }}"><i class="bi bi-calendar-check"></i> Declarations</a></li>
+                                           href="{{ url_for('admin.declarations') }}"><i class="bi bi-calendar-check"></i> Teacher Availability</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.timetable_flags' %}active{% endif %}"
-                                           href="{{ url_for('admin.timetable_flags') }}"><i class="bi bi-flag"></i> Flags</a></li>
+                                           href="{{ url_for('admin.timetable_flags') }}"><i class="bi bi-chat-square-check"></i> Schedule Responses</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><h6 class="dropdown-header">Setup</h6></li>
                                     <li><a class="dropdown-item {% if request.endpoint and 'event' in request.endpoint %}active{% endif %}"
                                            href="{{ url_for('admin.events') }}"><i class="bi bi-calendar-event"></i> Events</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.academic_terms' %}active{% endif %}"
@@ -418,10 +421,9 @@
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.constraint_settings' %}active{% endif %}"
                                            href="{{ url_for('admin.constraint_settings') }}"><i class="bi bi-sliders"></i> Constraint Settings</a></li>
                                     <li><hr class="dropdown-divider"></li>
+                                    <li><h6 class="dropdown-header">System</h6></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.audit_log' %}active{% endif %}"
                                            href="{{ url_for('admin.audit_log') }}"><i class="bi bi-clock-history"></i> Audit Log</a></li>
-                                    <li><a class="dropdown-item {% if request.endpoint == 'admin.timetable_versions' %}active{% endif %}"
-                                           href="{{ url_for('admin.timetable_versions') }}"><i class="bi bi-layers"></i> Schedule Versions</a></li>
                                     <li><a class="dropdown-item {% if request.endpoint == 'admin.system_info' %}active{% endif %}"
                                            href="{{ url_for('admin.system_info') }}"><i class="bi bi-info-circle"></i> System Info</a></li>
                                 </ul>
@@ -430,19 +432,24 @@
                         {% elif current_user.role == 'professor' %}
                             <li class="nav-item">
                                 <a class="nav-link {% if request.endpoint == 'teacher.dashboard' %}active{% endif %}"
-                                   href="{{ url_for('teacher.dashboard') }}">Dashboard</a>
+                                   href="{{ url_for('teacher.dashboard') }}"><i class="bi bi-speedometer2 me-1"></i>Dashboard</a>
                             </li>
                             <li class="nav-item">
                                 <a class="nav-link {% if request.endpoint == 'teacher.timetable' %}active{% endif %}"
-                                   href="{{ url_for('teacher.timetable') }}">My Timetable</a>
+                                   href="{{ url_for('teacher.timetable') }}"><i class="bi bi-calendar-week me-1"></i>My Timetable</a>
                             </li>
                             <li class="nav-item">
                                 <a class="nav-link {% if request.endpoint == 'teacher.availability' %}active{% endif %}"
-                                   href="{{ url_for('teacher.availability') }}">Availability</a>
+                                   href="{{ url_for('teacher.availability') }}"><i class="bi bi-calendar-x me-1"></i>Set Availability</a>
                             </li>
                             <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'teacher.flags' %}active{% endif %}"
-                                   href="{{ url_for('teacher.flags') }}">My Flags</a>
+                                <a class="nav-link {% if request.endpoint == 'teacher.flags' %}active{% endif %} position-relative"
+                                   href="{{ url_for('teacher.flags') }}">
+                                    <i class="bi bi-chat-square-check me-1"></i>Action Required
+                                    {% if nav_teacher_action_count and nav_teacher_action_count > 0 %}
+                                    <span class="badge rounded-pill bg-warning text-dark ms-1">{{ nav_teacher_action_count }}</span>
+                                    {% endif %}
+                                </a>
                             </li>
 
                         {% elif current_user.role == 'student' %}

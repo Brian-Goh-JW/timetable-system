@@ -141,11 +141,35 @@ def create_app():
         return error.description, 400
 
     @app.context_processor
-    def inject_nav_open_flags_count():
+    def inject_nav_action_counts():
         from flask_login import current_user
         if current_user.is_authenticated and current_user.role == 'admin':
+            from app.models.availability_declaration import AvailabilityDeclaration
             from app.models.timetable_flag import TimetableFlag
-            return {'nav_open_flags_count': TimetableFlag.query.filter_by(status='open').count()}
-        return {'nav_open_flags_count': 0}
+            unresolved_flags = TimetableFlag.query.filter(
+                TimetableFlag.status.in_(['open', 'acknowledged'])
+            ).count()
+            pending_availability = AvailabilityDeclaration.query.filter_by(
+                status='pending'
+            ).count()
+            return {
+                'nav_admin_action_count': unresolved_flags + pending_availability,
+                'nav_teacher_action_count': 0,
+            }
+        if current_user.is_authenticated and current_user.role == 'professor':
+            from app.models.timetable_flag import TimetableFlag
+            professor = current_user.professor_profile
+            teacher_actions = 0
+            if professor is not None:
+                teacher_actions = TimetableFlag.query.filter_by(
+                    professor_id=professor.id,
+                    status='open',
+                    notification_sent=True,
+                ).count()
+            return {
+                'nav_admin_action_count': 0,
+                'nav_teacher_action_count': teacher_actions,
+            }
+        return {'nav_admin_action_count': 0, 'nav_teacher_action_count': 0}
 
     return app

@@ -83,8 +83,11 @@ def dashboard():
     ).count()
 
     open_flags = TimetableFlag.query.filter_by(
-        professor_id=prof.id
-    ).filter(TimetableFlag.status.in_(['open', 'acknowledged'])).count()
+        professor_id=prof.id, status='open', notification_sent=True
+    ).count()
+    awaiting_admin_flags = TimetableFlag.query.filter_by(
+        professor_id=prof.id, status='acknowledged'
+    ).count()
 
     # Most recent published trimester with entries for this professor
     latest_entry = (
@@ -105,6 +108,7 @@ def dashboard():
         published_sessions=published_sessions,
         pending_declarations=pending_declarations,
         open_flags=open_flags,
+        awaiting_admin_flags=awaiting_admin_flags,
         latest_trimester=latest_trimester,
     )
 
@@ -335,7 +339,7 @@ def availability():
                     status='pending',
                 ))
                 db.session.commit()
-                flash('Declaration submitted. The admin will review and classify it.', 'success')
+                flash('Availability request sent. The admin will review it before generation.', 'success')
                 return redirect(url_for('teacher.availability'))
         else:
             for e in errors:
@@ -371,11 +375,19 @@ def availability():
 def flags():
     prof = current_user.professor_profile
 
-    open_flags = (TimetableFlag.query
-                  .filter_by(professor_id=prof.id)
-                  .filter(TimetableFlag.status.in_(['open', 'acknowledged']))
-                  .order_by(TimetableFlag.created_at.desc())
-                  .all())
+    action_flags = (TimetableFlag.query
+                    .filter_by(
+                        professor_id=prof.id,
+                        status='open',
+                        notification_sent=True,
+                    )
+                    .order_by(TimetableFlag.created_at.desc())
+                    .all())
+
+    waiting_flags = (TimetableFlag.query
+                     .filter_by(professor_id=prof.id, status='acknowledged')
+                     .order_by(TimetableFlag.created_at.desc())
+                     .all())
 
     resolved_flags = (TimetableFlag.query
                       .filter_by(professor_id=prof.id, status='resolved')
@@ -384,7 +396,8 @@ def flags():
 
     return render_template('teacher/flags.html',
                            prof=prof,
-                           open_flags=open_flags,
+                           action_flags=action_flags,
+                           waiting_flags=waiting_flags,
                            resolved_flags=resolved_flags)
 
 
@@ -399,8 +412,11 @@ def flag_respond(flag_id):
         flash('You can only respond to your own flags.', 'danger')
         return redirect(url_for('teacher.flags'))
 
-    if flag.status == 'resolved':
-        flash('This flag has already been resolved.', 'info')
+    if flag.status != 'open':
+        flash('This schedule request has already been answered.', 'info')
+        return redirect(url_for('teacher.flags'))
+    if not flag.notification_sent:
+        flash('This schedule request has not been sent to you yet.', 'warning')
         return redirect(url_for('teacher.flags'))
     if FlagResponse.query.filter_by(
         flag_id=flag.id, professor_id=prof.id
@@ -426,7 +442,7 @@ def flag_respond(flag_id):
         flag.status      = 'resolved'
         flag.resolved_at = datetime.utcnow()
         db.session.commit()
-        flash('Response recorded. Flag marked as resolved. Thank you.', 'success')
+        flash('Response recorded. The assigned slot is confirmed.', 'success')
     else:
         flag.status = 'acknowledged'
         db.session.commit()
@@ -448,7 +464,7 @@ def flag_respond(flag_id):
             flash(
                 'Response recorded. Admin notification email could not be sent. '
                 'The admin will still see your response '
-                'on the Flags page.',
+                'on the Schedule Responses page.',
                 'warning'
             )
 

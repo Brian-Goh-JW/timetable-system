@@ -1,166 +1,93 @@
 {% extends 'base.html' %}
-{% block title %}Availability - SIT Timetable{% endblock %}
+{% block title %}Set Availability - SIT Timetable{% endblock %}
 
 {% block content %}
+<div class="mb-4">
+    <h4 class="mb-1">Set Availability</h4>
+    <p class="text-muted mb-0">Tell the timetable admin about a time you cannot teach or would strongly prefer to avoid.</p>
+</div>
 
+<div class="alert alert-light border mb-4 small">
+    <strong>What happens next?</strong>
+    The admin reviews your request as <span class="badge bg-danger">Unavailable</span> or
+    <span class="badge bg-warning text-dark">Try to avoid</span>. If a flexible request cannot be met,
+    you will receive an item under <a href="{{ url_for('teacher.flags') }}">Action Required</a> before the schedule is confirmed.
+</div>
 
-<div class="row g-3">
-
-    <!-- Left: submission form -->
+<div class="row g-4">
     <div class="col-lg-5">
         <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white border-bottom fw-semibold">
-                <i class="bi bi-calendar-x me-2 text-muted"></i>Declare Unavailability
-            </div>
+            <div class="card-header bg-white border-bottom fw-semibold"><i class="bi bi-calendar-plus me-2 text-danger"></i>New Availability Request</div>
             <div class="card-body">
                 <form method="POST">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
-                        <label class="form-label fw-medium">Applies To</label>
+                        <label for="timeslot_id" class="form-label fw-medium">Time to avoid <span class="text-danger">*</span></label>
+                        <select class="form-select" id="timeslot_id" name="timeslot_id" required>
+                            <option value="">Select day and time</option>
+                            {% for day in day_order %}{% if slots_by_day[day] %}
+                            <optgroup label="{{ day }}">
+                                {% for ts in slots_by_day[day] %}
+                                <option value="{{ ts.id }}">{{ ts.period_label }} ({{ ts.start_time.strftime('%H:%M') }}&ndash;{{ ts.end_time.strftime('%H:%M') }})</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}{% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-medium">When it applies</label>
                         <div class="row g-2">
-                            <div class="col-7">
-                                <input class="form-control" name="academic_year"
-                                       placeholder="AY2526 (blank = every year)"
-                                       pattern="AY[0-9]{4}">
+                            <div class="col-sm-7">
+                                <label for="academic_year" class="form-label small text-muted">Academic year</label>
+                                <input class="form-control" id="academic_year" name="academic_year" placeholder="AY2526 or leave blank" pattern="AY[0-9]{4}">
                             </div>
-                            <div class="col-5">
-                                <select class="form-select" name="trimester">
-                                    <option value="">Every trimester</option>
-                                    <option value="1">Trimester 1</option>
-                                    <option value="2">Trimester 2</option>
-                                    <option value="3">Trimester 3</option>
+                            <div class="col-sm-5">
+                                <label for="trimester" class="form-label small text-muted">Trimester</label>
+                                <select class="form-select" id="trimester" name="trimester">
+                                    <option value="">Every trimester</option><option value="1">T1</option><option value="2">T2</option><option value="3">T3</option>
                                 </select>
                             </div>
                         </div>
-                        <div class="form-text">Leave both blank only for a reusable standing constraint.</div>
+                        <div class="form-text">Leave both blank only if this is a standing request for every year.</div>
                     </div>
-
                     <div class="mb-3">
-                        <label for="timeslot_id" class="form-label fw-medium">
-                            Timeslot <span class="text-danger">*</span>
-                        </label>
-                        <select class="form-select" id="timeslot_id" name="timeslot_id" required>
-                            <option value="">- Select a timeslot -</option>
-                            {% for day in day_order %}
-                                {% if slots_by_day[day] %}
-                                <optgroup label="{{ day }}">
-                                    {% for ts in slots_by_day[day] %}
-                                    <option value="{{ ts.id }}">
-                                        {{ ts.period_label }}
-                                        ({{ ts.start_time.strftime('%H:%M') }}–{{ ts.end_time.strftime('%H:%M') }})
-                                    </option>
-                                    {% endfor %}
-                                </optgroup>
-                                {% endif %}
-                            {% endfor %}
-                        </select>
-                        <div class="form-text">Select the specific day + period you cannot attend.</div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="reason" class="form-label fw-medium">
-                            Reason <span class="text-danger">*</span>
-                        </label>
+                        <label for="reason" class="form-label fw-medium">Reason <span class="text-danger">*</span></label>
                         <textarea class="form-control" id="reason" name="reason" rows="3" maxlength="255"
-                                  placeholder="e.g. Teaching commitment at another campus, medical appointment..."
-                                  required></textarea>
+                                  placeholder="Briefly explain why this time should be avoided" required></textarea>
                     </div>
-
-                    <button type="submit" class="btn w-100 text-white" style="background-color:#c0272d;">
-                        <i class="bi bi-send me-1"></i>Submit Declaration
-                    </button>
+                    <button type="submit" class="btn btn-danger w-100"><i class="bi bi-send me-1"></i>Send Request</button>
                 </form>
             </div>
         </div>
-
-        <div class="card border-0 shadow-sm mt-3 border-start border-warning border-3">
-            <div class="card-body small text-muted">
-                <i class="bi bi-info-circle me-1 text-warning"></i>
-                The admin will classify this as <em>Strict</em> (hard block) or <em>Preferred</em>
-                (soft avoid) - check back here for the status.
-            </div>
-        </div>
     </div>
 
-    <!-- Right: existing declarations -->
     <div class="col-lg-7">
         <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white border-bottom fw-semibold">
-                <i class="bi bi-list-check me-2 text-muted"></i>My Declarations
-                <span class="badge bg-secondary ms-1">{{ declarations | length }}</span>
+            <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                <span class="fw-semibold"><i class="bi bi-list-check me-2 text-muted"></i>My Availability Requests</span>
+                <span class="badge bg-secondary">{{ declarations|length }}</span>
             </div>
-
             {% if declarations %}
-            <div class="card-body p-0">
+            <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0 small">
-                    <thead class="table-light">
-                        <tr>
-                            <th class="ps-3">Day</th>
-                            <th>Timeslot</th>
-                            <th>Term</th>
-                            <th>Reason</th>
-                            <th>Status</th>
-                            <th>Type</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for d in declarations %}
-                        <tr>
-                            <td class="ps-3 fw-medium">{{ d.timeslot.day_of_week }}</td>
-                            <td>
-                                {{ d.timeslot.period_label }}<br>
-                                <span class="text-muted">
-                                    {{ d.timeslot.start_time.strftime('%H:%M') }}–{{ d.timeslot.end_time.strftime('%H:%M') }}
-                                </span>
-                            </td>
-                            <td>{{ d.academic_year or 'Every AY' }}{% if d.trimester %}-T{{ d.trimester }}{% endif %}</td>
-                            <td style="max-width:180px; word-break:break-word;">{{ d.reason }}</td>
-                            <td>
-                                {% if d.status == 'pending' %}
-                                    <span class="badge bg-warning text-dark">Pending</span>
-                                {% else %}
-                                    <span class="badge bg-success">Classified</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if d.constraint_type == 'strict' %}
-                                    <span class="badge bg-danger">Strict</span>
-                                {% elif d.constraint_type == 'preferred' %}
-                                    <span class="badge bg-info text-dark">Preferred</span>
-                                {% else %}
-                                    <span class="text-muted">-</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if d.status == 'pending' %}
-                                <form method="POST"
-                                      action="{{ url_for('teacher.availability_delete', decl_id=d.id) }}"
-                                      onsubmit="return confirm('Remove this declaration?')">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger">
-                                        <i class="bi bi-trash"></i>
-                                    </button>
-                                </form>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
+                    <thead class="table-light"><tr><th class="ps-3">Time</th><th>Scope</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+                    <tbody>{% for d in declarations %}<tr>
+                        <td class="ps-3 fw-medium">{{ d.timeslot.day_of_week }} · {{ d.timeslot.period_label }}<div class="text-muted fw-normal">{{ d.timeslot.start_time.strftime('%H:%M') }}&ndash;{{ d.timeslot.end_time.strftime('%H:%M') }}</div></td>
+                        <td>{{ d.academic_year or 'Every AY' }}{% if d.trimester %}-T{{ d.trimester }}{% endif %}</td>
+                        <td style="max-width:200px;">{{ d.reason }}</td>
+                        <td>
+                            {% if d.status == 'pending' %}<span class="badge bg-warning text-dark">Awaiting review</span>
+                            {% elif d.constraint_type == 'strict' %}<span class="badge bg-danger">Unavailable</span>
+                            {% else %}<span class="badge bg-warning text-dark">Try to avoid</span>{% endif %}
+                        </td>
+                        <td>{% if d.status == 'pending' %}<form method="POST" action="{{ url_for('teacher.availability_delete', decl_id=d.id) }}" onsubmit="return confirm('Remove this availability request?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-sm btn-outline-danger" aria-label="Remove request"><i class="bi bi-trash"></i></button></form>{% endif %}</td>
+                    </tr>{% endfor %}</tbody>
                 </table>
             </div>
-
             {% else %}
-            <div class="card-body text-center text-muted py-4">
-                <i class="bi bi-calendar-check fs-2 d-block mb-2"></i>
-                No declarations yet. Use the form to flag any unavailable timeslots.
-            </div>
+            <div class="card-body text-center text-muted py-4"><i class="bi bi-calendar-check fs-2 d-block mb-2"></i>No availability requests yet.</div>
             {% endif %}
-
         </div>
     </div>
-
 </div>
-
 {% endblock %}

@@ -4,6 +4,7 @@ import unittest
 import zipfile
 from datetime import date, time, timedelta
 from types import SimpleNamespace
+from unittest.mock import patch
 
 os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
 os.environ['FLASK_SECRET_KEY'] = 'unit-test-secret'
@@ -21,6 +22,7 @@ from app.engine.solver import (
     solve,
 )
 from app.models.academic_calendar import AcademicCalendar
+from app.models.availability_declaration import AvailabilityDeclaration
 from app.models.class_session import ClassSession
 from app.models.course import Course
 from app.models.event import Event
@@ -29,7 +31,8 @@ from app.models.professor import Professor
 from app.models.room import Room
 from app.models.class_session_professor import ClassSessionProfessor
 from app.models.solve_run import SolveRun
-from app.models.schedule_version import ScheduleVersion
+from app.models.timetable_flag import TimetableFlag
+from app.models.flag_response import FlagResponse
 from app.models.student_group import StudentGroup
 from app.models.timeslot import TimeSlot
 from app.models.timetable_entry import TimetableEntry
@@ -113,6 +116,55 @@ class RegressionTests(unittest.TestCase):
             session['_fresh'] = True
         return client
 
+    def _teacher_coordination_data(self, *, notification_sent=False):
+        _, group, course = self._base_data()
+        teacher_user = User(
+            name='Test Professor', email='professor@example.com',
+            role='professor', password_hash='unused',
+        )
+        professor = Professor(
+            user=teacher_user, staff_id='P-TEST', department='Test',
+        )
+        slot = TimeSlot(
+            day_of_week='Monday', period_label='P1',
+            start_time=time(9), end_time=time(11),
+        )
+        session = ClassSession(
+            course=course, session_type='lecture', delivery_mode='f2f',
+            duration_hours=2, student_group=group, trimester=1,
+            teaching_weeks='1,2,3', group_label='All',
+        )
+        db.session.add_all([teacher_user, professor, slot, session])
+        db.session.flush()
+        db.session.add(ClassSessionProfessor(
+            session_id=session.id, professor_id=professor.id,
+            is_primary=True, display_order=0,
+        ))
+        entry = TimetableEntry(
+            class_session=session, timeslot=slot, week_number=1,
+            trimester='AY2526-T1', academic_year='AY2526',
+        )
+        declaration = AvailabilityDeclaration(
+            professor=professor, timeslot=slot, academic_year='AY2526',
+            trimester=1, constraint_type='preferred', reason='Test reason',
+            status='classified',
+        )
+        db.session.add_all([entry, declaration])
+        db.session.flush()
+        flag = TimetableFlag(
+            timetable_entry=entry, professor=professor,
+            declaration=declaration, status='open',
+            notification_sent=notification_sent,
+            response_deadline=date.today() + timedelta(days=7),
+        )
+        db.session.add(flag)
+        db.session.commit()
+        client = self.app.test_client()
+        with client.session_transaction() as client_session:
+            client_session['_user_id'] = str(teacher_user.id)
+            client_session['_fresh'] = True
+        return client, teacher_user, flag
+
     def test_account_actions_are_grouped_in_dropdown_for_every_role(self):
         for role in ('admin', 'professor', 'student'):
             with self.subTest(role=role):
@@ -126,31 +178,77 @@ class RegressionTests(unittest.TestCase):
                 db.session.delete(User.query.filter_by(role=role).one())
                 db.session.commit()
 
-    def test_schedule_version_comparison_requires_two_versions_in_one_trimester(self):
-        client, admin = self._admin_client()
-        first = ScheduleVersion(
-            trimester='AY2526-T1', label='First release', status='archived',
-            source='publication', entries_json='[]', stats_json='{}',
-            created_by=admin.id,
+    def test_schedule_history_page_is_not_user_facing(self):
+        client, _admin = self._admin_client()
+        response = client.get('/admin/timetable/versions')
+        self.assertEqual(404, response.status_code)
+
+    def test_unsent_schedule_response_is_hidden_and_cannot_be_answered(self):
+        client, _teacher, flag = self._teacher_coordination_data(
+            notification_sent=False
         )
-        db.session.add(first)
-        db.session.commit()
-
-        response = client.get('/admin/timetable/versions?trimester=AY2526-T1')
+        response = client.get('/teacher/flags')
         self.assertEqual(200, response.status_code)
-        self.assertIn(b'One saved version is available', response.data)
-        self.assertNotIn(b'id="version-left"', response.data)
+        self.assertIn(b'no schedule requests requiring a response', response.data)
+        self.assertNotIn(b'TST1001', response.data)
 
-        db.session.add(ScheduleVersion(
-            trimester='AY2526-T1', label='Second release', status='published',
-            source='publication', entries_json='[]', stats_json='{}',
-            created_by=admin.id,
-        ))
-        db.session.commit()
-        response = client.get('/admin/timetable/versions?trimester=AY2526-T1')
+        response = client.post(
+            f'/teacher/flags/{flag.id}/respond',
+            data={'response': 'can_proceed'},
+            follow_redirects=True,
+        )
+        self.assertIn(b'has not been sent to you yet', response.data)
+        self.assertEqual('open', db.session.get(TimetableFlag, flag.id).status)
+        self.assertEqual(0, FlagResponse.query.count())
+
+    def test_declined_slot_moves_to_admin_and_can_be_closed(self):
+        teacher_client, _teacher, flag = self._teacher_coordination_data(
+            notification_sent=True
+        )
+        with patch(
+            'app.utils.email.send_cannot_proceed_notification',
+            return_value=(False, 'disabled'),
+        ):
+            response = teacher_client.post(
+                f'/teacher/flags/{flag.id}/respond',
+                data={'response': 'cannot_proceed', 'comments': 'Medical appointment'},
+                follow_redirects=True,
+            )
         self.assertEqual(200, response.status_code)
-        self.assertIn(b'id="version-left"', response.data)
-        self.assertIn(b'id="version-right"', response.data)
+        self.assertIn(b'Admin Is Handling', response.data)
+        self.assertNotIn(f'id="can_{flag.id}"'.encode(), response.data)
+        self.assertEqual('acknowledged', db.session.get(TimetableFlag, flag.id).status)
+
+        g.pop('_login_user', None)
+        admin_client, _admin = self._admin_client()
+        response = admin_client.get('/admin/timetable-flags')
+        self.assertIn(b'Medical appointment', response.data)
+        self.assertIn(b'Mark Handled', response.data)
+        response = admin_client.post(
+            f'/admin/timetable-flags/{flag.id}/resolve',
+            follow_redirects=True,
+        )
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b'marked as handled', response.data)
+        self.assertEqual('resolved', db.session.get(TimetableFlag, flag.id).status)
+
+    def test_portal_notification_works_when_email_is_unavailable(self):
+        _teacher_client, _teacher, flag = self._teacher_coordination_data(
+            notification_sent=False
+        )
+        admin_client, _admin = self._admin_client()
+        deadline = (date.today() + timedelta(days=5)).isoformat()
+        with patch('app.utils.email.send_flag_notification', return_value=(False, 'disabled')):
+            response = admin_client.post(
+                f'/admin/timetable-flags/{flag.id}/notify',
+                data={'response_deadline': deadline},
+                follow_redirects=True,
+            )
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b'visible to Test Professor in the portal', response.data)
+        refreshed = db.session.get(TimetableFlag, flag.id)
+        self.assertTrue(refreshed.notification_sent)
+        self.assertEqual(deadline, refreshed.response_deadline.isoformat())
 
     def test_availability_expands_to_real_clock_overlaps(self):
         p2 = SimpleNamespace(

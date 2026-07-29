@@ -63,10 +63,10 @@ The populated database is intentionally not included in the public GitHub ZIP be
 ## What to try
 
 - Generate or re-generate AY2526-T1 and review the hard-constraint guard.
-- Compare draft schedule versions, restore a version, then publish it.
 - Change a class manually and use ranked repair suggestions.
 - Preview an Excel import before applying it. Modules, professors, students, student enrolments/sections, groups, and rooms support bulk data workflows.
-- Set professor availability, room closures, qualifications, workload limits, equipment, and accessibility requirements.
+- Submit a professor availability request, review it under **Manage > Teacher Availability**, and follow any generated exception under **Schedule Responses**.
+- Set room closures, qualifications, workload limits, equipment, and accessibility requirements.
 - Sign in as the demo student or professor and download the timetable as an `.ics` calendar file.
 - Review the audit trail, scheduling report, and system-information pages.
 

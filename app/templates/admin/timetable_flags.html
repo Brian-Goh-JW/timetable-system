@@ -1,217 +1,120 @@
 {% extends 'base.html' %}
-{% block title %}Conflict Flags - SIT Timetable{% endblock %}
+{% block title %}Schedule Responses - SIT Timetable{% endblock %}
 
 {% block content %}
-
-<div class="d-flex justify-content-end align-items-center mb-4">
-    {% if open_flags %}
-    <span class="badge bg-warning text-dark fs-6">
-        {{ open_flags | length }} open
-    </span>
-    {% endif %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+        <h4 class="mb-1">Schedule Responses</h4>
+        <p class="text-muted mb-0">Confirm flexible availability exceptions with teachers and track the outcome.</p>
+    </div>
+    <div class="btn-group" role="group" aria-label="Teacher coordination">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.declarations') }}">
+            Availability
+            {% if pending_declarations_count %}<span class="badge bg-warning text-dark ms-1">{{ pending_declarations_count }}</span>{% endif %}
+        </a>
+        <a class="btn btn-sm btn-danger" href="{{ url_for('admin.timetable_flags') }}">
+            Schedule Responses
+            {% if open_flags or acknowledged_flags %}<span class="badge bg-light text-danger ms-1">{{ open_flags|length + acknowledged_flags|length }}</span>{% endif %}
+        </a>
+    </div>
 </div>
 
-<!-- Open flags -->
+<div class="alert alert-light border mb-4 small">
+    These requests appear only when generation safely uses a time marked <strong>Try to avoid</strong>.
+    Send the request in the portal, let the teacher accept or decline, then handle any declined slot before publishing.
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="small text-muted">Waiting for teacher</div><div class="fs-3 fw-bold">{{ open_flags|length }}</div></div></div></div>
+    <div class="col-md-4"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="small text-muted">Admin action needed</div><div class="fs-3 fw-bold text-danger">{{ acknowledged_flags|length }}</div></div></div></div>
+    <div class="col-md-4"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="small text-muted">Completed</div><div class="fs-3 fw-bold text-success">{{ resolved_flags|length }}</div></div></div></div>
+</div>
+
 <div class="card border-0 shadow-sm mb-4">
-    <div class="card-header bg-white border-bottom fw-semibold">
-        <i class="bi bi-flag-fill me-2 text-warning"></i>
-        Open - Action Required
-        <span class="badge bg-warning text-dark ms-1">{{ open_flags | length }}</span>
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-send me-2 text-warning"></i>Waiting for Teacher</span>
+        <span class="badge bg-warning text-dark">{{ open_flags|length }}</span>
     </div>
-
     {% if open_flags %}
-    <div class="card-body p-0">
-        <table class="table table-hover align-middle mb-0 small">
-            <thead class="table-light">
-                <tr>
-                    <th class="ps-3">Professor</th>
-                    <th>Session</th>
-                    <th>Assigned Slot</th>
-                    <th>Declaration Violated</th>
-                    <th>Notified</th>
-                    <th>Set Deadline & Notify</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for f in open_flags %}
-                <tr>
-                    <td class="ps-3 fw-medium">
-                        {{ f.professor.user.name }}
-                        <div class="text-muted fw-normal">{{ f.professor.staff_id }}</div>
-                    </td>
-                    <td>
-                        {{ f.timetable_entry.class_session.course.module_code }}
-                        <span class="badge bg-light text-secondary border ms-1" style="font-size:.68rem;">{{ f.timetable_entry.trimester }}</span>
-                        <div class="text-muted text-capitalize">
-                            {{ f.timetable_entry.class_session.session_type }}
-                        </div>
-                    </td>
-                    <td>
-                        {{ f.timetable_entry.timeslot.day_of_week }}
-                        {{ f.timetable_entry.timeslot.period_label }}<br>
-                        <span class="text-muted">
-                            {{ f.timetable_entry.timeslot.start_time.strftime('%H:%M') }}–{{ f.timetable_entry.timeslot.end_time.strftime('%H:%M') }}
-                        </span>
-                    </td>
-                    <td>
-                        <span class="text-danger small">
-                            Preferred: {{ f.declaration.timeslot.day_of_week }}
-                            {{ f.declaration.timeslot.period_label }}
-                        </span>
-                        <div class="text-muted" style="font-size:0.75rem;">
-                            "{{ f.declaration.reason }}"
-                        </div>
-                    </td>
-                    <td>
-                        {% if f.notification_sent %}
-                            <span class="badge bg-success">Sent</span>
-                            {% if f.response_deadline %}
-                            <div class="text-muted" style="font-size:0.75rem;">
-                                By {{ f.response_deadline.strftime('%d %b %Y') }}
-                            </div>
-                            {% endif %}
-                        {% else %}
-                            <span class="badge bg-secondary">Not sent</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <form method="POST"
-                              action="{{ url_for('admin.flag_notify', flag_id=f.id) }}"
-                              class="d-flex gap-1 align-items-center">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <input type="date" name="response_deadline"
-                                   class="form-control form-control-sm"
-                                   style="max-width:140px;"
-                                   value="{{ f.response_deadline.strftime('%Y-%m-%d') if f.response_deadline else '' }}"
-                                   required>
-                            <button type="submit"
-                                    class="btn btn-sm btn-warning text-dark"
-                                    onclick="return confirm('Send notification to {{ f.professor.user.name }}?')">
-                                <i class="bi bi-send me-1"></i>
-                                {{ 'Resend' if f.notification_sent else 'Notify' }}
+    <div class="list-group list-group-flush">
+        {% for f in open_flags %}
+        <div class="list-group-item p-3">
+            <div class="row g-3 align-items-center">
+                <div class="col-lg-3">
+                    <div class="fw-semibold">{{ f.professor.user.name }}</div>
+                    <div class="small text-muted">{{ f.professor.staff_id }}</div>
+                    {% if f.notification_sent %}<span class="badge bg-info text-dark mt-1">Visible to teacher</span>{% else %}<span class="badge bg-secondary mt-1">Not sent yet</span>{% endif %}
+                </div>
+                <div class="col-lg-3">
+                    <div class="fw-medium">{{ f.timetable_entry.class_session.course.module_code }} · {{ f.timetable_entry.class_session.session_type|capitalize }}</div>
+                    <div class="small text-muted">{{ f.timetable_entry.trimester }}</div>
+                </div>
+                <div class="col-lg-3 small">
+                    <div><strong>Assigned:</strong> {{ f.timetable_entry.timeslot.day_of_week }} · {{ f.timetable_entry.timeslot.period_label }}</div>
+                    <div class="text-muted"><strong>Requested:</strong> avoid {{ f.declaration.timeslot.day_of_week }} · {{ f.declaration.timeslot.period_label }}</div>
+                    {% if f.declaration.reason %}<div class="text-muted mt-1">“{{ f.declaration.reason }}”</div>{% endif %}
+                </div>
+                <div class="col-lg-3">
+                    <form method="POST" action="{{ url_for('admin.flag_notify', flag_id=f.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <label class="form-label small mb-1" for="deadline_{{ f.id }}">Teacher response deadline</label>
+                        <div class="d-flex gap-2">
+                            <input type="date" id="deadline_{{ f.id }}" name="response_deadline" class="form-control form-control-sm"
+                                   value="{{ f.response_deadline.strftime('%Y-%m-%d') if f.response_deadline else default_deadline }}" required>
+                            <button type="submit" class="btn btn-sm btn-warning" onclick="return confirm('Send this response request to {{ f.professor.user.name }}?')">
+                                <i class="bi bi-send me-1"></i>{{ 'Resend' if f.notification_sent else 'Send' }}
                             </button>
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
     </div>
-
     {% else %}
-    <div class="card-body text-center text-muted py-4">
-        <i class="bi bi-check-circle fs-2 text-success d-block mb-2"></i>
-        No open flags.
-    </div>
+    <div class="card-body text-center text-muted py-4"><i class="bi bi-check-circle fs-2 text-success d-block mb-2"></i>No teacher responses are outstanding.</div>
     {% endif %}
 </div>
 
-<!-- Acknowledged flags (professor responded "cannot proceed") -->
 {% if acknowledged_flags %}
 <div class="card border-0 shadow-sm mb-4 border-start border-danger border-3">
-    <div class="card-header bg-white border-bottom fw-semibold">
-        <i class="bi bi-exclamation-circle me-2 text-danger"></i>
-        Acknowledged - Professor Cannot Proceed
-        <span class="badge bg-danger ms-1">{{ acknowledged_flags | length }}</span>
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+        <span class="fw-semibold text-danger"><i class="bi bi-exclamation-octagon me-2"></i>Teacher Cannot Accept Slot</span>
+        <span class="badge bg-danger">{{ acknowledged_flags|length }}</span>
     </div>
-    <div class="card-body p-0">
-        <table class="table table-hover align-middle mb-0 small">
-            <thead class="table-light">
-                <tr>
-                    <th class="ps-3">Professor</th>
-                    <th>Session</th>
-                    <th>Assigned Slot</th>
-                    <th>Professor's Comments</th>
-                    <th>Action Required</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for f in acknowledged_flags %}
-                {% set latest_response = f.responses | sort(attribute='responded_at') | last %}
-                <tr>
-                    <td class="ps-3 fw-medium">{{ f.professor.user.name }}</td>
-                    <td>
-                        {{ f.timetable_entry.class_session.course.module_code }}
-                        <span class="badge bg-light text-secondary border ms-1" style="font-size:.68rem;">{{ f.timetable_entry.trimester }}</span>
-                        <div class="text-muted text-capitalize">
-                            {{ f.timetable_entry.class_session.session_type }}
-                        </div>
-                    </td>
-                    <td>
-                        {{ f.timetable_entry.timeslot.day_of_week }}
-                        {{ f.timetable_entry.timeslot.period_label }}
-                    </td>
-                    <td class="fst-italic text-muted">
-                        {% if latest_response and latest_response.comments %}
-                            "{{ latest_response.comments }}"
-                        {% else %}
-                            No comments provided.
-                        {% endif %}
-                    </td>
-                    <td>
-                        <span class="small text-danger">
-                            <i class="bi bi-person-x me-1"></i>
-                            Reassign professor, then re-run solver.
-                        </span>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div class="list-group list-group-flush">
+        {% for f in acknowledged_flags %}{% set response = f.responses|sort(attribute='responded_at')|last %}
+        <div class="list-group-item p-3">
+            <div class="row g-3 align-items-center">
+                <div class="col-lg-3"><div class="fw-semibold">{{ f.professor.user.name }}</div><div class="small text-muted">{{ f.timetable_entry.class_session.course.module_code }} · {{ f.timetable_entry.class_session.session_type|capitalize }}</div></div>
+                <div class="col-lg-4"><div class="small"><strong>Assigned:</strong> {{ f.timetable_entry.timeslot.day_of_week }} · {{ f.timetable_entry.timeslot.period_label }}</div><div class="small text-muted mt-1">{% if response and response.comments %}“{{ response.comments }}”{% else %}No additional comments.{% endif %}</div></div>
+                <div class="col-lg-5 d-flex flex-wrap gap-2 justify-content-lg-end">
+                    <a class="btn btn-sm btn-outline-danger" href="{{ url_for('admin.timetable', trimester=f.timetable_entry.trimester) }}"><i class="bi bi-calendar-week me-1"></i>Open Timetable</a>
+                    <form method="POST" action="{{ url_for('admin.flag_resolve', flag_id=f.id) }}" onsubmit="return confirm('Confirm that this teacher schedule issue has been handled?')">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i>Mark Handled</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
     </div>
 </div>
 {% endif %}
 
-<!-- Resolved flags -->
 {% if resolved_flags %}
-<div class="card border-0 shadow-sm">
-    <div class="card-header bg-white border-bottom fw-semibold">
-        <i class="bi bi-check2-circle me-2 text-success"></i>
-        Resolved
-        <span class="badge bg-success ms-1">{{ resolved_flags | length }}</span>
-    </div>
-    <div class="card-body p-0">
-        <table class="table table-hover align-middle mb-0 small">
-            <thead class="table-light">
-                <tr>
-                    <th class="ps-3">Professor</th>
-                    <th>Session</th>
-                    <th>Resolved At</th>
-                    <th>Response</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for f in resolved_flags %}
-                {% set latest_response = f.responses | sort(attribute='responded_at') | last %}
-                <tr>
-                    <td class="ps-3">{{ f.professor.user.name }}</td>
-                    <td>
-                        {{ f.timetable_entry.class_session.course.module_code }}
-                        <span class="badge bg-light text-secondary border ms-1" style="font-size:.68rem;">{{ f.timetable_entry.trimester }}</span>
-                        <span class="text-muted text-capitalize">
-                            - {{ f.timetable_entry.class_session.session_type }}
-                        </span>
-                    </td>
-                    <td class="text-muted">
-                        {{ f.resolved_at.strftime('%d %b %Y') if f.resolved_at else '-' }}
-                    </td>
-                    <td>
-                        {% if latest_response %}
-                            {% if latest_response.response == 'can_proceed' %}
-                                <span class="badge bg-success">Can Proceed</span>
-                            {% else %}
-                                <span class="badge bg-danger">Cannot Proceed</span>
-                            {% endif %}
-                        {% else %}
-                            <span class="text-muted">-</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
+<details class="card border-0 shadow-sm">
+    <summary class="card-header bg-white border-0 fw-semibold d-flex justify-content-between align-items-center" style="cursor:pointer;">
+        <span><i class="bi bi-check2-circle me-2 text-success"></i>Completed Responses</span><span class="badge bg-success">{{ resolved_flags|length }}</span>
+    </summary>
+    <div class="table-responsive border-top"><table class="table table-hover align-middle mb-0 small">
+        <thead class="table-light"><tr><th class="ps-3">Teacher</th><th>Session</th><th>Result</th><th>Completed</th></tr></thead>
+        <tbody>{% for f in resolved_flags %}{% set response = f.responses|sort(attribute='responded_at')|last %}<tr>
+            <td class="ps-3">{{ f.professor.user.name }}</td><td>{{ f.timetable_entry.class_session.course.module_code }} · {{ f.timetable_entry.class_session.session_type|capitalize }}</td>
+            <td>{% if response and response.response == 'can_proceed' %}<span class="badge bg-success">Teacher accepted</span>{% elif response %}<span class="badge bg-secondary">Handled by admin</span>{% else %}<span class="text-muted">Completed</span>{% endif %}</td>
+            <td class="text-muted">{{ f.resolved_at.strftime('%d %b %Y') if f.resolved_at else '-' }}</td>
+        </tr>{% endfor %}</tbody>
+    </table></div>
+</details>
 {% endif %}
-
 {% endblock %}

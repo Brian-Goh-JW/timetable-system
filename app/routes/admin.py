@@ -2,6 +2,7 @@ import math
 import threading
 import uuid
 import time as _time
+from datetime import date, timedelta
 from flask import (
     Blueprint, render_template, redirect, url_for, flash, request, abort,
     jsonify, current_app,
@@ -188,7 +189,9 @@ def dashboard():
         'courses_missing_split': len(courses_missing_split),
         'total_professors':      Professor.query.count(),
         'total_rooms':           Room.query.filter_by(is_active=True).count(),
-        'open_flags':            TimetableFlag.query.filter_by(status='open').count(),
+        'open_flags':            TimetableFlag.query.filter(
+            TimetableFlag.status.in_(['open', 'acknowledged'])
+        ).count(),
         'pending_declarations':  AvailabilityDeclaration.query.filter_by(status='pending').count(),
     }
 
@@ -241,9 +244,9 @@ def dashboard():
          'href': url_for('admin.system_info'), 'icon': 'bi-person-x'},
         {'label': 'Blocking issues (generation would fail)', 'count': len(blockers),
          'href': url_for('admin.timetable'), 'icon': 'bi-exclamation-octagon'},
-        {'label': 'Open conflict flags', 'count': stats['open_flags'],
+        {'label': 'Teacher schedule responses', 'count': stats['open_flags'],
          'href': url_for('admin.timetable_flags'), 'icon': 'bi-flag'},
-        {'label': 'Pending availability declarations', 'count': stats['pending_declarations'],
+        {'label': 'Availability requests to review', 'count': stats['pending_declarations'],
          'href': url_for('admin.declarations'), 'icon': 'bi-clock-history'},
     ]
 
@@ -555,7 +558,7 @@ def course_export():
         'same module code can legitimately appear more than once (different programmes '
         'or trimesters), so all three must match an existing module.',
         'New modules can\'t be created through this import - modules are only ever '
-        'created through a full bulk import (Template 1, or Admin Tools > Import), '
+        'created through a full bulk import (Template 1, or Manage > Import), '
         'since a module needs its class sessions set up at the same time.',
         'Split Count can be left blank to clear it. If any row fails validation, nothing '
         'in this file is imported - fix the error and re-upload the whole file.',
@@ -2686,7 +2689,8 @@ def declarations():
             db.session.commit()
             flash(
                 f'{decl.professor.user.name} - {decl.timeslot.day_of_week} '
-                f'{decl.timeslot.period_label} classified as {constraint_type.capitalize()}.',
+                f'{decl.timeslot.period_label} saved as '
+                f'{"Unavailable" if constraint_type == "strict" else "Try to avoid"}.',
                 'success'
             )
         else:
@@ -2705,7 +2709,10 @@ def declarations():
 
     return render_template('admin/declarations.html',
                            pending=pending,
-                           classified=classified)
+                           classified=classified,
+                           schedule_actions_count=TimetableFlag.query.filter(
+                               TimetableFlag.status.in_(['open', 'acknowledged'])
+                           ).count())
 
 
 # ---------------------------------------------------------------------------
@@ -3332,18 +3339,26 @@ def timetable_flags():
     return render_template('admin/timetable_flags.html',
                            open_flags=open_flags,
                            acknowledged_flags=acknowledged_flags,
-                           resolved_flags=resolved_flags)
+                           resolved_flags=resolved_flags,
+                           pending_declarations_count=AvailabilityDeclaration.query.filter_by(
+                               status='pending'
+                           ).count(),
+                           default_deadline=(date.today() + timedelta(days=7)).isoformat())
 
 
 @admin_bp.route('/timetable-flags/<int:flag_id>/notify', methods=['POST'])
 @login_required
 def flag_notify(flag_id):
-    """Admin sets response deadline and marks notification as sent (email wired in Step 8)."""
+    """Send a portal response request and attempt the optional email alert."""
     from app.models.timetable_flag import TimetableFlag
     from datetime import date as date_type
 
     flag     = TimetableFlag.query.get_or_404(flag_id)
     deadline = request.form.get('response_deadline', '').strip()
+
+    if flag.status != 'open':
+        flash('This schedule response is no longer awaiting the teacher.', 'info')
+        return redirect(url_for('admin.timetable_flags'))
 
     if not deadline:
         flash('Please set a response deadline before sending.', 'danger')
@@ -3357,7 +3372,13 @@ def flag_notify(flag_id):
         return redirect(url_for('admin.timetable_flags',
                                 trimester=flag.timetable_entry.trimester))
 
+    if parsed_deadline < date_type.today():
+        flash('Response deadline cannot be in the past.', 'danger')
+        return redirect(url_for('admin.timetable_flags'))
+
     flag.response_deadline = parsed_deadline
+    # Portal access must not depend on Gmail or any other mail provider.
+    flag.notification_sent = True
     db.session.commit()
 
     # Send email to professor
@@ -3365,24 +3386,42 @@ def flag_notify(flag_id):
     success, error = send_flag_notification(flag)
 
     if success:
-        flag.notification_sent = True
-        db.session.commit()
         flash(
-            f'Email sent to {flag.professor.user.name} '
-            f'({flag.professor.user.email}). '
+            f'Response requested from {flag.professor.user.name}; email sent to '
+            f'{flag.professor.user.email}. '
             f'Deadline: {flag.response_deadline.strftime("%d %b %Y")}.',
             'success'
         )
     else:
         flash(
-            f'Deadline saved but email could not be sent to '
-            f'{flag.professor.user.name}. '
-            'Please check the server email configuration.',
-            'danger'
+            f'Response request is visible to {flag.professor.user.name} in the portal, '
+            'but the optional email could not be sent. Please check the server email configuration.',
+            'warning'
         )
 
     return redirect(url_for('admin.timetable_flags',
                             trimester=flag.timetable_entry.trimester))
+
+
+@admin_bp.route('/timetable-flags/<int:flag_id>/resolve', methods=['POST'])
+@login_required
+def flag_resolve(flag_id):
+    """Close a teacher-declined slot after the admin has adjusted coverage."""
+    from datetime import datetime
+
+    flag = TimetableFlag.query.get_or_404(flag_id)
+    if flag.status != 'acknowledged':
+        flash('Only a teacher-declined schedule request can be marked as handled.', 'warning')
+        return redirect(url_for('admin.timetable_flags'))
+
+    flag.status = 'resolved'
+    flag.resolved_at = datetime.utcnow()
+    db.session.commit()
+    flash(
+        f'{flag.professor.user.name}\'s schedule response was marked as handled.',
+        'success',
+    )
+    return redirect(url_for('admin.timetable_flags'))
 
 
 # ---------------------------------------------------------------------------
@@ -3451,66 +3490,6 @@ def audit_log_export():
         mimetype='text/csv',
         headers={'Content-Disposition': f'attachment; filename={filename}'}
     )
-
-
-@admin_bp.route('/timetable/versions')
-@login_required
-def timetable_versions():
-    from app.models.schedule_version import ScheduleVersion
-    from app.services.schedule_versions import compare_versions, version_summary
-    trimester = request.args.get('trimester', '').strip()
-    query = ScheduleVersion.query.order_by(ScheduleVersion.created_at.desc())
-    if trimester:
-        query = query.filter_by(trimester=trimester)
-    versions = query.all()
-    summaries = {version.id: version_summary(version) for version in versions}
-    comparison = None
-    comparison_error = None
-    left_id = request.args.get('left', type=int)
-    right_id = request.args.get('right', type=int)
-    if left_id and right_id:
-        left = db.session.get(ScheduleVersion, left_id)
-        right = db.session.get(ScheduleVersion, right_id)
-        if left_id == right_id:
-            comparison_error = 'Choose two different schedule versions to compare.'
-        elif not left or not right:
-            comparison_error = 'One of the selected schedule versions no longer exists.'
-        elif left.trimester != right.trimester:
-            comparison_error = 'Schedule versions can only be compared within the same trimester.'
-        elif trimester and (left.trimester != trimester or right.trimester != trimester):
-            comparison_error = 'The selected versions do not match the active trimester filter.'
-        else:
-            comparison = {
-                'left': left, 'right': right,
-                'result': compare_versions(left, right),
-            }
-    trimesters = [row[0] for row in db.session.query(
-        ScheduleVersion.trimester
-    ).distinct().order_by(ScheduleVersion.trimester).all()]
-    return render_template(
-        'admin/timetable_versions.html', versions=versions,
-        summaries=summaries, trimesters=trimesters,
-        active_trimester=trimester, comparison=comparison,
-        comparison_error=comparison_error,
-        left_id=left_id, right_id=right_id,
-    )
-
-
-@admin_bp.route('/timetable/versions/<int:version_id>/restore', methods=['POST'])
-@login_required
-def timetable_version_restore(version_id):
-    from app.models.schedule_version import ScheduleVersion
-    from app.services.schedule_versions import restore_schedule_version
-    version = db.session.get(ScheduleVersion, version_id)
-    if version is None:
-        abort(404)
-    count = restore_schedule_version(version, publish=False)
-    flash(
-        f'Restored {count} draft entries from "{version.label}". '
-        'Review the hard-constraint report before publishing.',
-        'success',
-    )
-    return redirect(url_for('admin.timetable', trimester=version.trimester))
 
 
 # ---------------------------------------------------------------------------
@@ -4206,7 +4185,7 @@ def system_info():
         ]},
         {'category': 'Academic Calendar & Timeslots', 'icon': 'bi-calendar3', 'color': 'purple', 'kind': 'value', 'rows': [
             {'label': 'Academic term calendars', 'value': f'{cal_date_count} configured ({cal_years})',
-             'note': 'Stored in the database and editable under Admin Tools > Academic Terms. Singapore public '
+             'note': 'Stored in the database and editable under Manage > Academic Terms. Singapore public '
                      'holidays are calculated automatically; Week 1 and SIT-specific breaks must be checked '
                      'against the official calendar for each new academic year.'},
             {'label': 'Standard daily time slots', 'value': '35 slots (5 days x 7 periods)',
@@ -5352,7 +5331,7 @@ def _solve_programme_batches(trimester, start_date, term_break_weeks,
             if progress:
                 progress(
                     f'Solving programme batch {index}/{len(components)}: {label} '
-                    f'({len(component["session_ids"])} sessions)â€¦'
+                    f'({len(component["session_ids"])} sessions)...'
                 )
 
             # A programme is only eligible when every one of its trimester
@@ -5710,7 +5689,6 @@ def _run_solver_task(app, task_id, action=None, form_data=None):
     from datetime import date as _date
     from app.models.solver_job import SolverJob, utcnow
     from app.services.audit import record_audit
-    from app.services.schedule_versions import create_schedule_version
 
     def _update(status, message, **kw):
         job_row = db.session.get(SolverJob, task_id)
@@ -5784,10 +5762,6 @@ def _run_solver_task(app, task_id, action=None, form_data=None):
                 if success:
                     _auto_create_flags(trimester, stats.get('preferred_violations', []))
                     _save_solve_run(trimester, stats)
-                    create_schedule_version(
-                        trimester, stats=stats, user_id=job.requested_by,
-                        source='generation',
-                    )
                 _update('done', message, success=success, stats=stats,
                         trimester=trimester, academic_year=academic_year)
                 job = db.session.get(SolverJob, task_id)
@@ -6201,12 +6175,6 @@ def timetable():
                         trimester=trimester, is_backbone=False
                     ).update({'is_published': True}, synchronize_session=False)
                     db.session.commit()
-                    from app.services.schedule_versions import create_schedule_version
-                    create_schedule_version(
-                        trimester, stats=_load_solve_run(trimester),
-                        user_id=current_user.id, source='publication',
-                        status='published', label=f'{trimester} Published',
-                    )
                     flash(
                         f'Timetable for {trimester} passed the hard-constraint audit and was published.',
                         'success',

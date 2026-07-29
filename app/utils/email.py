@@ -90,7 +90,7 @@ Reason: {flag.declaration.reason}
 ACTION REQUIRED BY: {deadline}
 ──────────────────────────────────────────
 
-Please log in and go to "My Flags" to submit your response:
+Please log in and go to "Action Required" to submit your response:
   → I can proceed (accept this slot)
   → I cannot proceed (admin will arrange a substitute)
 
@@ -177,9 +177,9 @@ NEXT STEPS
 2. Add the substitute to the system if not already present.
 3. Reassign the session to the substitute professor.
 4. Re-run the CP-SAT solver to regenerate the timetable.
-5. Check the Conflict Flags page to confirm resolution.
+5. Check the Schedule Responses page and mark the issue as handled.
 
-Flags page: {flags_url}
+Schedule Responses page: {flags_url}
 
 Regards,
 SIT Timetable System (Automated)

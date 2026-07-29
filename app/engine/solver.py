@@ -98,7 +98,7 @@ SOFT_CONSTRAINT_DEFAULTS = {
 
 def get_effective_soft_weights():
     """Live per-constraint weight for this solve, honouring any admin
-    override/on-off toggle stored in SolverSetting (Admin Tools > Constraint
+    override/on-off toggle stored in SolverSetting (Manage > Constraint
     Settings). Falls back to SOFT_CONSTRAINT_DEFAULTS for anything with no
     row yet. A disabled constraint always resolves to 0 - since every one of
     these is a soft (objective-only) term, a weight of 0 is functionally
@@ -1166,7 +1166,7 @@ def solve(trimester, start_date, term_break_weeks=None, trimester_num=None, acad
     # 4. Build CP-SAT model
     model = cp_model.CpModel()
 
-    # Live soft-constraint weights (admin overrides from Admin Tools >
+    # Live soft-constraint weights (admin overrides from Manage >
     # Constraint Settings, falling back to solver.py's own defaults). A
     # weight of 0 means the constraint is disabled for this run.
     W = get_effective_soft_weights()

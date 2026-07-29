@@ -1,183 +1,125 @@
 {% extends 'base.html' %}
-{% block title %}Availability Declarations - SIT Timetable{% endblock %}
+{% block title %}Teacher Availability - SIT Timetable{% endblock %}
 
 {% block content %}
-
-<div class="d-flex justify-content-end align-items-center mb-4">
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
     <div>
-        {% if pending %}
-        <span class="badge bg-warning text-dark fs-6">
-            {{ pending | length }} pending
-        </span>
-        {% else %}
-        <span class="badge bg-success fs-6">All classified</span>
-        {% endif %}
+        <h4 class="mb-1">Teacher Availability</h4>
+        <p class="text-muted mb-0">Review teacher requests before generating the timetable.</p>
+    </div>
+    <div class="btn-group" role="group" aria-label="Teacher coordination">
+        <a class="btn btn-sm btn-danger" href="{{ url_for('admin.declarations') }}">
+            Availability
+            {% if pending %}<span class="badge bg-light text-danger ms-1">{{ pending|length }}</span>{% endif %}
+        </a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.timetable_flags') }}">
+            Schedule Responses
+            {% if schedule_actions_count %}<span class="badge bg-warning text-dark ms-1">{{ schedule_actions_count }}</span>{% endif %}
+        </a>
     </div>
 </div>
 
-<!-- Pending -->
+<div class="alert alert-light border mb-4">
+    <div class="row g-3 small">
+        <div class="col-md-4"><strong>1. Teacher requests</strong><br><span class="text-muted">A time they cannot teach or prefer to avoid.</span></div>
+        <div class="col-md-4"><strong>2. Admin reviews</strong><br><span class="text-muted">Choose a guaranteed block or a flexible preference.</span></div>
+        <div class="col-md-4"><strong>3. Generator applies it</strong><br><span class="text-muted">Flexible exceptions create a teacher response request.</span></div>
+    </div>
+</div>
+
 <div class="card border-0 shadow-sm mb-4">
-    <div class="card-header bg-white border-bottom fw-semibold">
-        <i class="bi bi-hourglass-split me-2 text-warning"></i>
-        Pending Classification
-        <span class="badge bg-warning text-dark ms-1">{{ pending | length }}</span>
+    <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-inbox me-2 text-warning"></i>Needs Review</span>
+        <span class="badge bg-warning text-dark">{{ pending|length }}</span>
     </div>
-
     {% if pending %}
-    <div class="card-body p-0">
-        <table class="table table-hover align-middle mb-0 small">
-            <thead class="table-light">
-                <tr>
-                    <th class="ps-3">Professor</th>
-                    <th>Day</th>
-                    <th>Timeslot</th>
-                    <th>Time</th>
-                    <th>Reason</th>
-                    <th>Term</th>
-                    <th>Submitted</th>
-                    <th>Classify As</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for d in pending %}
-                <tr>
-                    <td class="ps-3 fw-medium">
-                        {{ d.professor.user.name }}
-                        <div class="text-muted fw-normal" style="font-size:0.75rem;">
-                            {{ d.professor.staff_id }}
-                        </div>
-                    </td>
-                    <td>{{ d.timeslot.day_of_week }}</td>
-                    <td>{{ d.timeslot.period_label }}</td>
-                    <td class="text-muted">
-                        {{ d.timeslot.start_time.strftime('%H:%M') }}–{{ d.timeslot.end_time.strftime('%H:%M') }}
-                    </td>
-                    <td style="max-width:200px; word-break:break-word;">{{ d.reason }}</td>
-                    <td>{{ d.academic_year or 'Every AY' }}{% if d.trimester %}-T{{ d.trimester }}{% endif %}</td>
-                    <td class="text-muted">{{ d.submitted_at.strftime('%d %b %Y') }}</td>
-                    <td>
-                        <div class="d-flex gap-1">
-                            <!-- Strict -->
-                            <form method="POST">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <input type="hidden" name="decl_id" value="{{ d.id }}">
-                                <input type="hidden" name="constraint_type" value="strict">
-                                <button type="submit"
-                                        class="btn btn-sm btn-outline-danger"
-                                        title="Hard block - solver will never assign this professor to this slot"
-                                        onclick="return confirm('Classify as Strict (hard block)? The solver will never assign {{ d.professor.user.name }} to this timeslot.')">
-                                    <i class="bi bi-slash-circle me-1"></i>Strict
-                                </button>
-                            </form>
-                            <!-- Preferred -->
-                            <form method="POST">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <input type="hidden" name="decl_id" value="{{ d.id }}">
-                                <input type="hidden" name="constraint_type" value="preferred">
-                                <button type="submit"
-                                        class="btn btn-sm btn-outline-warning"
-                                        title="Soft constraint - solver avoids but may use if no alternative"
-                                        onclick="return confirm('Classify as Preferred (soft avoid)? The solver will try to avoid this slot for {{ d.professor.user.name }} but may use it if necessary.')">
-                                    <i class="bi bi-dash-circle me-1"></i>Preferred
-                                </button>
-                            </form>
-                        </div>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    {% else %}
-    <div class="card-body text-center text-muted py-4">
-        <i class="bi bi-check-circle fs-2 text-success d-block mb-2"></i>
-        No pending declarations. All submissions have been classified.
-    </div>
-    {% endif %}
-</div>
-
-<!-- Classified -->
-<div class="card border-0 shadow-sm">
-    <div class="card-header bg-white border-bottom fw-semibold">
-        <i class="bi bi-check2-circle me-2 text-success"></i>
-        Classified
-        <span class="badge bg-secondary ms-1">{{ classified | length }}</span>
-    </div>
-
-    {% if classified %}
-    <div class="card-body p-0">
-        <table class="table table-hover align-middle mb-0 small">
-            <thead class="table-light">
-                <tr>
-                    <th class="ps-3">Professor</th>
-                    <th>Day</th>
-                    <th>Timeslot</th>
-                    <th>Time</th>
-                    <th>Reason</th>
-                    <th>Term</th>
-                    <th>Type</th>
-                    <th>Reclassify</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for d in classified %}
-                <tr>
-                    <td class="ps-3 fw-medium">
-                        {{ d.professor.user.name }}
-                        <div class="text-muted fw-normal" style="font-size:0.75rem;">
-                            {{ d.professor.staff_id }}
-                        </div>
-                    </td>
-                    <td>{{ d.timeslot.day_of_week }}</td>
-                    <td>{{ d.timeslot.period_label }}</td>
-                    <td class="text-muted">
-                        {{ d.timeslot.start_time.strftime('%H:%M') }}–{{ d.timeslot.end_time.strftime('%H:%M') }}
-                    </td>
-                    <td style="max-width:200px; word-break:break-word;">{{ d.reason }}</td>
-                    <td>{{ d.academic_year or 'Every AY' }}{% if d.trimester %}-T{{ d.trimester }}{% endif %}</td>
-                    <td>
-                        {% if d.constraint_type == 'strict' %}
-                            <span class="badge bg-danger">Strict</span>
-                        {% else %}
-                            <span class="badge bg-warning text-dark">Preferred</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <!-- Allow reclassification if admin made a mistake -->
-                        {% if d.constraint_type == 'strict' %}
+    <div class="list-group list-group-flush">
+        {% for d in pending %}
+        <div class="list-group-item p-3">
+            <div class="row g-3 align-items-center">
+                <div class="col-lg-3">
+                    <div class="fw-semibold">{{ d.professor.user.name }}</div>
+                    <div class="small text-muted">{{ d.professor.staff_id }}</div>
+                </div>
+                <div class="col-lg-3">
+                    <div class="fw-medium">{{ d.timeslot.day_of_week }} · {{ d.timeslot.period_label }}</div>
+                    <div class="small text-muted">{{ d.timeslot.start_time.strftime('%H:%M') }}&ndash;{{ d.timeslot.end_time.strftime('%H:%M') }}</div>
+                </div>
+                <div class="col-lg-3">
+                    <div>{{ d.reason }}</div>
+                    <div class="small text-muted mt-1">{{ d.academic_year or 'Every academic year' }}{% if d.trimester %} · Trimester {{ d.trimester }}{% else %} · Every trimester{% endif %}</div>
+                </div>
+                <div class="col-lg-3">
+                    <div class="d-flex flex-wrap gap-2">
                         <form method="POST">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <input type="hidden" name="decl_id" value="{{ d.id }}">
-                            <input type="hidden" name="constraint_type" value="preferred">
-                            <button type="submit" class="btn btn-sm btn-outline-warning"
-                                    onclick="return confirm('Change to Preferred?')">
-                                <i class="bi bi-arrow-repeat me-1"></i>→ Preferred
-                            </button>
-                        </form>
-                        {% else %}
-                        <form method="POST">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="decl_id" value="{{ d.id }}">
                             <input type="hidden" name="constraint_type" value="strict">
                             <button type="submit" class="btn btn-sm btn-outline-danger"
-                                    onclick="return confirm('Change to Strict?')">
-                                <i class="bi bi-arrow-repeat me-1"></i>→ Strict
+                                    title="The generator will never use this time"
+                                    onclick="return confirm('Make this time completely unavailable for {{ d.professor.user.name }}?')">
+                                <i class="bi bi-slash-circle me-1"></i>Block this time
                             </button>
                         </form>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                        <form method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="decl_id" value="{{ d.id }}">
+                            <input type="hidden" name="constraint_type" value="preferred">
+                            <button type="submit" class="btn btn-sm btn-outline-warning"
+                                    title="The generator will avoid this time unless no safe alternative exists"
+                                    onclick="return confirm('Treat this as a flexible preference for {{ d.professor.user.name }}?')">
+                                <i class="bi bi-dash-circle me-1"></i>Avoid if possible
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
     </div>
-
     {% else %}
     <div class="card-body text-center text-muted py-4">
-        No declarations classified yet.
+        <i class="bi bi-check-circle fs-2 text-success d-block mb-2"></i>
+        No availability requests need review.
     </div>
     {% endif %}
 </div>
 
+<details class="card border-0 shadow-sm" {% if not pending and classified %}open{% endif %}>
+    <summary class="card-header bg-white border-0 fw-semibold d-flex justify-content-between align-items-center" style="cursor:pointer;">
+        <span><i class="bi bi-check2-circle me-2 text-success"></i>Reviewed Availability Rules</span>
+        <span class="badge bg-secondary">{{ classified|length }}</span>
+    </summary>
+    {% if classified %}
+    <div class="table-responsive border-top">
+        <table class="table table-hover align-middle mb-0 small">
+            <thead class="table-light"><tr><th class="ps-3">Teacher</th><th>Time</th><th>Scope</th><th>Reason</th><th>Rule</th><th>Change</th></tr></thead>
+            <tbody>
+            {% for d in classified %}
+                <tr>
+                    <td class="ps-3 fw-medium">{{ d.professor.user.name }}<div class="text-muted fw-normal">{{ d.professor.staff_id }}</div></td>
+                    <td>{{ d.timeslot.day_of_week }} · {{ d.timeslot.period_label }}<div class="text-muted">{{ d.timeslot.start_time.strftime('%H:%M') }}&ndash;{{ d.timeslot.end_time.strftime('%H:%M') }}</div></td>
+                    <td>{{ d.academic_year or 'Every AY' }}{% if d.trimester %}-T{{ d.trimester }}{% endif %}</td>
+                    <td style="max-width:220px;">{{ d.reason }}</td>
+                    <td>{% if d.constraint_type == 'strict' %}<span class="badge bg-danger">Unavailable</span>{% else %}<span class="badge bg-warning text-dark">Try to avoid</span>{% endif %}</td>
+                    <td>
+                        <form method="POST">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="decl_id" value="{{ d.id }}">
+                            <input type="hidden" name="constraint_type" value="{{ 'preferred' if d.constraint_type == 'strict' else 'strict' }}">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary"
+                                    onclick="return confirm('Change this availability rule?')">
+                                Change to {{ 'Try to avoid' if d.constraint_type == 'strict' else 'Unavailable' }}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body text-muted border-top">No reviewed availability rules yet.</div>
+    {% endif %}
+</details>
 {% endblock %}
