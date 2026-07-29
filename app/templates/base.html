@@ -48,15 +48,48 @@
         }
         .navbar-sit .nav-link:hover {
             color: #ffffff !important;
-            text-decoration: underline;
+            background: rgba(255,255,255,.1);
+            text-decoration: none;
         }
         .navbar-sit .nav-link.active {
             font-weight: 600;
+            background: rgba(255,255,255,.12);
         }
         .navbar-sit .nav-link {
             font-size: 0.9rem;
-            padding-left: 0.7rem;
-            padding-right: 0.7rem;
+            padding: .55rem .72rem;
+            border-radius: 10px;
+            transition: background .15s ease, color .15s ease, box-shadow .15s ease, transform .15s ease;
+        }
+        .navbar-sit .nav-link-core {
+            display: flex;
+            align-items: center;
+            gap: .15rem;
+            margin-right: .35rem;
+            padding: .6rem .9rem;
+            color: #a51f26 !important;
+            background: #fff;
+            box-shadow: 0 7px 18px rgba(80, 7, 12, .22), inset 0 0 0 1px rgba(255,255,255,.6);
+            font-weight: 750;
+        }
+        .navbar-sit .nav-link-core:hover,
+        .navbar-sit .nav-link-core.active {
+            color: #8f1d23 !important;
+            background: #fff;
+            box-shadow: 0 9px 22px rgba(80, 7, 12, .28), 0 0 0 3px rgba(255,255,255,.16);
+            transform: translateY(-1px);
+        }
+        .nav-core-badge {
+            margin-left: .35rem;
+            padding: .14rem .35rem;
+            border-radius: 999px;
+            color: #a51f26;
+            background: #fee2e2;
+            font-size: .52rem;
+            font-weight: 850;
+            letter-spacing: .05em;
+            line-height: 1;
+            text-transform: uppercase;
         }
         .navbar-sit .dropdown-menu {
             border: none;
@@ -342,6 +375,24 @@
             animation: pulseBadge 2s ease-in-out infinite;
         }
 
+        .skip-link {
+            position: fixed;
+            top: .5rem;
+            left: .5rem;
+            z-index: 2000;
+            padding: .55rem .8rem;
+            border-radius: 8px;
+            color: #fff;
+            background: #111827;
+            transform: translateY(-150%);
+            transition: transform .15s ease;
+        }
+        .skip-link:focus { transform: translateY(0); }
+        :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+            outline: 3px solid rgba(37,99,235,.55);
+            outline-offset: 2px;
+        }
+
         /* Shared page orientation: every screen should explain what it is and
            what the user can do before presenting controls or a large table. */
         .page-heading {
@@ -415,6 +466,7 @@
         @media (max-width: 991.98px) {
             .navbar-sit .navbar-collapse { padding: .75rem 0 1rem; }
             .navbar-sit .navbar-nav { align-items: stretch !important; }
+            .navbar-sit .nav-link-core { margin: .2rem 0 .55rem; justify-content: flex-start; }
             .workflow-strip { grid-template-columns: 1fr 1fr; }
         }
         @media (max-width: 575.98px) {
@@ -427,6 +479,7 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
 
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-sit py-2">
@@ -468,15 +521,17 @@
                                 or (request.endpoint and 'event' in request.endpoint) %}
 
                             <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}"
-                                   href="{{ url_for('admin.dashboard') }}">
-                                    <i class="bi bi-speedometer2 me-1"></i>Dashboard
+                                <a class="nav-link nav-link-core {% if request.endpoint == 'admin.timetable' %}active{% endif %}"
+                                   href="{{ url_for('admin.timetable') }}" title="Generate, review and publish timetables"
+                                   {% if request.endpoint == 'admin.timetable' %}aria-current="page"{% endif %}>
+                                    <i class="bi bi-calendar2-check me-1"></i>Timetable<span class="nav-core-badge">Core</span>
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'admin.timetable' %}active{% endif %}"
-                                   href="{{ url_for('admin.timetable') }}">
-                                    <i class="bi bi-calendar-week me-1"></i>Timetable
+                                <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}"
+                                   href="{{ url_for('admin.dashboard') }}"
+                                   {% if request.endpoint == 'admin.dashboard' %}aria-current="page"{% endif %}>
+                                    <i class="bi bi-speedometer2 me-1"></i>Dashboard
                                 </a>
                             </li>
 
@@ -534,12 +589,14 @@
 
                         {% elif current_user.role == 'professor' %}
                             <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'teacher.dashboard' %}active{% endif %}"
-                                   href="{{ url_for('teacher.dashboard') }}"><i class="bi bi-speedometer2 me-1"></i>Dashboard</a>
+                                <a class="nav-link nav-link-core {% if request.endpoint == 'teacher.timetable' %}active{% endif %}"
+                                   href="{{ url_for('teacher.timetable') }}" title="Open your published teaching schedule"
+                                   {% if request.endpoint == 'teacher.timetable' %}aria-current="page"{% endif %}><i class="bi bi-calendar2-check me-1"></i>My Timetable</a>
                             </li>
                             <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'teacher.timetable' %}active{% endif %}"
-                                   href="{{ url_for('teacher.timetable') }}"><i class="bi bi-calendar-week me-1"></i>My Timetable</a>
+                                <a class="nav-link {% if request.endpoint == 'teacher.dashboard' %}active{% endif %}"
+                                   href="{{ url_for('teacher.dashboard') }}"
+                                   {% if request.endpoint == 'teacher.dashboard' %}aria-current="page"{% endif %}><i class="bi bi-speedometer2 me-1"></i>Dashboard</a>
                             </li>
                             <li class="nav-item">
                                 <a class="nav-link {% if request.endpoint == 'teacher.availability' %}active{% endif %}"
@@ -557,12 +614,14 @@
 
                         {% elif current_user.role == 'student' %}
                             <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'student.dashboard' %}active{% endif %}"
-                                   href="{{ url_for('student.dashboard') }}"><i class="bi bi-house me-1"></i>Dashboard</a>
+                                <a class="nav-link nav-link-core {% if request.endpoint == 'student.timetable' %}active{% endif %}"
+                                   href="{{ url_for('student.timetable') }}" title="Open your published class schedule"
+                                   {% if request.endpoint == 'student.timetable' %}aria-current="page"{% endif %}><i class="bi bi-calendar2-check me-1"></i>My Timetable</a>
                             </li>
                             <li class="nav-item">
-                                <a class="nav-link {% if request.endpoint == 'student.timetable' %}active{% endif %}"
-                                   href="{{ url_for('student.timetable') }}"><i class="bi bi-calendar-week me-1"></i>My Timetable</a>
+                                <a class="nav-link {% if request.endpoint == 'student.dashboard' %}active{% endif %}"
+                                   href="{{ url_for('student.dashboard') }}"
+                                   {% if request.endpoint == 'student.dashboard' %}aria-current="page"{% endif %}><i class="bi bi-house me-1"></i>Dashboard</a>
                             </li>
                         {% endif %}
 
@@ -627,7 +686,7 @@
     {% endwith %}
 
     <!-- Page content -->
-    <main class="app-container my-4">
+    <main class="app-container my-4" id="main-content" tabindex="-1">
         {% block content %}{% endblock %}
     </main>
 
